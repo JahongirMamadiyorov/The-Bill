@@ -9,7 +9,10 @@
  *   disabled – disable the input
  *   size     – "sm" | "md" (default "md")
  */
+import { useTranslation } from '../context/LanguageContext';
+
 export default function PhoneInput({ value = '', onChange, label, className = '', disabled = false, size = 'md' }) {
+  const { t } = useTranslation();
   // Strip to local 9 digits
   const toLocal = (v) => {
     const digits = (v || '').replace(/\D/g, '');
@@ -58,7 +61,7 @@ export default function PhoneInput({ value = '', onChange, label, className = ''
           type="tel"
           value={displayValue}
           onChange={handleChange}
-          placeholder="90 123 45 67"
+          placeholder={t('placeholders.phoneLocal', '90 123 45 67')}
           disabled={disabled}
           maxLength={13}
           className={`flex-1 border-0 outline-none focus:ring-0 ${isSm ? 'px-2 py-1.5 text-sm' : 'px-3 py-2.5 text-sm'} ${disabled ? 'text-gray-400' : 'text-gray-900'}`}

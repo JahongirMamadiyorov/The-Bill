@@ -10,15 +10,11 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { ordersAPI, shiftsAPI, staffPaymentsAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 const today = new Date();
-const MONTH_NAMES = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December',
-];
-const DAY_HDRS = ['Mo','Tu','We','Th','Fr','Sa','Su'];
 
 const fmtDate = (d) => {
   const dd = String(d.getDate()).padStart(2,'0');
@@ -44,24 +40,47 @@ const fmtDuration = (mins) => {
   return `${h}h ${m}m`;
 };
 
-const displayDate = (dateStr) => {
+// Localised display date — pulls weekday/month names from i18n. tFn is the
+// useTranslation t() function. Falls back to English if no tFn is provided.
+const displayDate = (dateStr, tFn) => {
   if (!dateStr) return '—';
   const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (!tFn) {
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+  const daysArr   = tFn('datePicker.days',        ['Mo','Tu','We','Th','Fr','Sa','Su']);
+  const monthsArr = tFn('datePicker.monthsShort', ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']);
+  // JS getDay() is Sun=0..Sat=6 — map to our Mon-first array
+  const dayIdx = (d.getDay() + 6) % 7;
+  const wd = Array.isArray(daysArr)   ? daysArr[dayIdx]      : '';
+  const mn = Array.isArray(monthsArr) ? monthsArr[d.getMonth()] : '';
+  return `${wd}, ${mn} ${d.getDate()}`;
 };
 
-const STATUS_LABELS = {
-  pending:         'Pending',
-  preparing:       'Preparing',
-  ready:           'Ready',
-  served:          'Served',
-  bill_requested:  'Bill Requested',
-  paid:            'Paid',
-  cancelled:       'Cancelled',
+const STATUS_KEYS = {
+  pending:         { k: 'waitress.performance.statusPending',       fb: 'Pending' },
+  preparing:       { k: 'waitress.performance.statusPreparing',     fb: 'Preparing' },
+  ready:           { k: 'waitress.performance.statusReady',         fb: 'Ready' },
+  served:          { k: 'waitress.performance.statusServed',        fb: 'Served' },
+  bill_requested:  { k: 'waitress.performance.statusBillRequested', fb: 'Bill Requested' },
+  paid:            { k: 'waitress.performance.statusPaid',          fb: 'Paid' },
+  cancelled:       { k: 'waitress.performance.statusCancelled',     fb: 'Cancelled' },
+};
+const labelForStatus = (st, tFn) => {
+  const meta = STATUS_KEYS[st];
+  if (!meta) return st;
+  return tFn ? tFn(meta.k, meta.fb) : meta.fb;
 };
 
 // ── Calendar Picker ───────────────────────────────────────────────────────────
 function CalendarPicker({ visible, onClose, period, onChange }) {
+  const { t } = useTranslation();
+  const MONTH_NAMES = t('datePicker.months', [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December',
+  ]);
+  const DAY_HDRS = t('datePicker.days', ['Mo','Tu','We','Th','Fr','Sa','Su']);
+
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [tempFrom, setTempFrom]   = useState(period.from);
@@ -113,10 +132,10 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i+7));
 
   const presets = [
-    { label: 'Today',      from: TODAY_STR, to: TODAY_STR },
-    { label: 'This Week',  from: fmtDate(getMonday(today)), to: TODAY_STR },
-    { label: 'This Month', from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
-    { label: 'Last Month', from: fmtDate(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)) },
+    { label: t('datePicker.today',                    'Today'),      from: TODAY_STR, to: TODAY_STR },
+    { label: t('waitress.performance.thisWeek',       'This Week'),  from: fmtDate(getMonday(today)), to: TODAY_STR },
+    { label: t('waitress.performance.thisMonth',      'This Month'), from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
+    { label: t('waitress.performance.lastMonth',      'Last Month'), from: fmtDate(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)) },
   ];
 
   return (
@@ -126,7 +145,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
           {/* Header */}
           <View style={cal.header}>
             <MaterialIcons name="calendar-today" size={20} color={colors.primary} />
-            <Text style={cal.headerTitle}>Select Period</Text>
+            <Text style={cal.headerTitle}>{t('waitress.performance.selectPeriod', 'Select Period')}</Text>
             <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
               <MaterialIcons name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
@@ -139,7 +158,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
                 onPress={() => setStep('from')}
                 style={[cal.pill, step === 'from' && cal.pillActive]}
               >
-                <Text style={cal.pillLbl}>FROM</Text>
+                <Text style={cal.pillLbl}>{t('waitress.performance.from', 'FROM')}</Text>
                 <Text style={cal.pillVal}>{tempFrom}</Text>
               </TouchableOpacity>
               <View style={{ width:24, alignItems:'center', justifyContent:'center' }}>
@@ -149,14 +168,16 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
                 onPress={() => setStep('to')}
                 style={[cal.pill, step === 'to' && cal.pillActive]}
               >
-                <Text style={cal.pillLbl}>TO</Text>
+                <Text style={cal.pillLbl}>{t('waitress.performance.to', 'TO')}</Text>
                 <Text style={cal.pillVal}>{tempTo}</Text>
               </TouchableOpacity>
             </View>
 
             {/* Hint */}
             <Text style={cal.hint}>
-              {step === 'from' ? 'Tap a date to set start' : 'Tap a date to set end'}
+              {step === 'from'
+                ? t('waitress.performance.tapDateToSetStart', 'Tap a date to set start')
+                : t('waitress.performance.tapDateToSetEnd',   'Tap a date to set end')}
             </Text>
 
             {/* Month nav */}
@@ -164,7 +185,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
               <TouchableOpacity onPress={prevMonth} style={cal.arrowBtn}>
                 <Text style={cal.arrowTxt}>‹</Text>
               </TouchableOpacity>
-              <Text style={cal.monthTitle}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
+              <Text style={cal.monthTitle}>{(Array.isArray(MONTH_NAMES) ? MONTH_NAMES[viewMonth] : '')} {viewYear}</Text>
               <TouchableOpacity onPress={nextMonth} style={cal.arrowBtn}>
                 <Text style={cal.arrowTxt}>›</Text>
               </TouchableOpacity>
@@ -172,9 +193,9 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
 
             {/* Day headers */}
             <View style={{ flexDirection:'row', marginBottom:4 }}>
-              {DAY_HDRS.map(d => (
-                <View key={d} style={{ flex:1, alignItems:'center', paddingVertical:4 }}>
-                  <Text style={cal.dayHdr}>{d}</Text>
+              {(Array.isArray(DAY_HDRS) ? DAY_HDRS : ['Mo','Tu','We','Th','Fr','Sa','Su']).map((dh, i) => (
+                <View key={`${i}-${dh}`} style={{ flex:1, alignItems:'center', paddingVertical:4 }}>
+                  <Text style={cal.dayHdr}>{dh}</Text>
                 </View>
               ))}
             </View>
@@ -227,7 +248,10 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
               onPress={() => { onChange({ from: tempFrom, to: tempTo }); onClose(); }}
             >
               <Text style={cal.applyTxt}>
-                Apply: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
+                {t('waitress.performance.applyDate', 'Apply: {value}').replace(
+                  '{value}',
+                  tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`
+                )}
               </Text>
             </TouchableOpacity>
           </ScrollView>
@@ -267,6 +291,7 @@ function SectionHeader({ title, icon }) {
 // MAIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 export default function WaitressPerformance({ navigation }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [period, setPeriod] = useState({
     from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -377,14 +402,16 @@ export default function WaitressPerformance({ navigation }) {
   const totalEarned = payments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
 
   const periodLabel = period.from === period.to
-    ? displayDate(period.from)
-    : `${displayDate(period.from)} – ${displayDate(period.to)}`;
+    ? displayDate(period.from, t)
+    : `${displayDate(period.from, t)} – ${displayDate(period.to, t)}`;
 
   if (loading) {
     return (
       <View style={s.center}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.textMuted, marginTop: 12 }}>Loading performance…</Text>
+        <Text style={{ color: colors.textMuted, marginTop: 12 }}>
+          {t('waitress.performance.loadingPerformance', 'Loading performance…')}
+        </Text>
       </View>
     );
   }
@@ -403,8 +430,8 @@ export default function WaitressPerformance({ navigation }) {
             <MaterialIcons name="arrow-back" size={22} color={colors.white} />
           </TouchableOpacity>
           <View style={{ flex: 1, marginLeft: spacing.md }}>
-            <Text style={s.headerTitle}>Performance</Text>
-            <Text style={s.headerSub}>{user?.name || 'Staff'}</Text>
+            <Text style={s.headerTitle}>{t('waitress.performance.title', 'Performance')}</Text>
+            <Text style={s.headerSub}>{user?.name || t('waitress.performance.staff', 'Staff')}</Text>
           </View>
         </View>
 
@@ -417,31 +444,50 @@ export default function WaitressPerformance({ navigation }) {
 
         {/* ── Performance stats ────────────────────────────────────────────── */}
         <View style={s.section}>
-          <SectionHeader icon="bar-chart" title="Performance Stats" />
+          <SectionHeader icon="bar-chart" title={t('waitress.performance.sectionPerformanceStats', 'Performance Stats')} />
 
           {stats.paid.length === 0 ? (
             <View style={s.empty}>
               <MaterialIcons name="assignment" size={40} color={colors.border} />
-              <Text style={s.emptyTxt}>No completed orders in this period</Text>
+              <Text style={s.emptyTxt}>{t('waitress.performance.noCompletedOrders', 'No completed orders in this period')}</Text>
             </View>
           ) : (
             <>
               <View style={s.summaryGrid}>
-                <SummaryTile label="Tables Served"     value={stats.tablesServed}  color="#D97706" icon="table-restaurant" />
-                <SummaryTile label="Orders Completed"  value={stats.paid.length}   color="#16A34A" icon="check-circle" />
-                <SummaryTile label="Items Served"      value={stats.totalItems}    color={colors.primary} icon="restaurant-menu" />
-                <SummaryTile label="Cancelled"         value={stats.cancelled.length} color="#DC2626" icon="cancel" />
+                <SummaryTile label={t('waitress.performance.tablesServed',   'Tables Served')}     value={stats.tablesServed}     color="#D97706"        icon="table-restaurant" />
+                <SummaryTile label={t('waitress.performance.ordersCompleted','Orders Completed')}  value={stats.paid.length}      color="#16A34A"        icon="check-circle" />
+                <SummaryTile label={t('waitress.performance.itemsServed',    'Items Served')}      value={stats.totalItems}       color={colors.primary} icon="restaurant-menu" />
+                <SummaryTile label={t('waitress.performance.cancelled',      'Cancelled')}         value={stats.cancelled.length} color="#DC2626"        icon="cancel" />
               </View>
 
-              <StatCard icon="payments"      label="Total Earned"       value={fmtMoney(totalEarned)}   color="#16A34A" bg="#DCFCE7" sub="Salary paid by admin in period" />
-              <StatCard icon="show-chart"    label="Avg Orders / Day"   value={stats.avgOrdersPerDay.toFixed(1)}                     color={colors.primary} bg={colors.primaryLight} sub={`Over ${new Set(stats.paid.map(o => o.created_at?.split('T')[0])).size} active day(s)`} />
+              <StatCard
+                icon="payments"
+                label={t('waitress.performance.totalEarned', 'Total Earned')}
+                value={fmtMoney(totalEarned)}
+                color="#16A34A" bg="#DCFCE7"
+                sub={t('waitress.performance.salaryPaidSub', 'Salary paid by admin in period')}
+              />
+              <StatCard
+                icon="show-chart"
+                label={t('waitress.performance.avgOrdersPerDay', 'Avg Orders / Day')}
+                value={stats.avgOrdersPerDay.toFixed(1)}
+                color={colors.primary} bg={colors.primaryLight}
+                sub={t('waitress.performance.overActiveDays', 'Over {count} active day(s)').replace(
+                  '{count}',
+                  String(new Set(stats.paid.map(o => o.created_at?.split('T')[0])).size)
+                )}
+              />
               {stats.busiestDay && (
                 <StatCard
                   icon="trending-up"
-                  label="Busiest Day"
-                  value={displayDate(stats.busiestDay[0])}
+                  label={t('waitress.performance.busiestDay', 'Busiest Day')}
+                  value={displayDate(stats.busiestDay[0], t)}
                   color="#7C3AED" bg="#F5F3FF"
-                  sub={`${stats.busiestDay[1]} completed order${stats.busiestDay[1] !== 1 ? 's' : ''}`}
+                  sub={
+                    stats.busiestDay[1] === 1
+                      ? t('waitress.performance.completedOrderOne', '1 completed order')
+                      : t('waitress.performance.completedOrdersCount', '{count} completed orders').replace('{count}', String(stats.busiestDay[1]))
+                  }
                 />
               )}
             </>
@@ -451,11 +497,11 @@ export default function WaitressPerformance({ navigation }) {
         {/* ── Status breakdown ─────────────────────────────────────────────── */}
         {Object.keys(stats.statusBreakdown).length > 0 && (
           <View style={s.section}>
-            <SectionHeader icon="pie-chart" title="Breakdown by Status" />
+            <SectionHeader icon="pie-chart" title={t('waitress.performance.sectionBreakdownByStatus', 'Breakdown by Status')} />
             <View style={s.card}>
               {Object.entries(stats.statusBreakdown).map(([st, cnt], i, arr) => (
                 <View key={st} style={[s.statusRow, i === arr.length-1 && { borderBottomWidth: 0 }]}>
-                  <Text style={s.statusLbl}>{STATUS_LABELS[st] || st}</Text>
+                  <Text style={s.statusLbl}>{labelForStatus(st, t)}</Text>
                   <View style={s.statusRight}>
                     <View style={[s.statusBar, { width: Math.max(4, (cnt / stats.inRange.length) * 120) }]} />
                     <Text style={s.statusCnt}>{cnt}</Text>
@@ -468,28 +514,30 @@ export default function WaitressPerformance({ navigation }) {
 
         {/* ── Attendance summary ────────────────────────────────────────────── */}
         <View style={s.section}>
-          <SectionHeader icon="schedule" title="Attendance" />
+          <SectionHeader icon="schedule" title={t('waitress.performance.sectionAttendance', 'Attendance')} />
           {attStats.totalDays === 0 ? (
             <View style={s.empty}>
               <MaterialIcons name="event-busy" size={40} color={colors.border} />
-              <Text style={s.emptyTxt}>No attendance records in this period</Text>
+              <Text style={s.emptyTxt}>{t('waitress.performance.noAttendanceRecords', 'No attendance records in this period')}</Text>
             </View>
           ) : (
             <>
               <View style={s.summaryGrid}>
-                <SummaryTile label="Days Present" value={attStats.present}   color="#16A34A" icon="event-available" />
-                <SummaryTile label="Days Absent"  value={attStats.absent}    color="#DC2626" icon="event-busy" />
-                <SummaryTile label="Late Arrivals" value={attStats.late}    color="#D97706" icon="alarm" />
-                <SummaryTile label="Total Hours"   value={`${attStats.totalHours}h`} color={colors.primary} icon="access-time" />
+                <SummaryTile label={t('waitress.performance.daysPresent',  'Days Present')}  value={attStats.present}            color="#16A34A"        icon="event-available" />
+                <SummaryTile label={t('waitress.performance.daysAbsent',   'Days Absent')}   value={attStats.absent}             color="#DC2626"        icon="event-busy" />
+                <SummaryTile label={t('waitress.performance.lateArrivals', 'Late Arrivals')} value={attStats.late}               color="#D97706"        icon="alarm" />
+                <SummaryTile label={t('waitress.performance.totalHours',   'Total Hours')}   value={`${attStats.totalHours}h`}   color={colors.primary} icon="access-time" />
               </View>
 
               <StatCard
                 icon="check-circle"
-                label="Attendance Rate"
+                label={t('waitress.performance.attendanceRate', 'Attendance Rate')}
                 value={`${attStats.rate}%`}
                 color={attStats.rate >= 85 ? '#16A34A' : attStats.rate >= 70 ? '#D97706' : '#DC2626'}
                 bg={attStats.rate >= 85 ? '#DCFCE7' : attStats.rate >= 70 ? '#FEF3C7' : '#FEE2E2'}
-                sub={`${attStats.present} of ${attStats.totalDays} working days`}
+                sub={t('waitress.performance.workingDaysSub', '{present} of {total} working days')
+                  .replace('{present}', String(attStats.present))
+                  .replace('{total}',   String(attStats.totalDays))}
               />
             </>
           )}
@@ -498,13 +546,17 @@ export default function WaitressPerformance({ navigation }) {
         {/* ── Per-day breakdown ─────────────────────────────────────────────── */}
         {stats.perDay.length > 0 && (
           <View style={s.section}>
-            <SectionHeader icon="view-list" title="Daily Breakdown" />
+            <SectionHeader icon="view-list" title={t('waitress.performance.sectionDailyBreakdown', 'Daily Breakdown')} />
             <View style={s.card}>
               {stats.perDay.map((day, i) => (
                 <View key={day.date} style={[s.dayRow, i === stats.perDay.length-1 && { borderBottomWidth: 0 }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.dayDate}>{displayDate(day.date)}</Text>
-                    <Text style={s.dayOrders}>{day.cnt} order{day.cnt !== 1 ? 's' : ''} completed</Text>
+                    <Text style={s.dayDate}>{displayDate(day.date, t)}</Text>
+                    <Text style={s.dayOrders}>
+                      {day.cnt === 1
+                        ? t('waitress.performance.oneOrderCompletedDay', '1 order completed')
+                        : t('waitress.performance.ordersCompletedDay', '{count} orders completed').replace('{count}', String(day.cnt))}
+                    </Text>
                   </View>
                   <Text style={s.dayRevenue}>{fmtMoney(day.revenue)}</Text>
                 </View>

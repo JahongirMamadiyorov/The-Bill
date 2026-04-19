@@ -1,13 +1,10 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // All finance routes require authentication
 router.use(authenticate);
-
-// Helper: get restaurant_id from JWT (owner's own restaurant, or from token claim)
-const rid = (req) => req.user.restaurant_id;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GET /api/finance/summary?start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -43,9 +40,9 @@ router.get('/summary', async (req, res) => {
         COALESCE(SUM(total_amount) FILTER (WHERE EXTRACT(HOUR FROM created_at) >= 12 AND EXTRACT(HOUR FROM created_at) < 17), 0) AS rev_afternoon,
         COALESCE(SUM(total_amount) FILTER (WHERE EXTRACT(HOUR FROM created_at) >= 17 OR  EXTRACT(HOUR FROM created_at) < 6),  0) AS rev_evening
       FROM orders
-      WHERE status = 'paid'
+      WHERE restaurant_id = $3 AND status = 'paid'
         AND DATE(paid_at) >= $1::date AND DATE(paid_at) <= $2::date
-    `, [start, end]);
+    `, [start, end, restaurantId]);
 
     // ── Revenue by day of week ──
     const dowQ = await db.query(`
@@ -54,19 +51,19 @@ router.get('/summary', async (req, res) => {
         COALESCE(SUM(total_amount), 0)    AS total,
         COUNT(*)                          AS cnt
       FROM orders
-      WHERE status = 'paid'
+      WHERE restaurant_id = $3 AND status = 'paid'
         AND DATE(paid_at) >= $1::date AND DATE(paid_at) <= $2::date
       GROUP BY dow ORDER BY dow
-    `, [start, end]);
+    `, [start, end, restaurantId]);
 
     // ── Daily cash flow (revenue per day + expenses per day) ──
     const dailyRevQ = await db.query(`
       SELECT DATE(paid_at) AS day, COALESCE(SUM(total_amount), 0) AS cash_in
       FROM orders
-      WHERE status = 'paid'
+      WHERE restaurant_id = $3 AND status = 'paid'
         AND DATE(paid_at) >= $1::date AND DATE(paid_at) <= $2::date
       GROUP BY day ORDER BY day
-    `, [start, end]);
+    `, [start, end, restaurantId]);
 
     const dailyExpQ = await db.query(`
       SELECT date AS day, COALESCE(SUM(amount), 0) AS cash_out
@@ -111,9 +108,9 @@ router.get('/summary', async (req, res) => {
     const prevRevQ = await db.query(`
       SELECT COALESCE(SUM(total_amount), 0) AS total_revenue
       FROM orders
-      WHERE status = 'paid'
+      WHERE restaurant_id = $3 AND status = 'paid'
         AND DATE(paid_at) >= $1::date AND DATE(paid_at) <= $2::date
-    `, [prevStart, prevEnd]);
+    `, [prevStart, prevEnd, restaurantId]);
 
     const prevExpQ = await db.query(`
       SELECT COALESCE(SUM(amount), 0) AS total_expenses
@@ -502,6 +499,7 @@ router.post('/manual-income', async (req, res) => {
 // GET /api/finance/tax-history
 router.get('/tax-history', async (req, res) => {
   const TAX_RATE = 0.12;
+  const restaurantId = rid(req);
   try {
     const result = await db.query(`
       SELECT
@@ -510,11 +508,11 @@ router.get('/tax-history', async (req, res) => {
         COALESCE(SUM(total_amount), 0) AS revenue,
         COALESCE(SUM(total_amount), 0) * $1 AS tax_collected
       FROM orders
-      WHERE status = 'paid'
+      WHERE restaurant_id = $2 AND status = 'paid'
         AND paid_at >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
       GROUP BY DATE_TRUNC('month', paid_at)
       ORDER BY DATE_TRUNC('month', paid_at) DESC
-    `, [TAX_RATE]);
+    `, [TAX_RATE, restaurantId]);
 
     res.json(result.rows.map(r => ({
       month:         r.month,

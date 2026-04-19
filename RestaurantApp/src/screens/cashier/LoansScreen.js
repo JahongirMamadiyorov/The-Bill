@@ -7,6 +7,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { loansAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const fmt = (n) => Number(parseFloat(n) || 0).toLocaleString('uz-UZ') + " so'm";
@@ -25,8 +26,6 @@ const fmtDateStr = (d) => {
 
 const today      = new Date();
 const TODAY_STR  = fmtDateStr(today);
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAY_HDRS   = ['Mo','Tu','We','Th','Fr','Sa','Su'];
 
 const getMonday = (d) => {
   const date = new Date(d);
@@ -37,22 +36,25 @@ const getMonday = (d) => {
 const isOverdue = (loan) =>
   loan.status === 'active' && loan.due_date && loan.due_date.slice(0, 10) < TODAY_STR;
 
-const dueDateLabel = (dueDateStr, status) => {
+const dueDateLabel = (dueDateStr, status, t) => {
   if (!dueDateStr) return { label: '—', color: colors.neutralMid };
   if (status === 'paid') return { label: fmtDate(dueDateStr), color: colors.neutralMid };
   const due  = dueDateStr.slice(0, 10);
   if (due < TODAY_STR) {
     const days = Math.round((today - new Date(due)) / 86400000);
-    return { label: `${days}d overdue`, color: '#DC2626' };
+    return { label: t('cashier.loans.overdueLabel', { days }), color: '#DC2626' };
   }
   const days = Math.round((new Date(due) - today) / 86400000);
-  if (days === 0) return { label: 'Due today', color: '#D97706' };
-  if (days <= 3)  return { label: `${days}d left`, color: '#D97706' };
+  if (days === 0) return { label: t('cashier.loans.dueToday', 'Due today'), color: '#D97706' };
+  if (days <= 3)  return { label: t('cashier.loans.daysLeft', { days }), color: '#D97706' };
   return { label: fmtDate(dueDateStr), color: colors.neutralMid };
 };
 
 // ── Calendar Picker ─────────────────────────────────────────────────────────────
 function CalendarPicker({ visible, onClose, period, onChange }) {
+  const { t } = useTranslation();
+  const MONTH_NAMES = t('datePicker.months');
+  const DAY_HDRS    = t('datePicker.days');
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [tempFrom,  setTempFrom]  = useState(period.from);
@@ -101,11 +103,11 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i+7));
 
   const presets = [
-    { label: 'Today',      from: TODAY_STR, to: TODAY_STR },
-    { label: 'This Week',  from: fmtDateStr(getMonday(today)), to: TODAY_STR },
-    { label: 'This Month', from: fmtDateStr(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
-    { label: 'Last Month', from: fmtDateStr(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: fmtDateStr(new Date(today.getFullYear(), today.getMonth(), 0)) },
-    { label: 'All Time',   from: '2020-01-01', to: TODAY_STR },
+    { label: t('cashier.loans.today', 'Today'),          from: TODAY_STR, to: TODAY_STR },
+    { label: t('cashier.loans.thisWeek', 'This Week'),   from: fmtDateStr(getMonday(today)), to: TODAY_STR },
+    { label: t('cashier.loans.thisMonth', 'This Month'), from: fmtDateStr(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
+    { label: t('cashier.loans.lastMonth', 'Last Month'), from: fmtDateStr(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: fmtDateStr(new Date(today.getFullYear(), today.getMonth(), 0)) },
+    { label: t('cashier.loans.allTime', 'All Time'),     from: '2020-01-01', to: TODAY_STR },
   ];
 
   return (
@@ -114,7 +116,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
         <View style={CP.sheet}>
           <View style={CP.header}>
             <MaterialIcons name="calendar-today" size={20} color={colors.primary} />
-            <Text style={CP.headerTitle}>Select Period</Text>
+            <Text style={CP.headerTitle}>{t('cashier.loans.selectPeriod', 'Select Period')}</Text>
             <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
               <MaterialIcons name="close" size={22} color={colors.neutralMid} />
             </TouchableOpacity>
@@ -122,27 +124,27 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
           <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
             <View style={{ flexDirection: 'row', marginBottom: 12 }}>
               <TouchableOpacity onPress={() => setStep('from')} style={[CP.pill, step === 'from' && CP.pillActive]}>
-                <Text style={CP.pillLbl}>FROM</Text>
+                <Text style={CP.pillLbl}>{t('cashier.loans.from', 'FROM')}</Text>
                 <Text style={CP.pillVal}>{tempFrom}</Text>
               </TouchableOpacity>
               <View style={{ width: 24, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ color: colors.neutralMid, fontSize: 18 }}>→</Text>
               </View>
               <TouchableOpacity onPress={() => setStep('to')} style={[CP.pill, step === 'to' && CP.pillActive]}>
-                <Text style={CP.pillLbl}>TO</Text>
+                <Text style={CP.pillLbl}>{t('cashier.loans.to', 'TO')}</Text>
                 <Text style={CP.pillVal}>{tempTo}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={CP.hint}>{step === 'from' ? 'Tap a date to set start' : 'Tap a date to set end'}</Text>
+            <Text style={CP.hint}>{step === 'from' ? t('cashier.loans.tapDateStart', 'Tap a date to set start') : t('cashier.loans.tapDateEnd', 'Tap a date to set end')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <TouchableOpacity onPress={prevMonth} style={CP.arrowBtn}><Text style={CP.arrowTxt}>‹</Text></TouchableOpacity>
               <Text style={CP.monthTitle}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
               <TouchableOpacity onPress={nextMonth} style={CP.arrowBtn}><Text style={CP.arrowTxt}>›</Text></TouchableOpacity>
             </View>
             <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-              {DAY_HDRS.map(d => (
-                <View key={d} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
-                  <Text style={CP.dayHdr}>{d}</Text>
+              {DAY_HDRS.map((dh, idx) => (
+                <View key={`${dh}-${idx}`} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
+                  <Text style={CP.dayHdr}>{dh}</Text>
                 </View>
               ))}
             </View>
@@ -186,7 +188,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
               onPress={() => { onChange({ from: tempFrom, to: tempTo }); onClose(); }}
             >
               <Text style={CP.applyTxt}>
-                Apply: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
+                {t('cashier.loans.apply', 'Apply')}: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
               </Text>
             </TouchableOpacity>
           </ScrollView>
@@ -197,13 +199,14 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
 }
 
 // ── Loan Payment Method Picker ─────────────────────────────────────────────────
-const LOAN_PAY_METHODS = [
-  { key: 'cash',    label: 'Cash',    icon: 'payments'     },
-  { key: 'card',    label: 'Card',    icon: 'credit-card'  },
-  { key: 'qr_code', label: 'QR Code', icon: 'qr-code-2'   },
+const LOAN_PAY_METHOD_KEYS = [
+  { key: 'cash',    labelKey: 'paymentMethods.cash',    fallback: 'Cash',    icon: 'payments'     },
+  { key: 'card',    labelKey: 'paymentMethods.card',    fallback: 'Card',    icon: 'credit-card'  },
+  { key: 'qr_code', labelKey: 'paymentMethods.qrCode',  fallback: 'QR Code', icon: 'qr-code-2'   },
 ];
 
 function LoanPayModal({ visible, loan, onClose, onConfirm }) {
+  const { t } = useTranslation();
   const [method, setMethod] = useState('cash');
   if (!loan) return null;
   return (
@@ -211,26 +214,26 @@ function LoanPayModal({ visible, loan, onClose, onConfirm }) {
       <TouchableOpacity style={LP.mask} activeOpacity={1} onPress={onClose} />
       <View style={LP.sheet}>
         <View style={LP.handle} />
-        <Text style={LP.title}>Collect Loan Payment</Text>
+        <Text style={LP.title}>{t('cashier.loans.collectLoanPayment', 'Collect Loan Payment')}</Text>
         <Text style={LP.sub}>{loan.customer_name} — {fmt(loan.amount)}</Text>
 
-        <Text style={LP.sectionLbl}>PAYMENT METHOD</Text>
+        <Text style={LP.sectionLbl}>{t('cashier.tables.paymentMethod', 'PAYMENT METHOD')}</Text>
         <View style={LP.methodRow}>
-          {LOAN_PAY_METHODS.map(m => (
+          {LOAN_PAY_METHOD_KEYS.map(m => (
             <TouchableOpacity
               key={m.key}
               style={[LP.methodBtn, method === m.key && LP.methodBtnActive]}
               onPress={() => setMethod(m.key)}
             >
               <MaterialIcons name={m.icon} size={22} color={method === m.key ? '#fff' : colors.neutralMid} />
-              <Text style={[LP.methodLbl, method === m.key && { color: '#fff' }]}>{m.label}</Text>
+              <Text style={[LP.methodLbl, method === m.key && { color: '#fff' }]}>{t(m.labelKey, m.fallback)}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
         <TouchableOpacity style={LP.confirmBtn} onPress={() => onConfirm(method)}>
           <MaterialIcons name="check-circle" size={20} color="#fff" />
-          <Text style={LP.confirmTxt}>Confirm Payment Received</Text>
+          <Text style={LP.confirmTxt}>{t('cashier.loans.confirmPaymentReceived', 'Confirm Payment Received')}</Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -239,11 +242,12 @@ function LoanPayModal({ visible, loan, onClose, onConfirm }) {
 
 // ── Loan Card ──────────────────────────────────────────────────────────────────
 function LoanCard({ loan, onMarkPaid, setDialog }) {
+  const { t } = useTranslation();
   const [paying,    setPaying]    = useState(false);
   const [showModal, setShowModal] = useState(false);
   const isActive  = loan.status === 'active';
   const over      = isOverdue(loan);
-  const dueInfo   = dueDateLabel(loan.due_date, loan.status);
+  const dueInfo   = dueDateLabel(loan.due_date, loan.status, t);
   const orderNum  = loan.daily_number ? `#${loan.daily_number}` : null;
 
   const handlePay = () => setShowModal(true);
@@ -255,7 +259,7 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
       await loansAPI.markPaid(loan.id, { payment_method: method });
       onMarkPaid();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Could not update loan', type: 'error' });
+      setDialog({ title: t('alerts.error', 'Error'), message: e?.response?.data?.error || t('cashier.loans.couldNotUpdateLoan', 'Could not update loan'), type: 'error' });
     } finally { setPaying(false); }
   };
 
@@ -275,7 +279,7 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
           </Text>
           <View style={[S.statusBadge, isActive ? (over ? S.badgeOverdue : S.badgeActive) : S.badgePaid]}>
             <Text style={[S.statusBadgeTxt, isActive ? (over ? { color: '#DC2626' } : { color: '#D97706' }) : { color: '#16A34A' }]}>
-              {isActive ? (over ? 'Overdue' : 'Active') : 'Paid'}
+              {isActive ? (over ? t('cashier.loans.overdue', 'Overdue') : t('common.active', 'Active')) : t('cashier.loans.paid', 'Paid')}
             </Text>
           </View>
         </View>
@@ -285,7 +289,7 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
         {orderNum ? (
           <View style={S.metaPill}>
             <MaterialIcons name="receipt" size={12} color={colors.neutralMid} />
-            <Text style={S.metaTxt}>Order {orderNum}</Text>
+            <Text style={S.metaTxt}>{t('common.order', 'Order')} {orderNum}</Text>
           </View>
         ) : null}
         {loan.table_name ? (
@@ -297,12 +301,12 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
         <View style={[S.metaPill, over && { backgroundColor: '#FEF2F2' }]}>
           <MaterialIcons name="schedule" size={12} color={dueInfo.color} />
           <Text style={[S.metaTxt, { color: dueInfo.color }]}>
-            {isActive ? `Due ${dueInfo.label}` : `Paid ${fmtDate(loan.paid_at)}`}
+            {isActive ? `${t('cashier.loans.due', 'Due')} ${dueInfo.label}` : `${t('cashier.loans.paid', 'Paid')} ${fmtDate(loan.paid_at)}`}
           </Text>
         </View>
         <View style={S.metaPill}>
           <MaterialIcons name="calendar-today" size={12} color={colors.neutralMid} />
-          <Text style={S.metaTxt}>Issued {fmtDate(loan.created_at)}</Text>
+          <Text style={S.metaTxt}>{t('cashier.loans.issued', 'Issued')} {fmtDate(loan.created_at)}</Text>
         </View>
       </View>
 
@@ -317,7 +321,7 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
             ? <ActivityIndicator color={colors.success} size="small" />
             : <>
                 <MaterialIcons name="check-circle-outline" size={17} color={colors.success} />
-                <Text style={S.payBtnTxt}>Collect Payment</Text>
+                <Text style={S.payBtnTxt}>{t('cashier.loans.collectPayment', 'Collect Payment')}</Text>
               </>
           }
         </TouchableOpacity>
@@ -334,18 +338,13 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
 }
 
 // ── LoansScreen ────────────────────────────────────────────────────────────────
-const FILTER_OPTIONS = [
-  { id: 'outstanding', label: 'Outstanding', icon: 'pending-actions',        color: colors.primary || '#2563EB' },
-  { id: 'overdue',     label: 'Overdue',     icon: 'warning-amber',          color: '#DC2626'                   },
-  { id: 'recovered',   label: 'Recovered',   icon: 'check-circle-outline',   color: '#16A34A'                   },
-];
-
 const defaultPeriod = {
   from: fmtDateStr(new Date(today.getFullYear(), today.getMonth(), 1)),
   to:   TODAY_STR,
 };
 
 export default function LoansScreen() {
+  const { t } = useTranslation();
   const [period,       setPeriod]       = useState(defaultPeriod);
   const [calOpen,      setCalOpen]      = useState(false);
   const [filter,       setFilter]       = useState('outstanding');
@@ -397,12 +396,12 @@ export default function LoansScreen() {
       const res = await loansAPI.notifyOverdue();
       const { notified, overdueCount } = res.data;
       setDialog({
-        title: 'Admin Notified',
-        message: `${notified} admin${notified !== 1 ? 's' : ''} notified about ${overdueCount} overdue loan${overdueCount !== 1 ? 's' : ''}.`,
+        title: t('cashier.loans.adminNotified', 'Admin Notified'),
+        message: t('cashier.loans.adminNotifiedMessage', { notified, count: overdueCount }),
         type: 'success'
       });
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Could not send notification', type: 'error' });
+      setDialog({ title: t('alerts.error', 'Error'), message: e?.response?.data?.error || t('cashier.loans.couldNotSendNotification', 'Could not send notification'), type: 'error' });
     } finally { setNotifying(false); }
   };
 
@@ -416,7 +415,7 @@ export default function LoansScreen() {
       {/* ── Page header ───────────────────────────────────────────────────── */}
       <View style={S.pageHeader}>
         <MaterialIcons name="account-balance-wallet" size={22} color={colors.primary} />
-        <Text style={S.pageTitle}>Loans</Text>
+        <Text style={S.pageTitle}>{t('cashier.loans.title', 'Loans')}</Text>
       </View>
 
       {/* ── Period bar ────────────────────────────────────────────────────── */}
@@ -436,9 +435,9 @@ export default function LoansScreen() {
           <View style={[S.statIcon, { backgroundColor: (colors.primary || '#2563EB') + '1A' }]}>
             <MaterialIcons name="pending-actions" size={18} color={colors.primary} />
           </View>
-          <Text style={S.statLabel}>Outstanding</Text>
+          <Text style={S.statLabel}>{t('cashier.loans.outstanding', 'Outstanding')}</Text>
           <Text style={[S.statValue, { color: colors.primary }]}>{fmt(outstandingTotal)}</Text>
-          <Text style={S.statCount}>{outstanding.length} loan{outstanding.length !== 1 ? 's' : ''}</Text>
+          <Text style={S.statCount}>{outstanding.length} {outstanding.length !== 1 ? t('cashier.loans.loans', 'loans') : t('cashier.loans.loan', 'loan')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -449,9 +448,9 @@ export default function LoansScreen() {
           <View style={[S.statIcon, { backgroundColor: '#FEF2F2' }]}>
             <MaterialIcons name="warning-amber" size={18} color="#DC2626" />
           </View>
-          <Text style={S.statLabel}>Overdue</Text>
+          <Text style={S.statLabel}>{t('cashier.loans.overdue', 'Overdue')}</Text>
           <Text style={[S.statValue, { color: '#DC2626' }]}>{fmt(overdueTotal)}</Text>
-          <Text style={S.statCount}>{overdue.length} loan{overdue.length !== 1 ? 's' : ''}</Text>
+          <Text style={S.statCount}>{overdue.length} {overdue.length !== 1 ? t('cashier.loans.loans', 'loans') : t('cashier.loans.loan', 'loan')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -462,9 +461,9 @@ export default function LoansScreen() {
           <View style={[S.statIcon, { backgroundColor: '#F0FDF4' }]}>
             <MaterialIcons name="check-circle-outline" size={18} color="#16A34A" />
           </View>
-          <Text style={S.statLabel}>Recovered</Text>
+          <Text style={S.statLabel}>{t('cashier.loans.recovered', 'Recovered')}</Text>
           <Text style={[S.statValue, { color: '#16A34A' }]}>{fmt(recoveredTotal)}</Text>
-          <Text style={S.statCount}>{recovered.length} loan{recovered.length !== 1 ? 's' : ''}</Text>
+          <Text style={S.statCount}>{recovered.length} {recovered.length !== 1 ? t('cashier.loans.loans', 'loans') : t('cashier.loans.loan', 'loan')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -481,7 +480,7 @@ export default function LoansScreen() {
             : <MaterialIcons name="notifications-active" size={16} color="#92400E" />
           }
           <Text style={S.notifyBannerTxt}>
-            {overdue.length} overdue loan{overdue.length !== 1 ? 's' : ''} — tap to notify admin
+            {t('cashier.loans.overdueNotify', { count: overdue.length })}
           </Text>
           <MaterialIcons name="chevron-right" size={16} color="#92400E" />
         </TouchableOpacity>
@@ -502,9 +501,9 @@ export default function LoansScreen() {
             ListHeaderComponent={
               displayedLoans.length > 0 ? (
                 <Text style={S.listHeader}>
-                  {filter === 'outstanding' ? 'Outstanding Loans'
-                  : filter === 'overdue'    ? 'Overdue Loans'
-                  : 'Recovered Loans'}
+                  {filter === 'outstanding' ? t('cashier.loans.outstandingLoans', 'Outstanding Loans')
+                  : filter === 'overdue'    ? t('cashier.loans.overdueLoans', 'Overdue Loans')
+                  : t('cashier.loans.recoveredLoans', 'Recovered Loans')}
                   {'  '}
                   <Text style={{ color: colors.neutralMid, fontWeight: '500' }}>({displayedLoans.length})</Text>
                 </Text>
@@ -514,14 +513,14 @@ export default function LoansScreen() {
               <View style={S.empty}>
                 <MaterialIcons name="account-balance-wallet" size={44} color={colors.border} />
                 <Text style={S.emptyTitle}>
-                  {filter === 'outstanding' ? 'No outstanding loans'
-                  : filter === 'overdue'    ? 'No overdue loans'
-                  : 'No recovered loans'}
+                  {filter === 'outstanding' ? t('cashier.loans.noOutstandingLoans', 'No outstanding loans')
+                  : filter === 'overdue'    ? t('cashier.loans.noOverdueLoans', 'No overdue loans')
+                  : t('cashier.loans.noRecoveredLoans', 'No recovered loans')}
                 </Text>
                 <Text style={S.emptySubtitle}>
-                  {filter === 'outstanding' ? 'Active loans not yet past due date will appear here'
-                  : filter === 'overdue'    ? 'Loans past their due date will appear here'
-                  : 'Loans marked as paid will appear here'}
+                  {filter === 'outstanding' ? t('cashier.loans.outstandingDescription', 'Active loans not yet past due date will appear here')
+                  : filter === 'overdue'    ? t('cashier.loans.overdueDescription', 'Loans past their due date will appear here')
+                  : t('cashier.loans.recoveredDescription', 'Loans marked as paid will appear here')}
                 </Text>
               </View>
             }

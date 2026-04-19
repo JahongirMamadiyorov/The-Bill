@@ -4,6 +4,7 @@ import { financeAPI } from '../../api/client';
 import { money, todayStr } from '../../hooks/useApi';
 import Dropdown from '../../components/Dropdown';
 import DatePicker from '../../components/DatePicker';
+import { useTranslation } from '../../context/LanguageContext';
 
 const P  = '#7C3AED';
 const PL = '#F5F3FF';
@@ -12,6 +13,7 @@ const now = new Date();
 const DEFAULT_FROM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
 export default function OwnerFinance() {
+  const { t } = useTranslation();
   const [fromDate, setFromDate] = useState(DEFAULT_FROM);
   const [toDate, setToDate] = useState(todayStr());
   const [summary, setSummary] = useState(null);
@@ -80,9 +82,9 @@ export default function OwnerFinance() {
     if (!summary?.revenueByPayment) return [];
     const pm = summary.revenueByPayment;
     return [
-      { category: 'Cash',   amount: pm.cash || 0 },
-      { category: 'Card',   amount: pm.card || 0 },
-      { category: 'QR/Online', amount: pm.qr || 0 },
+      { category: t('paymentMethods.cash'),   amount: pm.cash || 0 },
+      { category: t('paymentMethods.card'),   amount: pm.card || 0 },
+      { category: t('paymentMethods.qrCode') + '/' + t('paymentMethods.online'), amount: pm.qr || 0 },
     ].filter(i => i.amount > 0);
   }, [summary]);
 
@@ -100,7 +102,7 @@ export default function OwnerFinance() {
     if (budgets.length === 0) return [];
     const expMap = {};
     expenses.forEach(e => {
-      const cat = e.category || 'Other';
+      const cat = e.category || t('common.other', 'Other');
       expMap[cat] = (expMap[cat] || 0) + parseFloat(e.amount || 0);
     });
     return budgets.map(b => ({
@@ -118,7 +120,7 @@ export default function OwnerFinance() {
       await financeAPI.createExpense({
         description: expenseForm.description,
         amount: parseFloat(expenseForm.amount),
-        category: expenseForm.category || 'Other',
+        category: expenseForm.category || t('common.other', 'Other'),
         date: todayStr(),
       });
       setShowExpenseModal(false);
@@ -148,7 +150,7 @@ export default function OwnerFinance() {
       await financeAPI.updateExpense(editingExpense.id, {
         description: expenseForm.description,
         amount: parseFloat(expenseForm.amount),
-        category: expenseForm.category || 'Other',
+        category: expenseForm.category || t('common.other', 'Other'),
       });
       setShowExpenseModal(false);
       setEditingExpense(null);
@@ -162,7 +164,7 @@ export default function OwnerFinance() {
   };
 
   const handleDeleteExpense = async (expenseId) => {
-    if (!window.confirm('Are you sure you want to delete this expense?')) return;
+    if (!window.confirm(t('common.confirmDelete'))) return;
     try {
       await financeAPI.deleteExpense(expenseId);
       await fetchFinanceData();
@@ -202,7 +204,7 @@ export default function OwnerFinance() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading financial data...</p>
+          <p className="text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -216,7 +218,7 @@ export default function OwnerFinance() {
           <p className="text-red-700">Error: {error}</p>
         </div>
         <button onClick={() => fetchFinanceData()} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     );
@@ -227,7 +229,7 @@ export default function OwnerFinance() {
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
           <DollarSignIcon className="w-8 h-8" style={{ color: P }} />
-          Finance Dashboard
+          {t('owner.finance.title')}
         </h1>
 
         {error && (
@@ -244,18 +246,18 @@ export default function OwnerFinance() {
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
           <div className="flex gap-6 items-end flex-wrap">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
-              <DatePicker value={fromDate} onChange={setFromDate} placeholder="From" />
+              <label className="block text-sm font-medium text-gray-700 mb-2">{t('common.from')}</label>
+              <DatePicker value={fromDate} onChange={setFromDate} placeholder={t('common.from')} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">To Date</label>
-              <DatePicker value={toDate} onChange={setToDate} placeholder="To" />
+              <label className="block text-sm font-medium text-gray-700 mb-2">{t('common.to')}</label>
+              <DatePicker value={toDate} onChange={setToDate} placeholder={t('common.to')} />
             </div>
             <button
               onClick={() => { setFromDate(todayStr()); setToDate(todayStr()); }}
               className="px-4 py-2 text-sm font-bold text-white rounded-lg transition" style={{ backgroundColor: P }}
             >
-              Today
+              {t('common.today')}
             </button>
           </div>
         </div>
@@ -264,25 +266,25 @@ export default function OwnerFinance() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Revenue</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.finance.totalRevenue')}</h3>
               <TrendingUp className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-3xl font-bold text-green-600">{money(totalRevenue)}</p>
-            <p className="text-xs text-gray-500 mt-2">Total income</p>
+            <p className="text-xs text-gray-500 mt-2">{t('owner.finance.totalRevenue')}</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Expenses</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.finance.totalExpenses')}</h3>
               <TrendingDown className="w-5 h-5 text-red-600" />
             </div>
             <p className="text-3xl font-bold text-red-600">{money(totalExpenses)}</p>
-            <p className="text-xs text-gray-500 mt-2">Total costs</p>
+            <p className="text-xs text-gray-500 mt-2">{t('owner.finance.totalExpenses')}</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Net Profit</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.finance.netProfit')}</h3>
               {netProfit >= 0
                 ? <TrendingUp className="w-5 h-5 text-green-600" />
                 : <TrendingDown className="w-5 h-5 text-red-600" />
@@ -291,23 +293,23 @@ export default function OwnerFinance() {
             <p className={`text-3xl font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {money(netProfit)}
             </p>
-            <p className="text-xs text-gray-500 mt-2">{profitMargin}% margin</p>
+            <p className="text-xs text-gray-500 mt-2">{profitMargin}% {t('owner.finance.profitMargin')}</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Total Debt</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.finance.loansDebt')}</h3>
               <AlertCircle className="w-5 h-5 text-orange-600" />
             </div>
             <p className="text-3xl font-bold text-orange-600">{money(totalDebt)}</p>
-            <p className="text-xs text-gray-500 mt-2">Outstanding loans</p>
+            <p className="text-xs text-gray-500 mt-2">{t('owner.finance.loansDebt')}</p>
           </div>
         </div>
 
         {/* ── Revenue & Expense Breakdown ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Revenue Breakdown</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-4">{t('owner.finance.revenueBreakdown')}</h2>
             <div className="space-y-4">
               {revenueBreakdown.length > 0 ? (
                 revenueBreakdown.map((item, idx) => (
@@ -325,13 +327,13 @@ export default function OwnerFinance() {
                   </div>
                 ))
               ) : (
-                <p className="text-center text-gray-500 py-4">No revenue data</p>
+                <p className="text-center text-gray-500 py-4">{t('common.noResults')}</p>
               )}
             </div>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Expense Breakdown</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-4">{t('owner.finance.totalExpenses')}</h2>
             <div className="space-y-4">
               {expenseBreakdown.length > 0 ? (
                 expenseBreakdown.map((item, idx) => (
@@ -349,7 +351,7 @@ export default function OwnerFinance() {
                   </div>
                 ))
               ) : (
-                <p className="text-center text-gray-500 py-4">No expense data</p>
+                <p className="text-center text-gray-500 py-4">{t('common.noResults')}</p>
               )}
             </div>
           </div>
@@ -359,7 +361,7 @@ export default function OwnerFinance() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200">
             <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="text-lg font-bold text-gray-900">Expenses</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('owner.finance.totalExpenses')}</h2>
               <button
                 onClick={() => {
                   setEditingExpense(null);
@@ -369,17 +371,17 @@ export default function OwnerFinance() {
                 className="flex items-center gap-2 px-3 py-2 text-white rounded-lg hover:opacity-90 transition"
                 style={{ backgroundColor: P }}
               >
-                <Plus className="w-4 h-4" /> Add
+                <Plus className="w-4 h-4" /> {t('common.add')}
               </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-200 bg-gray-50">
                   <tr>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Description</th>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Category</th>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Amount</th>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Actions</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('common.description')}</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('common.category')}</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('common.amount')}</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -391,10 +393,10 @@ export default function OwnerFinance() {
                         <td className="py-3 px-4 text-gray-900 font-medium">{money(exp.amount || 0)}</td>
                         <td className="py-3 px-4">
                           <div className="flex gap-2">
-                            <button onClick={() => handleEditExpense(exp)} className="text-purple-600 hover:text-purple-700 transition" title="Edit">
+                            <button onClick={() => handleEditExpense(exp)} className="text-purple-600 hover:text-purple-700 transition" title={t('common.edit', 'Edit')}>
                               <Edit2 className="w-4 h-4" />
                             </button>
-                            <button onClick={() => handleDeleteExpense(exp.id)} className="text-red-600 hover:text-red-700 transition" title="Delete">
+                            <button onClick={() => handleDeleteExpense(exp.id)} className="text-red-600 hover:text-red-700 transition" title={t('common.delete', 'Delete')}>
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
@@ -403,7 +405,7 @@ export default function OwnerFinance() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="4" className="text-center py-8 text-gray-500">No expenses recorded</td>
+                      <td colSpan="4" className="text-center py-8 text-gray-500">{t('common.noResults')}</td>
                     </tr>
                   )}
                 </tbody>
@@ -413,7 +415,7 @@ export default function OwnerFinance() {
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900">Budget vs Actual</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('owner.finance.budgetVsActual')}</h2>
             </div>
             <div className="p-6 space-y-4">
               {budgetItems.length > 0 ? (
@@ -436,7 +438,7 @@ export default function OwnerFinance() {
                   );
                 })
               ) : (
-                <p className="text-center text-gray-500 py-4">No budget data</p>
+                <p className="text-center text-gray-500 py-4">{t('common.noResults')}</p>
               )}
             </div>
           </div>
@@ -446,13 +448,13 @@ export default function OwnerFinance() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200">
             <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="text-lg font-bold text-gray-900">Loans</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('owner.finance.loansDebt')}</h2>
               <button
                 onClick={() => setShowLoanModal(true)}
                 className="flex items-center gap-2 px-3 py-2 text-white rounded-lg hover:opacity-90 transition"
                 style={{ backgroundColor: P }}
               >
-                <Plus className="w-4 h-4" /> Add
+                <Plus className="w-4 h-4" /> {t('common.add')}
               </button>
             </div>
             <div className="p-6 space-y-4">
@@ -475,15 +477,15 @@ export default function OwnerFinance() {
                       </div>
                       <div className="grid grid-cols-3 gap-4 text-sm text-gray-600 mt-3">
                         <div>
-                          <p className="text-xs text-gray-500">Interest Rate</p>
+                          <p className="text-xs text-gray-500">{t('owner.finance.interestRate')}</p>
                           <p className="font-medium text-gray-900">{loan.interestRate || 0}%</p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-500">Paid</p>
+                          <p className="text-xs text-gray-500">{t('common.paid')}</p>
                           <p className="font-medium text-gray-900">{money(loan.amountPaid || 0)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-500">Remaining</p>
+                          <p className="text-xs text-gray-500">{t('owner.finance.remaining')}</p>
                           <p className="font-medium text-red-600">{money(remaining > 0 ? remaining : 0)}</p>
                         </div>
                       </div>
@@ -492,28 +494,28 @@ export default function OwnerFinance() {
                         <div className="h-1.5 rounded-full transition-all" style={{ backgroundColor: P, width: `${Math.min(paidPct, 100)}%` }} />
                       </div>
                       {loan.dueDate && (
-                        <p className="text-xs text-gray-400 mt-2">Due: {new Date(loan.dueDate).toLocaleDateString()}</p>
+                        <p className="text-xs text-gray-400 mt-2">{t('owner.finance.duePrefix')} {new Date(loan.dueDate).toLocaleDateString()}</p>
                       )}
                     </div>
                   );
                 })
               ) : (
-                <p className="text-center text-gray-500 py-4">No loans recorded</p>
+                <p className="text-center text-gray-500 py-4">{t('common.noResults')}</p>
               )}
             </div>
           </div>
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900">Tax Summary</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('owner.finance.taxSummary')}</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-200 bg-gray-50">
                   <tr>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Period</th>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Revenue</th>
-                    <th className="text-left py-2 px-4 text-gray-600 font-medium">Tax Collected</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('common.date')}</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('owner.finance.totalRevenue')}</th>
+                    <th className="text-left py-2 px-4 text-gray-600 font-medium">{t('owner.finance.taxSummary')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -527,7 +529,7 @@ export default function OwnerFinance() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="3" className="text-center py-8 text-gray-500">No tax records</td>
+                      <td colSpan="3" className="text-center py-8 text-gray-500">{t('common.noResults')}</td>
                     </tr>
                   )}
                 </tbody>
@@ -542,7 +544,7 @@ export default function OwnerFinance() {
             <div className="bg-white p-8 rounded-lg w-96 shadow-xl">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-900">
-                  {editingExpense ? 'Edit Expense' : 'Add Expense'}
+                  {editingExpense ? t('owner.finance.editExpense') : t('owner.finance.addExpense')}
                 </h2>
                 <button onClick={closeExpenseModal} className="text-gray-400 hover:text-gray-600">
                   <X className="w-5 h-5" />
@@ -550,45 +552,42 @@ export default function OwnerFinance() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.description')}</label>
                   <input
                     type="text"
                     value={expenseForm.description}
                     onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Expense description"
+                    placeholder={t('owner.finance.descriptionPlaceholder')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.category')}</label>
                   <Dropdown
                     value={expenseForm.category}
                     onChange={(value) => setExpenseForm({ ...expenseForm, category: value })}
                     options={[
-                      { value: '', label: 'Select category' },
-                      { value: 'Supplies', label: 'Supplies' },
-                      { value: 'Utilities', label: 'Utilities' },
-                      { value: 'Maintenance', label: 'Maintenance' },
-                      { value: 'Marketing', label: 'Marketing' },
-                      { value: 'Rent', label: 'Rent' },
-                      { value: 'Salaries', label: 'Salaries' },
-                      { value: 'Other', label: 'Other' },
+                      { value: '', label: t('owner.finance.selectCategory') },
+                      ...t('owner.finance.expenseCategories').map((cat, i) => ({
+                        value: ['Supplies','Utilities','Maintenance','Marketing','Rent','Salaries','Other'][i],
+                        label: cat,
+                      })),
                     ]}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.amount')}</label>
                   <input
                     type="number"
                     value={expenseForm.amount}
                     onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="0"
+                    placeholder={t('placeholders.zero', '0')}
                   />
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button onClick={closeExpenseModal} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={editingExpense ? handleUpdateExpense : handleAddExpense}
@@ -596,7 +595,7 @@ export default function OwnerFinance() {
                     className="flex-1 px-4 py-2 text-white rounded-lg hover:opacity-90 transition disabled:opacity-50"
                     style={{ backgroundColor: P }}
                   >
-                    {saving ? 'Saving...' : editingExpense ? 'Update' : 'Add'}
+                    {saving ? t('common.saving') : editingExpense ? t('common.save') : t('common.add')}
                   </button>
                 </div>
               </div>
@@ -609,53 +608,53 @@ export default function OwnerFinance() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white p-8 rounded-lg w-96 shadow-xl">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-gray-900">Add Loan</h2>
+                <h2 className="text-xl font-bold text-gray-900">{t('owner.finance.addLoan')}</h2>
                 <button onClick={() => setShowLoanModal(false)} className="text-gray-400 hover:text-gray-600">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Lender Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('owner.finance.lenderNamePlaceholder')}</label>
                   <input
                     type="text"
                     value={loanForm.lenderName}
                     onChange={(e) => setLoanForm({ ...loanForm, lenderName: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Lender name"
+                    placeholder={t('owner.finance.lenderNamePlaceholder')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Amount</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.amount')}</label>
                   <input
                     type="number"
                     value={loanForm.totalAmount}
                     onChange={(e) => setLoanForm({ ...loanForm, totalAmount: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="0"
+                    placeholder={t('placeholders.zero', '0')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Interest Rate (%)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('owner.finance.interestRate')}</label>
                   <input
                     type="number"
                     value={loanForm.interestRate}
                     onChange={(e) => setLoanForm({ ...loanForm, interestRate: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="0"
+                    placeholder={t('placeholders.zero', '0')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('owner.finance.dueDatePlaceholder')}</label>
                   <DatePicker
                     value={loanForm.dueDate}
                     onChange={(v) => setLoanForm({ ...loanForm, dueDate: v })}
-                    placeholder="Due date"
+                    placeholder={t('owner.finance.dueDatePlaceholder')}
                   />
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button onClick={() => setShowLoanModal(false)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={handleAddLoan}
@@ -663,7 +662,7 @@ export default function OwnerFinance() {
                     className="flex-1 px-4 py-2 text-white rounded-lg hover:opacity-90 transition disabled:opacity-50"
                     style={{ backgroundColor: P }}
                   >
-                    {saving ? 'Saving...' : 'Add'}
+                    {saving ? t('common.saving') : t('common.add')}
                   </button>
                 </div>
               </div>

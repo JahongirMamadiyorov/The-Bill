@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Bell, AlertTriangle, AlertOctagon, Check, AlertCircle, ClipboardList } from 'lucide-react';
 import { notificationsAPI } from '../../api/client';
+import { useTranslation } from '../../context/LanguageContext';
 
 const KitchenNotifications = () => {
+  const { t } = useTranslation();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -62,7 +64,7 @@ const KitchenNotifications = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-          <p className="mt-4 text-gray-600">Loading notifications...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -74,7 +76,7 @@ const KitchenNotifications = () => {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
             <Bell className="w-8 h-8" style={{ color: '#EA580C' }} />
-            Kitchen Notifications
+            {t('kitchen.notifications.title')}
           </h1>
           <span
             className="px-4 py-2 rounded-full font-bold text-white text-lg"
@@ -95,7 +97,7 @@ const KitchenNotifications = () => {
           <div className="mb-8">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5" style={{ color: '#EA580C' }} />
-              Alerts
+              {t('common.alert')}
             </h2>
             <div className="space-y-3">
               {alertNotifications.map(notification => {
@@ -121,7 +123,7 @@ const KitchenNotifications = () => {
                       className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 transition font-semibold flex items-center gap-2 whitespace-nowrap ml-4"
                     >
                       <Check className="w-4 h-4" />
-                      {markingRead === notification.id ? 'Marking...' : 'Acknowledge'}
+                      {markingRead === notification.id ? t('common.processing') : t('kitchen.notifications.acknowledge')}
                     </button>
                   </div>
                 );
@@ -134,7 +136,7 @@ const KitchenNotifications = () => {
           <div className="mb-8">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
               <ClipboardList className="w-5 h-5" style={{ color: '#EA580C' }} />
-              New Orders ({orderNotifications.length})
+              {t('admin.orders.newOrder')} ({orderNotifications.length})
             </h2>
             <div className="space-y-3">
               {orderNotifications.map(notification => (
@@ -158,7 +160,7 @@ const KitchenNotifications = () => {
                     className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 transition font-semibold flex items-center gap-2 whitespace-nowrap ml-4"
                   >
                     <Check className="w-4 h-4" />
-                    {markingRead === notification.id ? 'Marking...' : 'Mark Read'}
+                    {markingRead === notification.id ? t('common.processing') : t('kitchen.notifications.markRead')}
                   </button>
                 </div>
               ))}
@@ -169,8 +171,8 @@ const KitchenNotifications = () => {
         {unreadNotifications.length === 0 && (
           <div className="text-center py-16">
             <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg font-medium">All caught up!</p>
-            <p className="text-gray-400 text-sm mt-1">No unread notifications</p>
+            <p className="text-gray-500 text-lg font-medium">{t('kitchen.notifications.noUnreadNotifications')}</p>
+            <p className="text-gray-400 text-sm mt-1">{t('kitchen.notifications.noUnreadNotifications')}</p>
           </div>
         )}
       </div>

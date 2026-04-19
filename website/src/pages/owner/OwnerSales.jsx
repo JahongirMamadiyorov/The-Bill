@@ -6,6 +6,7 @@ import {
 import { reportsAPI, accountingAPI } from '../../api/client';
 import { money, todayStr } from '../../hooks/useApi';
 import DatePicker from '../../components/DatePicker';
+import { useTranslation } from '../../context/LanguageContext';
 
 const P = '#7C3AED';
 const PL = '#F5F3FF';
@@ -30,6 +31,7 @@ const ORDER_TYPE_ICONS = {
 };
 
 export default function OwnerSales() {
+  const { t } = useTranslation();
   const [fromDate, setFromDate] = useState(DEFAULT_FROM);
   const [toDate, setToDate] = useState(todayStr());
   const [sales, setSales] = useState(null);
@@ -103,7 +105,7 @@ export default function OwnerSales() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading sales data...</p>
+          <p className="text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -116,7 +118,7 @@ export default function OwnerSales() {
           <AlertCircle className="w-5 h-5 text-red-600" />
           <p className="text-red-700">Error: {error}</p>
         </div>
-        <button onClick={() => fetchSalesData()} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">Retry</button>
+        <button onClick={() => fetchSalesData()} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">{t('common.retry')}</button>
       </div>
     );
   }
@@ -135,8 +137,8 @@ export default function OwnerSales() {
               <BarChart3 className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-white text-2xl font-extrabold">Sales Analytics</h1>
-              <p className="text-white/50 text-sm">Revenue & performance</p>
+              <h1 className="text-white text-2xl font-extrabold">{t('owner.home.salesAnalytics')}</h1>
+              <p className="text-white/50 text-sm">{t('owner.sales.title')}</p>
             </div>
           </div>
         </div>
@@ -147,40 +149,40 @@ export default function OwnerSales() {
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 mb-6">
           <div className="flex gap-4 items-end flex-wrap">
             <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-2">From Date</label>
-              <DatePicker value={fromDate} onChange={setFromDate} placeholder="From" />
+              <label className="block text-xs font-semibold text-gray-500 mb-2">{t('common.from')}</label>
+              <DatePicker value={fromDate} onChange={setFromDate} placeholder={t('common.from')} />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-2">To Date</label>
-              <DatePicker value={toDate} onChange={setToDate} placeholder="To" />
+              <label className="block text-xs font-semibold text-gray-500 mb-2">{t('common.to')}</label>
+              <DatePicker value={toDate} onChange={setToDate} placeholder={t('common.to')} />
             </div>
             <button
               onClick={() => { setFromDate(todayStr()); setToDate(todayStr()); }}
               className="px-4 py-2 text-sm font-bold text-white rounded-lg transition" style={{ backgroundColor: P }}
             >
-              Today
+              {t('common.today')}
             </button>
           </div>
         </div>
 
         {/* ── Comparison KPI Cards ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <ComparisonCard title="Total Revenue" value={money(totalRevenue)} change={changes?.revenuePct || changes?.revenue_pct} color={P} />
-          <ComparisonCard title="Total Orders" value={totalOrders} change={changes?.ordersPct || changes?.orders_pct} color="#2563EB" />
-          <ComparisonCard title="Avg Order Value" value={money(avgOrder)} change={changes?.avgOrderPct || changes?.avg_order_pct} color="#10B981" />
+          <ComparisonCard title={t('owner.sales.totalRevenue')} value={money(totalRevenue)} change={changes?.revenuePct || changes?.revenue_pct} color={P} />
+          <ComparisonCard title={t('owner.sales.totalOrders')} value={totalOrders} change={changes?.ordersPct || changes?.orders_pct} color="#2563EB" />
+          <ComparisonCard title={t('owner.sales.avgOrderValue')} value={money(avgOrder)} change={changes?.avgOrderPct || changes?.avg_order_pct} color="#10B981" />
         </div>
 
         {/* Previous period label */}
         {comparison?.previous && (
           <p className="text-xs text-gray-400 mb-6 -mt-3">
-            Compared to {comparison.previous.period?.from} -- {comparison.previous.period?.to}
+            {t('owner.sales.vsPrev')} {comparison.previous.period?.from} -- {comparison.previous.period?.to}
           </p>
         )}
 
         {/* ── Daily Sales Trend ── */}
         {dailyTrend.length > 1 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
-            <SectionHeader icon={<TrendingUp className="w-4 h-4" style={{ color: P }} />} title="Daily Sales Trend" />
+            <SectionHeader icon={<TrendingUp className="w-4 h-4" style={{ color: P }} />} title={t('owner.sales.dailySalesTrend')} />
             <div className="flex items-end gap-[2px] h-40">
               {dailyTrend.map((d, i) => {
                 const rev = parseFloat(d.revenue || 0);
@@ -218,7 +220,7 @@ export default function OwnerSales() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           {/* Hourly Breakdown */}
           <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <SectionHeader icon={<BarChart3 className="w-4 h-4" style={{ color: P }} />} title="Hourly Sales" badge="Peak Times" />
+            <SectionHeader icon={<BarChart3 className="w-4 h-4" style={{ color: P }} />} title={t('owner.sales.hourlySales')} badge={t('owner.sales.peakTimes')} />
             {maxHourlyRevenue > 0 ? (
               <>
                 <div className="flex items-end gap-[2px] h-32">
@@ -249,15 +251,15 @@ export default function OwnerSales() {
                 <p className="text-[10px] text-gray-400 text-right mt-2">Peak: {money(maxHourlyRevenue)}</p>
               </>
             ) : (
-              <div className="text-center py-12 text-gray-400 text-sm">No hourly data for this period</div>
+              <div className="text-center py-12 text-gray-400 text-sm">{t('common.noResults')}</div>
             )}
           </div>
 
           {/* Order Type Donut */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <SectionHeader icon={<ShoppingBag className="w-4 h-4" style={{ color: P }} />} title="Order Types" />
+            <SectionHeader icon={<ShoppingBag className="w-4 h-4" style={{ color: P }} />} title={t('owner.sales.orderTypes')} />
             {orderTypes.length === 0 || totalOrderTypeRevenue === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-sm">No order type data</div>
+              <div className="text-center py-8 text-gray-400 text-sm">{t('common.noResults')}</div>
             ) : (
               <>
                 <div className="flex justify-center mb-4">
@@ -289,20 +291,20 @@ export default function OwnerSales() {
         {/* ── Payment Methods + Best Sellers ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">Payment Methods</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-3">{t('cashier.orders.paymentMethod')}</h2>
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 space-y-5">
-              <PaymentMethodRow label="Cash" value={cashRevenue} total={totalPayments} />
-              <PaymentMethodRow label="Card" value={cardRevenue} total={totalPayments} />
-              <PaymentMethodRow label="Online" value={onlineRevenue} total={totalPayments} />
+              <PaymentMethodRow label={t('paymentMethods.cash')} value={cashRevenue} total={totalPayments} />
+              <PaymentMethodRow label={t('paymentMethods.card')} value={cardRevenue} total={totalPayments} />
+              <PaymentMethodRow label={t('paymentMethods.online')} value={onlineRevenue} total={totalPayments} />
             </div>
           </div>
 
           <div className="lg:col-span-2">
-            <h2 className="text-lg font-bold text-gray-900 mb-3">Best Sellers</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-3">{t('owner.sales.bestSellers')}</h2>
             {bestSellers.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-10 text-center">
                 <BarChart3 className="w-10 h-10 mx-auto mb-3 text-gray-200" />
-                <p className="text-gray-400 text-sm">No sales data</p>
+                <p className="text-gray-400 text-sm">{t('owner.sales.noSalesData')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -321,7 +323,7 @@ export default function OwnerSales() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-gray-900 truncate">{item.itemName || item.name}</p>
                         <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded mt-1" style={{ backgroundColor: PL, color: P }}>
-                          {itemSold} sold
+                          {itemSold} {t('common.items')}
                         </span>
                       </div>
                       <div className="text-right flex-shrink-0">
@@ -361,6 +363,7 @@ function SectionHeader({ icon, title, badge }) {
 }
 
 function ComparisonCard({ title, value, change, color }) {
+  const { t } = useTranslation();
   const isPositive = (change || 0) >= 0;
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition">
@@ -370,7 +373,7 @@ function ComparisonCard({ title, value, change, color }) {
         <div className={`flex items-center gap-1 ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
           {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
           <span className="text-sm font-bold">{isPositive ? '+' : ''}{change}%</span>
-          <span className="text-xs text-gray-400 ml-1">vs prev period</span>
+          <span className="text-xs text-gray-400 ml-1">{t('owner.sales.vsPrev')}</span>
         </div>
       )}
     </div>
@@ -394,6 +397,7 @@ function PaymentMethodRow({ label, value, total }) {
 }
 
 function DonutChart({ data, total }) {
+  const { t } = useTranslation();
   const size = 140;
   const strokeWidth = 24;
   const radius = (size - strokeWidth) / 2;
@@ -419,7 +423,7 @@ function DonutChart({ data, total }) {
           />
         );
       })}
-      <text x={size / 2} y={size / 2 - 6} textAnchor="middle" className="text-xs font-bold fill-gray-400">Total</text>
+      <text x={size / 2} y={size / 2 - 6} textAnchor="middle" className="text-xs font-bold fill-gray-400">{t('common.total')}</text>
       <text x={size / 2} y={size / 2 + 10} textAnchor="middle" className="text-sm font-extrabold fill-gray-900">
         {data.reduce((s, t) => s + (parseInt(t.orders) || 0), 0)}
       </text>

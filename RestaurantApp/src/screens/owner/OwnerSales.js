@@ -8,6 +8,7 @@ import Svg, { Circle, Text as SvgText } from 'react-native-svg';
 import { reportsAPI, accountingAPI } from '../../api/client';
 import { OwnerPeriodBar, OwnerCalendarPicker, TODAY_STR } from '../../components/OwnerPeriodPicker';
 import OwnerPageHeader from '../../components/OwnerPageHeader';
+import { useTranslation } from '../../context/LanguageContext';
 
 const P  = '#7C3AED';
 const PL = '#F5F3FF';
@@ -35,6 +36,7 @@ function formatShortDate(dateStr) {
 }
 
 export default function OwnerSales() {
+  const { t } = useTranslation();
   const [period, setPeriod]         = useState(DEFAULT_PERIOD);
   const [showPicker, setShowPicker] = useState(false);
   const [sales, setSales]           = useState(null);
@@ -116,7 +118,7 @@ export default function OwnerSales() {
         <MaterialIcons name="error-outline" size={48} color={P} />
         <Text style={s.errorText}>{error}</Text>
         <Pressable style={[s.retryBtn, { backgroundColor: P }]} onPress={fetchData}>
-          <Text style={s.retryBtnText}>Retry</Text>
+          <Text style={s.retryBtnText}>{t('common.retry')}</Text>
         </Pressable>
       </View>
     );
@@ -124,7 +126,7 @@ export default function OwnerSales() {
 
   return (
     <View style={s.container}>
-      <OwnerPageHeader icon="bar-chart" title="Sales Analytics" subtitle="Revenue & performance" />
+      <OwnerPageHeader icon="bar-chart" title={t('owner.sales.salesAnalytics')} subtitle={t('owner.sales.revenuePerformance')} />
       <OwnerPeriodBar period={period} onOpen={() => setShowPicker(true)} />
 
       <ScrollView
@@ -134,10 +136,10 @@ export default function OwnerSales() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── KPI Cards ── */}
-        <KPICard title="Total Revenue" value={money(totalRevenue)} change={changes?.revenue_pct} color={P} icon="trending-up" />
+        <KPICard title={t('owner.sales.totalRevenue')} value={money(totalRevenue)} change={changes?.revenue_pct} color={P} icon="trending-up" vsPrev={t('owner.sales.vsPrev')} />
         <View style={s.kpiRow}>
-          <KPICardSmall title="Total Orders" value={String(totalOrders)} change={changes?.orders_pct} color="#2563EB" icon="receipt" />
-          <KPICardSmall title="Avg Order" value={money(avgOrder)} change={changes?.avg_order_pct} color="#10B981" icon="equalizer" />
+          <KPICardSmall title={t('owner.sales.totalOrders')} value={String(totalOrders)} change={changes?.orders_pct} color="#2563EB" icon="receipt" />
+          <KPICardSmall title={t('owner.sales.avgOrder')} value={money(avgOrder)} change={changes?.avg_order_pct} color="#10B981" icon="equalizer" />
         </View>
         {comparison?.previous && (
           <Text style={s.prevLabel}>vs {formatShortDate(comparison.previous.period?.from)} - {formatShortDate(comparison.previous.period?.to)}</Text>
@@ -146,7 +148,7 @@ export default function OwnerSales() {
         {/* ── Daily Sales Trend ── */}
         {dailyTrend.length > 1 && (
           <View style={s.card}>
-            <SecHeader icon="show-chart" title="Daily Sales Trend" />
+            <SecHeader icon="show-chart" title={t('owner.sales.dailySalesTrend')} />
             <View style={s.barsH}>
               {dailyTrend.map((d, i) => {
                 const rev = parseFloat(d.revenue || 0);
@@ -164,7 +166,7 @@ export default function OwnerSales() {
             </View>
             <View style={s.barFooter}>
               <Text style={s.footTxt}>{formatShortDate(dailyTrend[0]?.date)}</Text>
-              <Text style={s.footTxt}>Peak: {money(maxDailyRevenue)}</Text>
+              <Text style={s.footTxt}>{t('owner.home.peak')}: {money(maxDailyRevenue)}</Text>
               <Text style={s.footTxt}>{formatShortDate(dailyTrend[dailyTrend.length - 1]?.date)}</Text>
             </View>
           </View>
@@ -173,7 +175,7 @@ export default function OwnerSales() {
         {/* ── Hourly Breakdown ── */}
         {maxHourlyRevenue > 0 && (
           <View style={s.card}>
-            <SecHeader icon="schedule" title="Hourly Sales" badge="Peak Times" />
+            <SecHeader icon="schedule" title={t('owner.sales.hourlySales')} badge={t('owner.sales.peakTimes')} />
             <View style={s.barsSm}>
               {hourlyData.map((h, i) => {
                 const rev = parseFloat(h.revenue || 0);
@@ -189,14 +191,14 @@ export default function OwnerSales() {
                 );
               })}
             </View>
-            <Text style={s.peakTxt}>Peak: {money(maxHourlyRevenue)}</Text>
+            <Text style={s.peakTxt}>{t('owner.home.peak')}: {money(maxHourlyRevenue)}</Text>
           </View>
         )}
 
         {/* ── Order Type Breakdown ── */}
         {totalOrderTypeRevenue > 0 && (
           <View style={s.card}>
-            <SecHeader icon="pie-chart" title="Order Types" />
+            <SecHeader icon="pie-chart" title={t('owner.sales.orderTypes')} />
             <View style={s.otContent}>
               <View style={s.donutWrap}>
                 <DonutChart data={orderTypes} total={totalOrderTypeRevenue} />
@@ -224,23 +226,23 @@ export default function OwnerSales() {
 
         {/* ── Payment Methods ── */}
         <View style={s.card}>
-          <SecHeader icon="account-balance-wallet" title="Payment Methods" />
-          <PMRow method="Cash"   value={cashRevenue}   total={totalPayments} />
-          <PMRow method="Card"   value={cardRevenue}   total={totalPayments} />
-          <PMRow method="Online" value={onlineRevenue} total={totalPayments} />
+          <SecHeader icon="account-balance-wallet" title={t('owner.sales.paymentMethods')} />
+          <PMRow method={t('paymentMethods.cash')}   value={cashRevenue}   total={totalPayments} />
+          <PMRow method={t('paymentMethods.card')}   value={cardRevenue}   total={totalPayments} />
+          <PMRow method={t('paymentMethods.online')} value={onlineRevenue} total={totalPayments} />
         </View>
 
         {/* ── Best Sellers ── */}
         <View style={s.sectionWrap}>
-          <SecHeader icon="emoji-events" title="Best Sellers" />
+          <SecHeader icon="emoji-events" title={t('owner.sales.bestSellers')} />
           {bestSellers.length === 0 ? (
             <View style={s.emptyCard}>
               <MaterialIcons name="bar-chart" size={40} color="#E5E7EB" />
-              <Text style={s.emptyText}>No sales data</Text>
+              <Text style={s.emptyText}>{t('owner.sales.noSalesData')}</Text>
             </View>
           ) : (
             bestSellers.map((item, idx) => (
-              <BSRow key={item.name || idx} item={item} idx={idx} maxRevenue={maxRevenue} />
+              <BSRow key={item.name || idx} item={item} idx={idx} maxRevenue={maxRevenue} soldLabel={t('owner.sales.sold')} />
             ))
           )}
         </View>
@@ -263,7 +265,7 @@ const SecHeader = memo(({ icon, title, badge }) => (
   </View>
 ));
 
-const KPICard = memo(({ title, value, change, color, icon }) => {
+const KPICard = memo(({ title, value, change, color, icon, vsPrev }) => {
   const pos = (change || 0) >= 0;
   return (
     <View style={s.kpi}>
@@ -278,7 +280,7 @@ const KPICard = memo(({ title, value, change, color, icon }) => {
         <View style={s.chgRow}>
           <MaterialIcons name={pos ? 'arrow-upward' : 'arrow-downward'} size={14} color={pos ? '#16A34A' : '#EF4444'} />
           <Text style={[s.chgTxt, { color: pos ? '#16A34A' : '#EF4444' }]}>{pos ? '+' : ''}{typeof change === 'number' ? change.toFixed(1) : change}%</Text>
-          <Text style={s.chgSub}>vs prev</Text>
+          <Text style={s.chgSub}>{vsPrev || 'vs prev'}</Text>
         </View>
       )}
     </View>
@@ -318,7 +320,7 @@ const PMRow = memo(({ method, value, total }) => {
   );
 });
 
-const BSRow = memo(({ item, idx, maxRevenue }) => {
+const BSRow = memo(({ item, idx, maxRevenue, soldLabel }) => {
   const rev = item.total_revenue || 0;
   return (
     <View style={s.bsRow}>
@@ -327,7 +329,7 @@ const BSRow = memo(({ item, idx, maxRevenue }) => {
       </View>
       <View style={s.bsInfo}>
         <Text style={s.bsName}>{item.name}</Text>
-        <View style={s.bsChip}><Text style={s.bsChipTxt}>{item.total_sold} sold</Text></View>
+        <View style={s.bsChip}><Text style={s.bsChipTxt}>{item.total_sold} {soldLabel || 'sold'}</Text></View>
       </View>
       <View style={s.bsRight}>
         <Text style={s.bsRev}>{money(rev)}</Text>

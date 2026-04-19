@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // ── Auto-migration: item_ready per-item readiness tracking ────────────────────
 ;(async () => {
@@ -112,7 +112,7 @@ router.get('/', authenticate, async (req, res) => {
              l.amount       AS loan_amount,
              l.notes        AS loan_notes
       FROM orders o
-      LEFT JOIN restaurant_tables t ON o.table_id = t.id
+      LEFT JOIN restaurant_tables t ON o.table_id = t.id AND t.restaurant_id = (SELECT restaurant_id FROM orders WHERE id = o.id)
       LEFT JOIN users u ON o.waitress_id = u.id
       LEFT JOIN users c ON o.paid_by = c.id
       LEFT JOIN (
@@ -120,11 +120,14 @@ router.get('/', authenticate, async (req, res) => {
       ) ic ON ic.order_id = o.id
       LEFT JOIN LATERAL (
         SELECT status, paid_at, due_date, customer_name, customer_phone, amount, notes
-        FROM loans WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1
+        FROM loans WHERE order_id = o.id AND restaurant_id = o.restaurant_id ORDER BY created_at DESC LIMIT 1
       ) l ON true
       WHERE 1=1
     `;
     const params = [];
+    // Multi-restaurant filter
+    params.push(rid(req));
+    query += ` AND o.restaurant_id=$${params.length}`;
     // Scope waitresses to their own orders UNLESS they are looking up a specific table
     // or filtering by order_type (e.g. they see all delivery/to_go)
     if (req.user.role === 'waitress' && !req.query.table_id && (!req.query.order_type || req.query.order_type === 'dine_in')) { params.push(req.user.id); query += ` AND o.waitress_id=$${params.length}`; }
@@ -182,17 +185,19 @@ router.get('/mine', authenticate, async (req, res) => {
               u.name         AS waitress_name,
               COALESCE(ic.cnt, 0) AS item_count
        FROM orders o
-       LEFT JOIN restaurant_tables t ON o.table_id = t.id
+       LEFT JOIN restaurant_tables t ON o.table_id = t.id AND t.restaurant_id = o.restaurant_id
        LEFT JOIN users u              ON o.waitress_id = u.id
        LEFT JOIN (
          SELECT order_id, COUNT(*) AS cnt FROM order_items GROUP BY order_id
        ) ic ON ic.order_id = o.id
-       WHERE o.status != 'cancelled'
+       WHERE o.restaurant_id = $1
+         AND o.status != 'cancelled'
          AND (
            o.status != 'paid'
            OR DATE(COALESCE(o.paid_at, o.updated_at)) = CURRENT_DATE
          )
-       ORDER BY o.created_at DESC`
+       ORDER BY o.created_at DESC`,
+      [rid(req)]
     );
     res.json(result.rows);
   } catch (err) {
@@ -213,10 +218,12 @@ router.get('/kitchen', authenticate, authorize('owner', 'admin', 'kitchen'), asy
     const ordersResult = await db.query(
       `SELECT o.*, t.table_number, u.name as waitress_name
        FROM orders o
-       LEFT JOIN restaurant_tables t ON o.table_id=t.id
+       LEFT JOIN restaurant_tables t ON o.table_id=t.id AND t.restaurant_id = o.restaurant_id
        LEFT JOIN users u ON o.waitress_id=u.id
-       WHERE o.status IN ('pending', 'sent_to_kitchen', 'preparing')
-       ORDER BY o.created_at ASC`
+       WHERE o.restaurant_id = $1
+         AND o.status IN ('pending', 'sent_to_kitchen', 'preparing')
+       ORDER BY o.created_at ASC`,
+      [rid(req)]
     );
 
     if (ordersResult.rows.length === 0) {
@@ -270,16 +277,17 @@ router.get('/kitchen/stats', authenticate, authorize('owner', 'admin', 'kitchen'
 
     const [active, completed, avgRes] = await Promise.all([
       // Active orders (pending / sent_to_kitchen / preparing)
-      db.query(`SELECT COUNT(*) FROM orders WHERE status IN ('pending','sent_to_kitchen','preparing')`),
+      db.query(`SELECT COUNT(*) FROM orders WHERE restaurant_id = $1 AND status IN ('pending','sent_to_kitchen','preparing')`, [rid(req)]),
       // Completed today (ready + served + paid)
-      db.query(`SELECT COUNT(*) FROM orders WHERE status IN ('ready','served','paid') AND updated_at >= $1`, [today]),
+      db.query(`SELECT COUNT(*) FROM orders WHERE restaurant_id = $1 AND status IN ('ready','served','paid') AND updated_at >= $2`, [rid(req), today]),
       // Avg cook time today (preparing → ready), in seconds
       db.query(`
         SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) as avg_seconds
         FROM orders
-        WHERE status IN ('ready','served','paid')
-          AND updated_at >= $1
-      `, [today]),
+        WHERE restaurant_id = $1
+          AND status IN ('ready','served','paid')
+          AND updated_at >= $2
+      `, [rid(req), today]),
     ]);
 
     const avgSec = parseFloat(avgRes.rows[0]?.avg_seconds || 0);
@@ -315,28 +323,30 @@ router.get('/kitchen/completed', authenticate, authorize('owner', 'admin', 'kitc
       ordersResult = await db.query(
         `SELECT DISTINCT o.*, t.table_number, u.name as waitress_name
          FROM orders o
-         LEFT JOIN restaurant_tables t ON o.table_id = t.id
+         LEFT JOIN restaurant_tables t ON o.table_id = t.id AND t.restaurant_id = o.restaurant_id
          LEFT JOIN users u ON o.waitress_id = u.id
          INNER JOIN order_items oi ON oi.order_id = o.id
-         INNER JOIN menu_items m ON m.id = oi.menu_item_id
-         WHERE o.status IN ('ready','served','paid')
-           AND o.updated_at >= $1 AND o.updated_at <= $2
-           AND (m.kitchen_station = $3 OR m.kitchen_station IS NULL)
+         INNER JOIN menu_items m ON m.id = oi.menu_item_id AND m.restaurant_id = o.restaurant_id
+         WHERE o.restaurant_id = $1
+           AND o.status IN ('ready','served','paid')
+           AND o.updated_at >= $2 AND o.updated_at <= $3
+           AND (m.kitchen_station = $4 OR m.kitchen_station IS NULL)
          ORDER BY o.updated_at DESC
          LIMIT 100`,
-        [from, to, userStation]
+        [rid(req), from, to, userStation]
       );
     } else {
       ordersResult = await db.query(
         `SELECT o.*, t.table_number, u.name as waitress_name
          FROM orders o
-         LEFT JOIN restaurant_tables t ON o.table_id = t.id
+         LEFT JOIN restaurant_tables t ON o.table_id = t.id AND t.restaurant_id = o.restaurant_id
          LEFT JOIN users u ON o.waitress_id = u.id
-         WHERE o.status IN ('ready','served','paid')
-           AND o.updated_at >= $1 AND o.updated_at <= $2
+         WHERE o.restaurant_id = $1
+           AND o.status IN ('ready','served','paid')
+           AND o.updated_at >= $2 AND o.updated_at <= $3
          ORDER BY o.updated_at DESC
          LIMIT 100`,
-        [from, to]
+        [rid(req), from, to]
       );
     }
 
@@ -372,6 +382,16 @@ router.put('/:id/items/:itemId/ready', authenticate, authorize('owner', 'admin',
   try {
     await client.query('BEGIN');
 
+    // Verify order belongs to this restaurant
+    const orderCheck = await client.query(
+      `SELECT restaurant_id FROM orders WHERE id=$1`,
+      [orderId]
+    );
+    if (!orderCheck.rows[0] || String(orderCheck.rows[0].restaurant_id) !== String(rid(req))) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
     // Update this item's ready flag
     const itemRes = await client.query(
       `UPDATE order_items SET item_ready=$1
@@ -401,20 +421,20 @@ router.put('/:id/items/:itemId/ready', authenticate, authorize('owner', 'admin',
       );
       if (orderRes.rows[0]) {
         newOrderStatus = 'ready';
-        // Notify waitress
-        const order = orderRes.rows[0];
-        if (order.waitress_id) {
-          (async () => {
-            try {
-              const tableRes = await db.query("SELECT table_number FROM restaurant_tables WHERE id=$1", [order.table_id]);
+        // Notify waitress (fire-and-forget, outside transaction)
+        const notifyOrder = { ...orderRes.rows[0] };
+        setImmediate(async () => {
+          try {
+            if (notifyOrder.waitress_id) {
+              const tableRes = await db.query("SELECT table_number FROM restaurant_tables WHERE id=$1 AND restaurant_id=$2", [notifyOrder.table_id, notifyOrder.restaurant_id]);
               const tNum = tableRes.rows[0]?.table_number || 'Walk-in';
               await db.query(
-                "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-                [order.waitress_id, "Order Ready", `Table ${tNum} order is ready to serve!`, "order_ready"]
+                "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+                [notifyOrder.waitress_id, "Order Ready", `Table ${tNum} order is ready to serve!`, "order_ready", notifyOrder.restaurant_id]
               );
-            } catch (_) {}
-          })();
-        }
+            }
+          } catch (_) {}
+        });
       }
     } else if (ready) {
       // At least one item done — ensure order is in 'preparing' state
@@ -425,13 +445,15 @@ router.put('/:id/items/:itemId/ready', authenticate, authorize('owner', 'admin',
       );
     }
 
-    await client.query('COMMIT');
-
-    // Return updated item + new counts
-    const allItems = await db.query(
-      `SELECT oi.id, oi.item_ready FROM order_items WHERE order_id=$1`,
+    // Get all items count INSIDE the transaction (before COMMIT) to avoid post-commit errors
+    const allItems = await client.query(
+      `SELECT id, item_ready FROM order_items WHERE order_id=$1`,
       [orderId]
     );
+
+    await client.query('COMMIT');
+
+    // Build response after successful commit
     res.json({
       item: itemRes.rows[0],
       order_status: newOrderStatus,
@@ -440,7 +462,8 @@ router.put('/:id/items/:itemId/ready', authenticate, authorize('owner', 'admin',
       total_count: allItems.rows.length,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('PUT /orders/:id/items/:itemId/ready error:', err.message);
     res.status(500).json({ error: err.message });
   } finally { client.release(); }
 });
@@ -451,24 +474,24 @@ router.get('/:id', authenticate, async (req, res) => {
     const order = await db.query(
       `SELECT o.*, t.table_number, u.name as waitress_name, c.name as collected_by_name
        FROM orders o
-       LEFT JOIN restaurant_tables t ON o.table_id=t.id
+       LEFT JOIN restaurant_tables t ON o.table_id=t.id AND t.restaurant_id = o.restaurant_id
        LEFT JOIN users u ON o.waitress_id=u.id
        LEFT JOIN users c ON o.paid_by = c.id
-       WHERE o.id=$1`, [req.params.id]
+       WHERE o.id=$1 AND o.restaurant_id=$2`, [req.params.id, rid(req)]
     );
     if (!order.rows[0]) return res.status(404).json({ error: 'Order not found' });
     const items = await db.query(
       `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name
-       FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id
-       WHERE oi.order_id=$1`, [req.params.id]
+       FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id AND m.restaurant_id = (SELECT restaurant_id FROM orders WHERE id=$2)
+       WHERE oi.order_id=$1`, [req.params.id, req.params.id]
     );
     // Fetch loan details if payment method is loan
     let loanData = null;
     try {
       const loanRes = await db.query(
         `SELECT customer_name, customer_phone, due_date, amount, status, paid_at, notes
-         FROM loans WHERE order_id=$1 ORDER BY created_at DESC LIMIT 1`,
-        [req.params.id]
+         FROM loans WHERE order_id=$1 AND restaurant_id=$2 ORDER BY created_at DESC LIMIT 1`,
+        [req.params.id, rid(req)]
       );
       if (loanRes.rows[0]) loanData = loanRes.rows[0];
     } catch (_) { /* loans table may not exist yet */ }
@@ -483,8 +506,8 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
   try {
     await client.query('BEGIN');
 
-    // Verify order exists
-    const existing = await client.query('SELECT * FROM orders WHERE id=$1', [req.params.id]);
+    // Verify order exists and belongs to this restaurant
+    const existing = await client.query('SELECT * FROM orders WHERE id=$1 AND restaurant_id=$2', [req.params.id, rid(req)]);
     if (!existing.rows[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Order not found' });
@@ -516,7 +539,7 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
         const qty = Number(item.quantity || 1);
         // Look up current menu price if menu_item_id exists
         if (menuItemId) {
-          const priceRes = await client.query('SELECT price FROM menu_items WHERE id=$1', [menuItemId]);
+          const priceRes = await client.query('SELECT price FROM menu_items WHERE id=$1 AND restaurant_id=$2', [menuItemId, rid(req)]);
           if (priceRes.rows[0]) unitPrice = Number(priceRes.rows[0].price);
         }
         subtotal += unitPrice * qty;
@@ -529,7 +552,7 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
       // Recalculate tax + total
       let taxRate = 0;
       try {
-        const taxRes = await client.query('SELECT rate FROM tax_settings WHERE is_active=true LIMIT 1');
+        const taxRes = await client.query('SELECT rate FROM tax_settings WHERE restaurant_id=$1 AND is_active=true LIMIT 1', [rid(req)]);
         taxRate = parseFloat(taxRes.rows[0]?.rate || 0);
       } catch (_) {}
       const taxAmount = (subtotal * taxRate) / 100;
@@ -551,21 +574,21 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
       // Mark the new table as occupied
       if (newTableId) {
         await client.query(
-          `UPDATE restaurant_tables SET status='occupied' WHERE id=$1`,
-          [newTableId]
+          `UPDATE restaurant_tables SET status='occupied' WHERE id=$1 AND restaurant_id=$2`,
+          [newTableId, rid(req)]
         );
       }
 
       // Free the old table ONLY if no other active orders reference it
       if (oldTableId) {
         const otherOrders = await client.query(
-          `SELECT id FROM orders WHERE table_id=$1 AND id != $2 AND status NOT IN ('paid','cancelled') LIMIT 1`,
-          [oldTableId, req.params.id]
+          `SELECT id FROM orders WHERE table_id=$1 AND restaurant_id=$3 AND id != $2 AND status NOT IN ('paid','cancelled') LIMIT 1`,
+          [oldTableId, req.params.id, rid(req)]
         );
         if (otherOrders.rows.length === 0) {
           await client.query(
-            `UPDATE restaurant_tables SET status='free', assigned_to=NULL WHERE id=$1`,
-            [oldTableId]
+            `UPDATE restaurant_tables SET status='free', assigned_to=NULL WHERE id=$1 AND restaurant_id=$2`,
+            [oldTableId, rid(req)]
           );
         }
       }
@@ -577,14 +600,14 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
     const updatedOrder = await db.query(
       `SELECT o.*, t.table_number, t.name as table_name, u.name as waitress_name
        FROM orders o
-       LEFT JOIN restaurant_tables t ON o.table_id=t.id
+       LEFT JOIN restaurant_tables t ON o.table_id=t.id AND t.restaurant_id = o.restaurant_id
        LEFT JOIN users u ON o.waitress_id=u.id
-       WHERE o.id=$1`, [req.params.id]
+       WHERE o.id=$1 AND o.restaurant_id=$2`, [req.params.id, rid(req)]
     );
     const updatedItems = await db.query(
       `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name
-       FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id
-       WHERE oi.order_id=$1`, [req.params.id]
+       FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id AND m.restaurant_id = (SELECT restaurant_id FROM orders WHERE id=$2)
+       WHERE oi.order_id=$1`, [req.params.id, req.params.id]
     );
     res.json({ ...updatedOrder.rows[0], items: updatedItems.rows });
   } catch (err) {
@@ -602,14 +625,14 @@ router.post('/', authenticate, async (req, res) => {
 
     let taxRate = 0;
     try {
-      const taxResult = await client.query('SELECT rate FROM tax_settings WHERE is_active=true LIMIT 1');
+      const taxResult = await client.query('SELECT rate FROM tax_settings WHERE restaurant_id=$1 AND is_active=true LIMIT 1', [rid(req)]);
       taxRate = parseFloat(taxResult.rows[0]?.rate || 0);
     } catch (_) { taxRate = 0; }
 
     // Resolve unit prices + names — fetch from menu_items for any item missing a price
     const menuItemIds = [...new Set(items.map(i => i.menu_item_id))];
     const menuPriceRows = menuItemIds.length
-      ? (await client.query(`SELECT id, price, name FROM menu_items WHERE id = ANY($1)`, [menuItemIds])).rows
+      ? (await client.query(`SELECT id, price, name FROM menu_items WHERE id = ANY($1) AND restaurant_id=$2`, [menuItemIds, rid(req)])).rows
       : [];
     const menuPriceMap = Object.fromEntries(menuPriceRows.map(r => [r.id, parseFloat(r.price || 0)]));
     const menuNameMap  = Object.fromEntries(menuPriceRows.map(r => [r.id, r.name || r.id]));
@@ -622,24 +645,25 @@ router.post('/', authenticate, async (req, res) => {
     const taxAmount = (subtotal * taxRate) / 100;
     const total = subtotal + taxAmount;
 
-    // Assign today's sequential order number
+    // Assign today's sequential order number (scoped to this restaurant)
     const dnRes = await client.query(
-      `SELECT COALESCE(MAX(daily_number), 0) + 1 AS next_num FROM orders WHERE DATE(created_at) = CURRENT_DATE`
+      `SELECT COALESCE(MAX(daily_number), 0) + 1 AS next_num FROM orders WHERE restaurant_id=$1 AND DATE(created_at) = CURRENT_DATE`,
+      [rid(req)]
     );
     const dailyNumber = dnRes.rows[0].next_num;
 
     const orderResult = await client.query(
-      `INSERT INTO orders (table_id, waitress_id, notes, tax_amount, total_amount, order_type, customer_name, customer_phone, delivery_address, daily_number, guest_count)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [table_id, req.user.id, notes, taxAmount, total, order_type, customer_name, customer_phone, delivery_address, dailyNumber, guest_count || null]
+      `INSERT INTO orders (table_id, waitress_id, notes, tax_amount, total_amount, order_type, customer_name, customer_phone, delivery_address, daily_number, guest_count, restaurant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [table_id, req.user.id, notes, taxAmount, total, order_type, customer_name, customer_phone, delivery_address, dailyNumber, guest_count || null, rid(req)]
     );
     const order = orderResult.rows[0];
 
     // Mark table as occupied
     if (table_id) {
       await client.query(
-        `UPDATE restaurant_tables SET status='occupied', assigned_to=$1, opened_at=COALESCE(opened_at, NOW()) WHERE id=$2`,
-        [req.user.id, table_id]
+        `UPDATE restaurant_tables SET status='occupied', assigned_to=$1, opened_at=COALESCE(opened_at, NOW()) WHERE id=$2 AND restaurant_id=$3`,
+        [req.user.id, table_id, rid(req)]
       );
     }
 
@@ -672,11 +696,11 @@ router.post('/', authenticate, async (req, res) => {
           // Log movement so it appears in Output tab (capture cost at deduction time)
           const ingCost = parseFloat(ing.cost_per_unit || 0);
           await client.query(
-            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit)
-             VALUES ($1, 'OUT', $2, $3, $4, $5)`,
+            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit, restaurant_id)
+             VALUES ($1, 'OUT', $2, $3, $4, $5, $6)`,
             [ing.ingredient_id, qtyUsed, req.user.id,
              `Auto: Order #${order.daily_number || order.id.slice(0,8)} — ${item.quantity}x ${menuNameMap[item.menu_item_id] || item.menu_item_id}`,
-             ingCost]
+             ingCost, rid(req)]
           );
           totalIngredientCost += qtyUsed * ingCost;
         }
@@ -691,9 +715,9 @@ router.post('/', authenticate, async (req, res) => {
     if (totalIngredientCost > 0) {
       try {
         await client.query(
-          `INSERT INTO expenses (category, description, amount, expense_date, recorded_by)
-           VALUES ('cost_of_goods', $1, $2, CURRENT_DATE, $3)`,
-          [`Ingredients for order #${order.id.slice(0, 8)}`, totalIngredientCost, req.user.id]
+          `INSERT INTO expenses (category, description, amount, expense_date, recorded_by, restaurant_id)
+           VALUES ('cost_of_goods', $1, $2, CURRENT_DATE, $3, $4)`,
+          [`Ingredients for order #${order.id.slice(0, 8)}`, totalIngredientCost, req.user.id, rid(req)]
         );
       } catch (_) { /* skip if expenses table not available */ }
     }
@@ -719,8 +743,8 @@ router.post('/', authenticate, async (req, res) => {
 
         for (const u of kitchenUsers.rows) {
           await db.query(
-            "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-            [u.id, notifTitle, notifBody, "new_order"]
+            "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+            [u.id, notifTitle, notifBody, "new_order", rid(req)]
           );
         }
       } catch (e) { console.error('Kitchen notification error:', e.message); }
@@ -751,11 +775,16 @@ router.put('/:id/status', authenticate, async (req, res) => {
     let updateSql = `UPDATE orders SET status=$1, updated_at=NOW()`;
     if (status === 'paid') updateSql += `, paid_at=NOW()`;
     if (status === 'cancelled' && cancellation_reason) updateSql += `, cancellation_reason=$3`;
-    updateSql += ` WHERE id=$2 RETURNING *`;
+    updateSql += ` WHERE id=$2 AND restaurant_id=$${cancellation_reason ? 4 : 3} RETURNING *`;
     const params = [status, req.params.id];
     if (status === 'cancelled' && cancellation_reason) params.push(cancellation_reason);
+    params.push(rid(req));
     const result = await client.query(updateSql, params);
     const order = result.rows[0];
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
     // --- PRO WOS: AUTO-DEPLETION ENGINE ---
     // When order is fulfilled (served or paid), mathematically deplete stock if it hasn't been depleted yet.
@@ -810,13 +839,13 @@ router.put('/:id/status', authenticate, async (req, res) => {
     if ((status === 'paid' || status === 'cancelled') && order.table_id) {
       // Only free if no other active orders on this table
       const activeOrders = await client.query(
-        `SELECT COUNT(*) FROM orders WHERE table_id=$1 AND id!=$2 AND status NOT IN ('paid','cancelled')`,
-        [order.table_id, order.id]
+        `SELECT COUNT(*) FROM orders WHERE table_id=$1 AND restaurant_id=$3 AND id!=$2 AND status NOT IN ('paid','cancelled')`,
+        [order.table_id, order.id, rid(req)]
       );
       if (parseInt(activeOrders.rows[0].count) === 0) {
         await client.query(
-          `UPDATE restaurant_tables SET status='free', assigned_to=NULL, opened_at=NULL WHERE id=$1`,
-          [order.table_id]
+          `UPDATE restaurant_tables SET status='free', assigned_to=NULL, opened_at=NULL WHERE id=$1 AND restaurant_id=$2`,
+          [order.table_id, rid(req)]
         );
       }
     }
@@ -827,13 +856,13 @@ router.put('/:id/status', authenticate, async (req, res) => {
       (async () => {
         try {
           const tableRes = await db.query(
-            "SELECT table_number FROM restaurant_tables WHERE id=$1",
-            [order.table_id]
+            "SELECT table_number FROM restaurant_tables WHERE id=$1 AND restaurant_id=$2",
+            [order.table_id, order.restaurant_id]
           );
           const tNum = tableRes.rows[0]?.table_number || 'Walk-in';
           await db.query(
-            "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-            [order.waitress_id, "Order Ready", `Table ${tNum} order is ready to serve!`, "order_ready"]
+            "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+            [order.waitress_id, "Order Ready", `Table ${tNum} order is ready to serve!`, "order_ready", order.restaurant_id]
           );
         } catch (e) { console.error('Waitress notification error:', e.message); }
       })();
@@ -843,7 +872,7 @@ router.put('/:id/status', authenticate, async (req, res) => {
     if (status === 'bill_requested') {
       (async () => {
         try {
-          const tableRes   = await db.query("SELECT table_number FROM restaurant_tables WHERE id=$1", [order.table_id]);
+          const tableRes   = await db.query("SELECT table_number FROM restaurant_tables WHERE id=$1 AND restaurant_id=$2", [order.table_id, order.restaurant_id]);
           const waitressRes= await db.query("SELECT name FROM users WHERE id=$1", [order.waitress_id]);
           const tNum       = tableRes.rows[0]?.table_number || '?';
           const waitress   = waitressRes.rows[0]?.name || 'Waitress';
@@ -863,8 +892,8 @@ router.put('/:id/status', authenticate, async (req, res) => {
           }
           for (const u of recipients.rows) {
             await db.query(
-              "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-              [u.id, "Bill Requested", body, "bill_requested"]
+              "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+              [u.id, "Bill Requested", body, "bill_requested", order.restaurant_id]
             );
           }
         } catch (e) { console.error('Bill notification error:', e.message); }
@@ -907,11 +936,13 @@ router.put('/:id/pay', authenticate, async (req, res) => {
         status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paid')),
         paid_at        TIMESTAMPTZ,
         notes          TEXT,
+        restaurant_id  UUID NOT NULL,
         created_at     TIMESTAMPTZ DEFAULT NOW(),
         updated_at     TIMESTAMPTZ DEFAULT NOW()
       )
     `);
     await client.query(`ALTER TABLE loans ADD COLUMN IF NOT EXISTS notes TEXT`);
+    await client.query(`ALTER TABLE loans ADD COLUMN IF NOT EXISTS restaurant_id UUID`);
 
     // Normalize split payment methods
     const normalizedSplitPayments = Array.isArray(split_payments)
@@ -928,26 +959,30 @@ router.put('/:id/pay', authenticate, async (req, res) => {
            total_amount = GREATEST(0, total_amount - COALESCE($2,0)),
            split_payments=COALESCE($5::jsonb, split_payments),
            paid_at=NOW(), updated_at=NOW(), paid_by=$4
-       WHERE id=$3 RETURNING *`,
+       WHERE id=$3 AND restaurant_id=$6 RETURNING *`,
       [payment_method, discount_amount || 0, req.params.id, req.user.id,
-       normalizedSplitPayments ? JSON.stringify(normalizedSplitPayments) : null]
+       normalizedSplitPayments ? JSON.stringify(normalizedSplitPayments) : null, rid(req)]
     );
     const order = result.rows[0];
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
     // Record cash inflow (not for loans — money has not arrived yet)
     if (payment_method === 'cash') {
       await client.query(
-        `INSERT INTO cash_flow (type, amount, description, recorded_by)
-         VALUES ('in', $1, $2, $3)`,
-        [order.total_amount, `Payment for order #${order.id.slice(0, 8)}`, req.user.id]
+        `INSERT INTO cash_flow (type, amount, description, recorded_by, restaurant_id)
+         VALUES ('in', $1, $2, $3, $4)`,
+        [order.total_amount, `Payment for order #${order.id.slice(0, 8)}`, req.user.id, rid(req)]
       );
     } else if (payment_method === 'split' && Array.isArray(normalizedSplitPayments)) {
       for (const sp of normalizedSplitPayments) {
         if (sp.method === 'cash') {
           await client.query(
-            `INSERT INTO cash_flow (type, amount, description, recorded_by)
-             VALUES ('in', $1, $2, $3)`,
-            [sp.amount, `Partial split payment for order #${order.id.slice(0, 8)}`, req.user.id]
+            `INSERT INTO cash_flow (type, amount, description, recorded_by, restaurant_id)
+             VALUES ('in', $1, $2, $3, $4)`,
+            [sp.amount, `Partial split payment for order #${order.id.slice(0, 8)}`, req.user.id, rid(req)]
           );
         }
         // Create a loan record for each loan part in a split (accept camelCase or snake_case)
@@ -956,9 +991,9 @@ router.put('/:id/pay', authenticate, async (req, res) => {
         const spDate  = sp.loan_due_date       || sp.loanDueDate;
         if (sp.method === 'loan' && spName && spDate) {
           await client.query(
-            `INSERT INTO loans (order_id, customer_name, customer_phone, due_date, amount, notes)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [order.id, spName, spPhone, spDate, sp.amount, loan_notes]
+            `INSERT INTO loans (order_id, customer_name, customer_phone, due_date, amount, notes, restaurant_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [order.id, spName, spPhone, spDate, sp.amount, loan_notes, rid(req)]
           );
         }
       }
@@ -969,22 +1004,22 @@ router.put('/:id/pay', authenticate, async (req, res) => {
         return res.status(400).json({ error: 'loan_customer_name and loan_due_date are required for loan payments' });
       }
       await client.query(
-        `INSERT INTO loans (order_id, customer_name, customer_phone, due_date, amount, notes)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [order.id, loan_customer_name, loan_customer_phone || null, loan_due_date, order.total_amount, loan_notes]
+        `INSERT INTO loans (order_id, customer_name, customer_phone, due_date, amount, notes, restaurant_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [order.id, loan_customer_name, loan_customer_phone || null, loan_due_date, order.total_amount, loan_notes, rid(req)]
       );
     }
 
     // Free the table if no other active orders
     if (order.table_id) {
       const activeOrders = await client.query(
-        `SELECT COUNT(*) FROM orders WHERE table_id=$1 AND id!=$2 AND status NOT IN ('paid','cancelled')`,
-        [order.table_id, order.id]
+        `SELECT COUNT(*) FROM orders WHERE table_id=$1 AND restaurant_id=$3 AND id!=$2 AND status NOT IN ('paid','cancelled')`,
+        [order.table_id, order.id, rid(req)]
       );
       if (parseInt(activeOrders.rows[0].count) === 0) {
         await client.query(
-          `UPDATE restaurant_tables SET status='free', assigned_to=NULL, opened_at=NULL WHERE id=$1`,
-          [order.table_id]
+          `UPDATE restaurant_tables SET status='free', assigned_to=NULL, opened_at=NULL WHERE id=$1 AND restaurant_id=$2`,
+          [order.table_id, rid(req)]
         );
       }
     }
@@ -1025,11 +1060,11 @@ router.put('/:id/pay', authenticate, async (req, res) => {
             );
             const payCost = parseFloat(ing.cost_per_unit || 0);
             await client.query(
-              `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit)
-               VALUES ($1, 'OUT', $2, $3, $4, $5)`,
+              `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit, restaurant_id)
+               VALUES ($1, 'OUT', $2, $3, $4, $5, $6)`,
               [ing.ingredient_id, qtyUsed, req.user.id,
                `Auto: Order #${orderNum} — ${item.quantity}x (paid)`,
-               payCost]
+               payCost, rid(req)]
             );
             totalIngCost += qtyUsed * payCost;
           }
@@ -1037,9 +1072,9 @@ router.put('/:id/pay', authenticate, async (req, res) => {
         if (totalIngCost > 0) {
           try {
             await client.query(
-              `INSERT INTO expenses (category, description, amount, expense_date, recorded_by)
-               VALUES ('cost_of_goods', $1, $2, CURRENT_DATE, $3)`,
-              [`Ingredients for order #${order.id.slice(0, 8)}`, totalIngCost, req.user.id]
+              `INSERT INTO expenses (category, description, amount, expense_date, recorded_by, restaurant_id)
+               VALUES ('cost_of_goods', $1, $2, CURRENT_DATE, $3, $4)`,
+              [`Ingredients for order #${order.id.slice(0, 8)}`, totalIngCost, req.user.id, rid(req)]
             );
           } catch (_) { /* expenses table optional */ }
         }
@@ -1062,7 +1097,8 @@ router.put('/:id/pay', authenticate, async (req, res) => {
 // DELETE /api/orders/:id
 router.delete('/:id', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
-    await db.query(`UPDATE orders SET status='cancelled', updated_at=NOW() WHERE id=$1`, [req.params.id]);
+    const result = await db.query(`UPDATE orders SET status='cancelled', updated_at=NOW() WHERE id=$1 AND restaurant_id=$2 RETURNING id`, [req.params.id, rid(req)]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Order not found' });
     res.json({ message: 'Order cancelled' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1078,8 +1114,8 @@ router.post('/:id/items', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Verify order exists — any authenticated staff can add items to any order
-    const existing = await client.query('SELECT * FROM orders WHERE id=$1', [req.params.id]);
+    // Verify order exists and belongs to this restaurant
+    const existing = await client.query('SELECT * FROM orders WHERE id=$1 AND restaurant_id=$2', [req.params.id, rid(req)]);
     if (!existing.rows[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Order not found' });
@@ -1093,7 +1129,7 @@ router.post('/:id/items', authenticate, async (req, res) => {
     // Look up prices and insert new items
     let addedSubtotal = 0;
     for (const item of items) {
-      const priceRes = await client.query('SELECT price FROM menu_items WHERE id=$1', [item.menu_item_id]);
+      const priceRes = await client.query('SELECT price FROM menu_items WHERE id=$1 AND restaurant_id=$2', [item.menu_item_id, rid(req)]);
       const unitPrice = priceRes.rows[0] ? Number(priceRes.rows[0].price) : 0;
       const qty = Number(item.quantity || 1);
       addedSubtotal += unitPrice * qty;
@@ -1111,7 +1147,7 @@ router.post('/:id/items', authenticate, async (req, res) => {
     );
     let taxRate = 0;
     try {
-      const taxRes = await client.query('SELECT rate FROM tax_settings WHERE is_active=true LIMIT 1');
+      const taxRes = await client.query('SELECT rate FROM tax_settings WHERE restaurant_id=$1 AND is_active=true LIMIT 1', [rid(req)]);
       taxRate = parseFloat(taxRes.rows[0]?.rate || 0);
     } catch (_) {}
     const subtotal   = parseFloat(totals.rows[0].subtotal);
@@ -1134,14 +1170,14 @@ router.post('/:id/items', authenticate, async (req, res) => {
     const updatedOrder = await db.query(
       `SELECT o.*, t.table_number, u.name as waitress_name
        FROM orders o
-       LEFT JOIN restaurant_tables t ON o.table_id=t.id
+       LEFT JOIN restaurant_tables t ON o.table_id=t.id AND t.restaurant_id = o.restaurant_id
        LEFT JOIN users u ON o.waitress_id=u.id
-       WHERE o.id=$1`, [req.params.id]
+       WHERE o.id=$1 AND o.restaurant_id=$2`, [req.params.id, rid(req)]
     );
     const updatedItems = await db.query(
       `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name
-       FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id
-       WHERE oi.order_id=$1 ORDER BY oi.created_at ASC`, [req.params.id]
+       FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id AND m.restaurant_id = (SELECT restaurant_id FROM orders WHERE id=$2)
+       WHERE oi.order_id=$1 ORDER BY oi.created_at ASC`, [req.params.id, req.params.id]
     );
 
     // Notify kitchen of updated order
@@ -1150,8 +1186,8 @@ router.post('/:id/items', authenticate, async (req, res) => {
         const kitchenUsers = await db.query("SELECT id FROM users WHERE role='kitchen'");
         for (const u of kitchenUsers.rows) {
           await db.query(
-            "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-            [u.id, "Order Updated 🔄", `New items added to order at Table ${updatedOrder.rows[0]?.table_number || '?'}`, "new_order"]
+            "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+            [u.id, "Order Updated", `New items added to order at Table ${updatedOrder.rows[0]?.table_number || '?'}`, "new_order", rid(req)]
           );
         }
       } catch (e) { console.error('Kitchen add-items notification error:', e.message); }
@@ -1169,6 +1205,15 @@ router.post('/:id/items', authenticate, async (req, res) => {
 // until the waitress/admin explicitly advances it via the status endpoint.
 router.put('/:id/items/:itemId/serve', authenticate, async (req, res) => {
   try {
+    // Verify order belongs to this restaurant
+    const orderCheck = await db.query(
+      `SELECT restaurant_id FROM orders WHERE id=$1`,
+      [req.params.id]
+    );
+    if (!orderCheck.rows[0] || orderCheck.rows[0].restaurant_id !== rid(req)) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
     const result = await db.query(
       `UPDATE order_items SET served_at=NOW()
        WHERE id=$1 AND order_id=$2 RETURNING *`,
@@ -1186,8 +1231,8 @@ router.put('/:id/loan/pay', authenticate, authorize('owner', 'admin', 'cashier')
   try {
     // Try to find an existing loan record for this order
     const loanRes = await db.query(
-      `SELECT id FROM loans WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [req.params.id]
+      `SELECT id FROM loans WHERE order_id = $1 AND restaurant_id = $2 ORDER BY created_at DESC LIMIT 1`,
+      [req.params.id, rid(req)]
     );
 
     if (loanRes.rows[0]) {
@@ -1201,21 +1246,22 @@ router.put('/:id/loan/pay', authenticate, authorize('owner', 'admin', 'cashier')
 
     // No loan record found — create one from the order data and mark it as paid
     const orderRes = await db.query(
-      `SELECT id, total_amount, customer_name, customer_phone FROM orders WHERE id=$1`,
-      [req.params.id]
+      `SELECT id, total_amount, customer_name, customer_phone FROM orders WHERE id=$1 AND restaurant_id=$2`,
+      [req.params.id, rid(req)]
     );
     if (!orderRes.rows[0]) return res.status(404).json({ error: 'Order not found' });
     const order = orderRes.rows[0];
 
     const created = await db.query(
-      `INSERT INTO loans (order_id, customer_name, customer_phone, due_date, amount, status, paid_at)
-       VALUES ($1, $2, $3, CURRENT_DATE, $4, 'paid', NOW())
+      `INSERT INTO loans (order_id, customer_name, customer_phone, due_date, amount, status, paid_at, restaurant_id)
+       VALUES ($1, $2, $3, CURRENT_DATE, $4, 'paid', NOW(), $5)
        RETURNING *`,
       [
         req.params.id,
         req.body.customer_name || req.body.customerName || order.customer_name || 'Unknown',
         req.body.customer_phone || req.body.customerPhone || order.customer_phone || null,
         order.total_amount,
+        rid(req)
       ]
     );
     return res.json(created.rows[0]);

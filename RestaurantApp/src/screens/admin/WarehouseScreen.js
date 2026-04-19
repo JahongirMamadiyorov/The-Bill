@@ -20,6 +20,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { warehouseAPI, suppliersAPI, procurementAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ─── NEW COLOR PALETTE ────────────────────────────────────────────────────────
 const C = {
@@ -152,6 +153,62 @@ const OUTPUT_REASONS = ['Kitchen Use', 'Waste', 'Spoilage', 'Expired', 'Transfer
 const RECEIVE_REASONS = ['Purchase', 'Supplier Delivery', 'Transfer', 'Return', 'Donation', 'Correction'];
 const ADJUST_REASONS = ['Expired', 'Broken', 'Damaged', 'Spillage', 'Audit Correction', 'Theft', 'Quality Issue', 'Overcount', 'Undercount'];
 
+// ─── TRANSLATION HELPERS ──────────────────────────────────────────────────────
+// Map internal string IDs to translation keys so UI labels are localised while
+// internal logic (filters, state, API payloads) keeps using the English IDs.
+const DELIVERY_STATUS_I18N = {
+  'Ordered':    'warehouse.deliveryStatus.ordered',
+  'In Transit': 'warehouse.deliveryStatus.inTransit',
+  'Partial':    'warehouse.deliveryStatus.partial',
+  'Delivered':  'warehouse.deliveryStatus.delivered',
+  'Cancelled':  'warehouse.deliveryStatus.cancelled',
+};
+function deliveryStatusLabel(status, t) {
+  const key = DELIVERY_STATUS_I18N[status];
+  return key ? t(key, status) : status;
+}
+
+const INV_CAT_I18N = {
+  'Food & Ingredients': 'warehouse.categoriesNamed.foodIngredients',
+  'Beverages':          'warehouse.categoriesNamed.beverages',
+  'Cleaning':           'warehouse.categoriesNamed.cleaning',
+  'Packaging':          'warehouse.categoriesNamed.packaging',
+  'Other':              'warehouse.categoriesNamed.other',
+};
+function invCategoryLabel(cat, t) {
+  const key = INV_CAT_I18N[cat];
+  return key ? t(key, cat) : cat;
+}
+
+const OUTPUT_REASON_I18N = {
+  'Kitchen Use': 'warehouse.outputReasons.kitchenUse',
+  'Waste':       'warehouse.outputReasons.waste',
+  'Spoilage':    'warehouse.outputReasons.spoilage',
+  'Expired':     'warehouse.outputReasons.expired',
+  'Transfer':    'warehouse.outputReasons.transfer',
+  'Cleaning':    'warehouse.outputReasons.cleaning',
+  'Breakage':    'warehouse.outputReasons.breakage',
+  'Staff Meal':  'warehouse.outputReasons.staffMeal',
+  'Sample':      'warehouse.outputReasons.sample',
+};
+function outputReasonLabel(reason, t) {
+  const key = OUTPUT_REASON_I18N[reason];
+  return key ? t(key, reason) : reason;
+}
+
+const PAY_METHOD_I18N = {
+  'Cash':           'warehouse.paymentMethodsList.cash',
+  'Bank Transfer':  'warehouse.paymentMethodsList.bankTransfer',
+  'Card':           'warehouse.paymentMethodsList.card',
+  'Mobile Payment': 'warehouse.paymentMethodsList.mobilePayment',
+  'Check':          'warehouse.paymentMethodsList.check',
+  'Other':          'warehouse.paymentMethodsList.other',
+};
+function payMethodLabel(method, t) {
+  const key = PAY_METHOD_I18N[method];
+  return key ? t(key, method) : method;
+}
+
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
 // Recipes: menuItemName → [ { ingredientName, qty, unit } ]
 const SEED_RECIPES = {
@@ -233,6 +290,7 @@ function whGetMonday(d) {
 }
 
 function RangePickerModal({ visible, onClose, from, to, onChange }) {
+  const { t } = useTranslation();
   const wh_today    = getWhToday();
   const wh_todayStr = getWhTodayStr();
   const [viewYear,  setViewYear]  = useState(wh_today.getFullYear());
@@ -293,7 +351,7 @@ function RangePickerModal({ visible, onClose, from, to, onChange }) {
           {/* Header */}
           <View style={rp.header}>
             <MaterialIcons name="calendar-today" size={20} color={C.primary} />
-            <Text style={rp.headerTitle}>Select Period</Text>
+            <Text style={rp.headerTitle}>{t('warehouse.sections.selectPeriod', 'Select Period')}</Text>
             <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
               <MaterialIcons name="close" size={22} color={C.neutralMid} />
             </TouchableOpacity>
@@ -502,12 +560,12 @@ function TInput({ value, onChangeText, placeholder, keyboardType, multiline }) {
     />
   );
 }
-function PickerRow({ options, value, onSelect }) {
+function PickerRow({ options, value, onSelect, labels }) {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-      {options.map(opt => (
+      {options.map((opt, idx) => (
         <TouchableOpacity key={opt} style={[styles.pickerPill, value === opt && styles.pickerPillActive]} onPress={() => onSelect(opt)}>
-          <Text style={[styles.pickerPillText, value === opt && styles.pickerPillTextActive]}>{opt}</Text>
+          <Text style={[styles.pickerPillText, value === opt && styles.pickerPillTextActive]}>{labels ? (labels[idx] ?? opt) : opt}</Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -674,6 +732,7 @@ const cal = StyleSheet.create({
 
 // ─── STATUS BANNER ────────────────────────────────────────────────────────────
 function StatusBanner({ items, lowStockAlertNames }) {
+  const { t } = useTranslation();
   const outCount = items.filter(i => stockStatus(i) === 'critical').length;
   const lowCount = items.filter(i => stockStatus(i) === 'low').length;
   const alertCount = lowStockAlertNames?.length || 0;
@@ -694,7 +753,7 @@ function StatusBanner({ items, lowStockAlertNames }) {
   } else {
     bg = C.success;
     icon = null;
-    text = 'All stock levels healthy';
+    text = t('warehouse.empty.allStockHealthy', 'All stock levels healthy');
   }
 
   return (
@@ -709,6 +768,7 @@ function StatusBanner({ items, lowStockAlertNames }) {
 
 // ─── KITCHEN ANALYTICS SHEET ──────────────────────────────────────────────────
 function KitchenAnalyticsSheet({ visible, onClose, entry, allOutputs, items, rangeLabel }) {
+  const { t } = useTranslation();
   if (!entry) return null;
   const ingName = entry.itemName;
   const item    = items.find(i => i.name.toLowerCase() === ingName.toLowerCase());
@@ -787,7 +847,7 @@ function KitchenAnalyticsSheet({ visible, onClose, entry, allOutputs, items, ran
         <View style={an.section}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
             <MaterialIcons name="restaurant" size={16} color={C.neutralDark} />
-            <Text style={an.sectionTitle}>Consumed By Menu Item</Text>
+            <Text style={an.sectionTitle}>{t('warehouse.sections.consumedByMenuItem', 'Consumed By Menu Item')}</Text>
           </View>
           {menuBreakdown.map(([menu, qty]) => (
             <View key={menu} style={an.menuRow}>
@@ -826,6 +886,7 @@ const an = StyleSheet.create({
 // TAB 1 — INVENTORY
 // ═══════════════════════════════════════════════════════════════════════════════
 function InventoryTab({ items, onRefresh, refreshing, categories, setCategories, suppliers, onDeliveryCreated, setDialog }) {
+  const { t } = useTranslation();
   const [search, setSearch]       = useState('');
   const [filter, setFilter]       = useState('All');
   const [itemSheet, setItemSheet] = useState(false);
@@ -858,6 +919,11 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
   const ri = (k, v) => setReceiveForm(p => ({ ...p, [k]: v }));
 
   const filterOptions = ['All', 'Low Stock', ...categories];
+  const filterLabel = (f) => {
+    if (f === 'All')        return t('warehouse.filters.all', 'All');
+    if (f === 'Low Stock')  return t('warehouse.filters.lowStock', 'Low Stock');
+    return invCategoryLabel(f, t);
+  };
 
   const displayed = items.filter(item => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase());
@@ -1094,11 +1160,11 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
       <View style={styles.statPillRow}>
         <View style={[styles.statPill, { backgroundColor: C.warningLight }]}>
           <Text style={[styles.statPillNum, { color: C.warning }]}>{lowCount}</Text>
-          <Text style={[styles.statPillLabel, { color: C.warning }]}>Low Stock</Text>
+          <Text style={[styles.statPillLabel, { color: C.warning }]}>{t('warehouse.filters.lowStock', 'Low Stock')}</Text>
         </View>
         <View style={[styles.statPill, { backgroundColor: C.dangerLight }]}>
           <Text style={[styles.statPillNum, { color: C.danger }]}>{outCount}</Text>
-          <Text style={[styles.statPillLabel, { color: C.danger }]}>Out of Stock</Text>
+          <Text style={[styles.statPillLabel, { color: C.danger }]}>{t('warehouse.filters.outOfStock', 'Out of Stock')}</Text>
         </View>
       </View>
 
@@ -1107,7 +1173,7 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filterScroll, { flex: 1 }]} contentContainerStyle={{ gap: 8, paddingHorizontal: spacing.md }}>
           {filterOptions.map(f => (
             <TouchableOpacity key={f} style={[styles.filterChip, filter === f && styles.filterChipActive]} onPress={() => setFilter(f)}>
-              <Text style={[styles.filterChipText, filter === f && styles.filterChipTextActive]}>{f}</Text>
+              <Text style={[styles.filterChipText, filter === f && styles.filterChipTextActive]}>{filterLabel(f)}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -1118,14 +1184,14 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
 
       <View style={styles.searchWrap}>
         <MaterialIcons name="search" size={18} color={C.neutralMid} style={{ marginRight: 6 }} />
-        <TextInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder="Search items..." placeholderTextColor={colors.textMuted} />
+        <TextInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder={t('warehouse.searchItems','Search items...')} placeholderTextColor={colors.textMuted} />
         {search !== '' && <TouchableOpacity onPress={() => setSearch('')}><MaterialIcons name="close" size={18} color={C.neutralMid} /></TouchableOpacity>}
       </View>
-      <TouchableOpacity style={styles.addBtn} onPress={openAdd}><Text style={styles.addBtnText}>+ Add Inventory Item</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.addBtn} onPress={openAdd}><Text style={styles.addBtnText}>+ {t('warehouse.addItem','Add Inventory Item')}</Text></TouchableOpacity>
       <FlatList
         data={displayed} keyExtractor={i => String(i.id)} contentContainerStyle={styles.listPad} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.admin} />}
-        ListEmptyComponent={<View style={styles.emptyWrap}><MaterialIcons name="inventory-2" size={48} color={C.border} style={{ marginBottom: 8 }} /><Text style={styles.emptyText}>No items found</Text></View>}
+        ListEmptyComponent={<View style={styles.emptyWrap}><MaterialIcons name="inventory-2" size={48} color={C.border} style={{ marginBottom: 8 }} /><Text style={styles.emptyText}>{t('warehouse.empty.noItems', 'No items found')}</Text></View>}
         renderItem={({ item }) => {
           const st = stockStatus(item);
           const catCol = invCatColor(item.category, categories);
@@ -1138,7 +1204,7 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
                     <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                     {item.category ? (
                       <View style={[styles.catBadge, { backgroundColor: catCol.bg }]}>
-                        <Text style={[styles.catBadgeText, { color: catCol.text }]}>{item.category}</Text>
+                        <Text style={[styles.catBadgeText, { color: catCol.text }]}>{invCategoryLabel(item.category, t)}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -1153,23 +1219,23 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
               <View style={actBtn.row}>
                 <TouchableOpacity style={[actBtn.btn, actBtn.btnReceive]} onPress={() => openReceive(item)}>
                   <MaterialIcons name="add-circle-outline" size={14} color="#15803d" />
-                  <Text style={[actBtn.btnText, { color: '#15803d' }]}>Receive</Text>
+                  <Text style={[actBtn.btnText, { color: '#15803d' }]}>{t('warehouse.actions.receive', 'Receive')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[actBtn.btn, actBtn.btnConsume]} onPress={() => openConsume(item)}>
                   <MaterialIcons name="remove-circle-outline" size={14} color="#c2410c" />
-                  <Text style={[actBtn.btnText, { color: '#c2410c' }]}>Consume</Text>
+                  <Text style={[actBtn.btnText, { color: '#c2410c' }]}>{t('warehouse.actions.consume', 'Consume')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[actBtn.btn, actBtn.btnAdjust]} onPress={() => openAdjust(item)}>
                   <MaterialIcons name="sync" size={14} color="#4f46e5" />
-                  <Text style={[actBtn.btnText, { color: '#4f46e5' }]}>Adjust</Text>
+                  <Text style={[actBtn.btnText, { color: '#4f46e5' }]}>{t('warehouse.actions.adjust', 'Adjust')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[actBtn.btn, actBtn.btnEdit]} onPress={() => openEdit(item)}>
                   <MaterialIcons name="edit" size={14} color="#1d4ed8" />
-                  <Text style={[actBtn.btnText, { color: '#1d4ed8' }]}>Edit</Text>
+                  <Text style={[actBtn.btnText, { color: '#1d4ed8' }]}>{t('warehouse.actions.edit', 'Edit')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[actBtn.btn, actBtn.btnDelete]} onPress={() => deleteItem(item)}>
                   <MaterialIcons name="delete-outline" size={14} color="#dc2626" />
-                  <Text style={[actBtn.btnText, { color: '#dc2626' }]}>Delete</Text>
+                  <Text style={[actBtn.btnText, { color: '#dc2626' }]}>{t('warehouse.actions.delete', 'Delete')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1178,15 +1244,15 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
       />
 
       {/* Add / Edit item sheet */}
-      <Sheet visible={itemSheet} onClose={() => setItemSheet(false)} title={editing ? 'Edit Item' : 'Add Inventory Item'} tall>
-        <Field label="Item Name"><TInput value={form.name} onChangeText={v => fi('name', v)} placeholder="e.g. Chicken Breast" /></Field>
-        <Field label="Category">
+      <Sheet visible={itemSheet} onClose={() => setItemSheet(false)} title={editing ? t('warehouse.editItem','Edit Item') : t('warehouse.addItem','Add Inventory Item')} tall>
+        <Field label={t('warehouse.itemName','Item Name')}><TInput value={form.name} onChangeText={v => fi('name', v)} placeholder={t('warehouse.egChickenBreast','e.g. Chicken Breast')} /></Field>
+        <Field label={t('warehouse.category','Category')}>
           <PickerRow options={categories.length ? categories : ['Other']} value={form.category} onSelect={v => fi('category', v)} />
         </Field>
-        <Field label="Unit *"><PickerRow options={UNITS} value={form.unit} onSelect={v => fi('unit', v)} /></Field>
+        <Field label={t('warehouse.unitRequired','Unit *')}><PickerRow options={UNITS} value={form.unit} onSelect={v => fi('unit', v)} /></Field>
         <Field label="Min Stock Level"><TInput value={form.min_stock_level} onChangeText={v => fi('min_stock_level', v)} placeholder="5" keyboardType="decimal-pad" /></Field>
-        <Field label="Price per Unit (so'm)"><TInput value={form.cost_per_unit} onChangeText={v => fi('cost_per_unit', v)} placeholder="0" keyboardType="decimal-pad" /></Field>
-        <Field label="Supplier (optional)">
+        <Field label={t('warehouse.pricePerUnit',"Price per Unit (so'm)")}><TInput value={form.cost_per_unit} onChangeText={v => fi('cost_per_unit', v)} placeholder={t('warehouse.zero','0')} keyboardType="decimal-pad" /></Field>
+        <Field label={t('warehouse.supplierOptional','Supplier (optional)')}>
           <PickerRow
             options={['No supplier', ...(suppliers || []).map(s => s.name)]}
             value={form.supplier_name || 'No supplier'}
@@ -1199,7 +1265,7 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
         </Field>
         <View style={styles.field}>
           <DateField
-            label="EXPIRY DATE (OPTIONAL)"
+            label={t('warehouse.expiryDateOptional','EXPIRY DATE (OPTIONAL)')}
             value={form.expiry_date}
             onChange={v => fi('expiry_date', v)}
           />
@@ -1208,18 +1274,18 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
       </Sheet>
 
       {/* Receive stock sheet */}
-      <Sheet visible={receiveSheet} onClose={() => setReceiveSheet(false)} title={`Receive Stock — ${receiveItem?.name || ''}`} tall>
-        <Field label={`Quantity (${receiveItem?.unit || 'unit'})`}>
-          <TInput value={receiveForm.quantity} onChangeText={v => ri('quantity', v)} placeholder="e.g. 50" keyboardType="decimal-pad" />
+      <Sheet visible={receiveSheet} onClose={() => setReceiveSheet(false)} title={`${t('warehouse.receiveStock','Receive Stock')} — ${receiveItem?.name || ''}`} tall>
+        <Field label={`${t('warehouse.quantityUnit','Quantity (unit)').replace('unit', receiveItem?.unit || 'unit')}`}>
+          <TInput value={receiveForm.quantity} onChangeText={v => ri('quantity', v)} placeholder={t('warehouse.eg50','e.g. 50')} keyboardType="decimal-pad" />
         </Field>
         <Field label={`Price per ${receiveItem?.unit || 'unit'} (so'm)`}>
-          <TInput value={receiveForm.cost_per_unit} onChangeText={v => ri('cost_per_unit', v)} placeholder={receiveItem?.cost_per_unit ? String(toNum(receiveItem.cost_per_unit)) : '0'} keyboardType="decimal-pad" />
+          <TInput value={receiveForm.cost_per_unit} onChangeText={v => ri('cost_per_unit', v)} placeholder={receiveItem?.cost_per_unit ? String(toNum(receiveItem.cost_per_unit)) : t('warehouse.zero','0')} keyboardType="decimal-pad" />
         </Field>
-        <Field label="Reason">
+        <Field label={t('warehouse.reason','Reason')}>
           <PickerRow options={RECEIVE_REASONS} value={receiveForm.reason} onSelect={v => ri('reason', v)} />
         </Field>
         {suppliers && suppliers.length > 0 && (
-          <Field label="Supplier">
+          <Field label={t('warehouse.supplier','Supplier')}>
             <PickerRow
               options={['No supplier', ...suppliers.map(s => s.name)]}
               value={receiveForm.supplier_name || 'No supplier'}
@@ -1232,19 +1298,19 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
           </Field>
         )}
         <View style={styles.field}>
-          <DateField label="EXPIRY DATE (OPTIONAL)" value={receiveForm.expiry_date} onChange={v => ri('expiry_date', v)} />
+          <DateField label={t('warehouse.expiryDateOptional','EXPIRY DATE (OPTIONAL)')} value={receiveForm.expiry_date} onChange={v => ri('expiry_date', v)} />
         </View>
         <View style={styles.field}>
-          <DateField label="DELIVERY DATE" value={receiveForm.delivery_date} onChange={v => ri('delivery_date', v)} placeholder="Tap to pick date" />
+          <DateField label="DELIVERY DATE" value={receiveForm.delivery_date} onChange={v => ri('delivery_date', v)} placeholder={t('warehouse.tapPickDate','Tap to pick date')} />
         </View>
         <View style={{ gap: 8, marginTop: 8 }}>
-          <SaveBtn onPress={receiveStock} label="Confirm Receipt" loading={receiveSaving} />
+          <SaveBtn onPress={receiveStock} label={t('warehouse.confirmReceipt','Confirm Receipt')} loading={receiveSaving} />
           <CancelBtn onPress={() => setReceiveSheet(false)} />
         </View>
       </Sheet>
 
       {/* Stock Batches detail sheet (FIFO order — soonest expiry first) */}
-      <Sheet visible={batchesSheet} onClose={() => setBatchesSheet(false)} title={`Batches — ${batchesItem?.name || ''}`} tall>
+      <Sheet visible={batchesSheet} onClose={() => setBatchesSheet(false)} title={`${t('warehouse.batches','Batches')} — ${batchesItem?.name || ''}`} tall>
         <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
           <Text style={{ fontSize: 12, color: C.neutralMid, marginBottom: 12 }}>
             Batches are shown in FIFO order (soonest expiry used first).
@@ -1254,7 +1320,7 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
           ) : batchesData.length === 0 ? (
             <View style={{ alignItems: 'center', paddingTop: 32 }}>
               <MaterialIcons name="layers" size={40} color={C.border} />
-              <Text style={{ color: C.neutralMid, marginTop: 8, fontSize: 13 }}>No stock batches found</Text>
+              <Text style={{ color: C.neutralMid, marginTop: 8, fontSize: 13 }}>{t('warehouse.empty.noStockBatches', 'No stock batches found')}</Text>
             </View>
           ) : (
             batchesData.map((batch, idx) => {
@@ -1299,31 +1365,31 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
       </Sheet>
 
       {/* Consume stock sheet */}
-      <Sheet visible={consumeSheet} onClose={() => setConsumeSheet(false)} title={`Record Output — ${consumeItem?.name || ''}`}>
+      <Sheet visible={consumeSheet} onClose={() => setConsumeSheet(false)} title={`${t('warehouse.recordOutput','Record Output')} — ${consumeItem?.name || ''}`}>
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Available: {consumeItem ? `${fmtNum(consumeItem.quantity_in_stock)} ${consumeItem.unit}` : ''}</Text>
         </View>
         <Field label={`Quantity (${consumeItem?.unit || 'unit'})`}>
-          <TInput value={consumeForm.quantity} onChangeText={v => setConsumeForm(p => ({ ...p, quantity: v }))} placeholder="e.g. 5" keyboardType="decimal-pad" />
+          <TInput value={consumeForm.quantity} onChangeText={v => setConsumeForm(p => ({ ...p, quantity: v }))} placeholder={t('warehouse.eg5','e.g. 5')} keyboardType="decimal-pad" />
         </Field>
-        <Field label="Reason">
-          <PickerRow options={OUTPUT_REASONS} value={consumeForm.reason} onSelect={v => setConsumeForm(p => ({ ...p, reason: v }))} />
+        <Field label={t('warehouse.reason','Reason')}>
+          <PickerRow options={OUTPUT_REASONS} value={consumeForm.reason} onSelect={v => setConsumeForm(p => ({ ...p, reason: v }))} labels={OUTPUT_REASONS.map(r => outputReasonLabel(r, t))} />
         </Field>
         <View style={{ gap: 8, marginTop: 8 }}>
-          <SaveBtn onPress={handleConsume} label="Record Output" loading={consumeSaving} />
+          <SaveBtn onPress={handleConsume} label={t('warehouse.recordOutput','Record Output')} loading={consumeSaving} />
           <CancelBtn onPress={() => setConsumeSheet(false)} />
         </View>
       </Sheet>
 
       {/* Adjust stock sheet */}
-      <Sheet visible={adjustSheet} onClose={() => setAdjustSheet(false)} title={`Adjust Stock — ${adjustItem?.name || ''}`} tall>
+      <Sheet visible={adjustSheet} onClose={() => setAdjustSheet(false)} title={`${t('warehouse.adjustStock','Adjust Stock')} — ${adjustItem?.name || ''}`} tall>
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Current Stock: {adjustItem ? `${fmtNum(adjustItem.quantity_in_stock)} ${adjustItem.unit}` : ''}</Text>
         </View>
-        <Field label="Quantity to Remove">
-          <TInput value={adjustForm.quantity} onChangeText={v => setAdjustForm(p => ({ ...p, quantity: v }))} placeholder="e.g. 2" keyboardType="decimal-pad" />
+        <Field label={t('warehouse.quantityRemove','Quantity to Remove')}>
+          <TInput value={adjustForm.quantity} onChangeText={v => setAdjustForm(p => ({ ...p, quantity: v }))} placeholder={t('warehouse.eg2','e.g. 2')} keyboardType="decimal-pad" />
         </Field>
-        <Field label="Reason *">
+        <Field label={t('warehouse.reasonRequired','Reason *')}>
           <PickerRow options={ADJUST_REASONS} value={adjustForm.reason} onSelect={v => setAdjustForm(p => ({ ...p, reason: v }))} />
         </Field>
         <TouchableOpacity
@@ -1337,13 +1403,13 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
           <Text style={{ fontSize: 14, color: adjustForm.is_waste ? C.danger : C.neutralDark, fontWeight: '600' }}>Mark as waste (logs expense)</Text>
         </TouchableOpacity>
         <View style={{ gap: 8, marginTop: 8 }}>
-          <SaveBtn onPress={handleAdjust} label="Adjust Stock" loading={adjustSaving} />
+          <SaveBtn onPress={handleAdjust} label={t('warehouse.adjustStock','Adjust Stock')} loading={adjustSaving} />
           <CancelBtn onPress={() => setAdjustSheet(false)} />
         </View>
       </Sheet>
 
       {/* Category management sheet */}
-      <Sheet visible={catSheet} onClose={() => { setCatSheet(false); setNewCatName(''); }} title="Manage Categories" tall>
+      <Sheet visible={catSheet} onClose={() => { setCatSheet(false); setNewCatName(''); }} title={t('warehouse.manageCategories','Manage Categories')} tall>
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Add New Category</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
@@ -1351,7 +1417,7 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
               style={[styles.tInput, { flex: 1 }]}
               value={newCatName}
               onChangeText={setNewCatName}
-              placeholder="e.g. Beverages"
+              placeholder={t('warehouse.egBeverages','e.g. Beverages')}
               placeholderTextColor={colors.textMuted}
               returnKeyType="done"
               onSubmitEditing={addCategory}
@@ -1396,6 +1462,7 @@ function InventoryTab({ items, onRefresh, refreshing, categories, setCategories,
 // ═══════════════════════════════════════════════════════════════════════════════
 // history + setHistory are lifted to WarehouseScreen so state survives tab switches.
 function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refreshing, setDialog }) {
+  const { t } = useTranslation();
   const [sheet, setSheet]                 = useState(false);
   const [saving, setSaving]               = useState(false);
   const [range, setRange]                 = useState('Today');
@@ -1545,7 +1612,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
       await procurementAPI.payDelivery(String(d.id), { payment_method: payMethod, payment_note: payNote, paid_at: payDate ? new Date(payDate + 'T12:00:00').toISOString() : null });
     } catch (err) {
       // API failed — revert local state back to unpaid
-      Alert.alert('Payment Error', 'Could not save payment to server. Please try again.');
+      Alert.alert(t('alerts.paymentError','Payment Error'), t('alerts.couldNotSavePayment','Could not save payment to server. Please try again.'));
       setHistory(prev => {
         const reverted = prev.map(item =>
           item.id === d.id
@@ -1586,13 +1653,13 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
           }
         }
       }
-      Alert.alert('Success', `Status changed to ${newStatus}`);
+      Alert.alert(t('alerts.success','Success'), t('alerts.statusChanged','Status changed to {status}').replace('{status}', newStatus));
       setDetailSheet(false);
       onRefresh();
       // Reload stock receipts after status change (stock may have been received)
       setTimeout(() => { loadReceipts(); }, 800);
     } catch (err) {
-      Alert.alert('Error', 'Failed to update status');
+      Alert.alert(t('alerts.error','Error'), t('alerts.failedUpdateStatus','Failed to update status'));
     }
   }
 
@@ -1636,14 +1703,14 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
           await procurementAPI.removeDeliveryItem(lineItemId, reason || 'Damaged');
           setDetailItems(prev => prev.map(it => it.id === lineItemId ? { ...it, removed: true, removeReason: reason || 'Damaged' } : it));
           onRefresh();
-        } catch (_) { Alert.alert('Error', 'Failed to remove item'); }
+        } catch (_) { Alert.alert(t('alerts.error','Error'), t('alerts.failedRemoveItem','Failed to remove item')); }
       }},
     ]) : (async () => {
       try {
         await procurementAPI.removeDeliveryItem(lineItemId, 'Damaged');
         setDetailItems(prev => prev.map(it => it.id === lineItemId ? { ...it, removed: true, removeReason: 'Damaged' } : it));
         onRefresh();
-      } catch (_) { Alert.alert('Error', 'Failed to remove item'); }
+      } catch (_) { Alert.alert(t('alerts.error','Error'), t('alerts.failedRemoveItem','Failed to remove item')); }
     })();
   }
 
@@ -1657,13 +1724,13 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
           await procurementAPI.updateDeliveryItemQty(lineItemId, q);
           setDetailItems(prev => prev.map(it => it.id === lineItemId ? { ...it, qty: q } : it));
           onRefresh();
-        } catch (_) { Alert.alert('Error', 'Failed to update quantity'); }
+        } catch (_) { Alert.alert(t('alerts.error','Error'), t('alerts.failedUpdateQuantity','Failed to update quantity')); }
       }},
     ], 'plain-text', String(currentQty)) : (async () => {
       try {
         await procurementAPI.updateDeliveryItemQty(lineItemId, currentQty);
         onRefresh();
-      } catch (_) { Alert.alert('Error', 'Failed to update quantity'); }
+      } catch (_) { Alert.alert(t('alerts.error','Error'), t('alerts.failedUpdateQuantity','Failed to update quantity')); }
     })();
   }
 
@@ -1844,7 +1911,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
         <View style={{ marginHorizontal: spacing.md, marginBottom: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <MaterialIcons name="local-shipping" size={18} color="#1d4ed8" />
-            <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e3a5f', flex: 1 }}>Pending Deliveries</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e3a5f', flex: 1 }}>{t('warehouse.sections.pendingDeliveries', 'Pending Deliveries')}</Text>
             <View style={{ backgroundColor: '#DBEAFE', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
               <Text style={{ fontSize: 11, fontWeight: '700', color: '#1d4ed8' }}>{pendingHistory.length} active</Text>
             </View>
@@ -1862,7 +1929,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.histAmount}>{money(d.total)}</Text>
                     <View style={{ backgroundColor: sc.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, marginTop: 4 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: sc.text }}>{d.status}</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: sc.text }}>{deliveryStatusLabel(d.status, t)}</Text>
                     </View>
                   </View>
                 </View>
@@ -1895,7 +1962,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <MaterialIcons name="local-shipping" size={48} color={C.border} style={{ marginBottom: 8 }} />
-            <Text style={styles.emptyText}>No deliveries in this period</Text>
+            <Text style={styles.emptyText}>{t('warehouse.empty.noDeliveries', 'No deliveries in this period')}</Text>
           </View>
         }
         renderItem={({ item: d }) => {
@@ -1917,7 +1984,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={[styles.catBadge, { backgroundColor: sc.bg, paddingHorizontal: 10, paddingVertical: 4 }]}>
-                    <Text style={[styles.catBadgeText, { color: sc.text, fontSize: 11 }]}>{d.status || 'Delivered'}</Text>
+                    <Text style={[styles.catBadgeText, { color: sc.text, fontSize: 11 }]}>{deliveryStatusLabel(d.status || 'Delivered', t)}</Text>
                   </View>
                   <View style={[styles.catBadge, {
                     backgroundColor: d.paymentStatus === 'paid' ? '#dcfce7' : '#fee2e2',
@@ -1926,7 +1993,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
                     <Text style={[styles.catBadgeText, {
                       color: d.paymentStatus === 'paid' ? '#15803d' : '#dc2626', fontSize: 11,
                     }]}>
-                      {d.paymentStatus === 'paid' ? '✓ Paid' : 'Unpaid'}
+                      {d.paymentStatus === 'paid' ? `✓ ${t('warehouse.paymentStatus.paid', 'Paid')}` : t('warehouse.paymentStatus.unpaid', 'Unpaid')}
                     </Text>
                   </View>
                 </View>
@@ -2011,7 +2078,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
                 );
               }) : (
                 <View style={{ padding: 20, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, color: '#9ca3af' }}>No receipts in this period</Text>
+                  <Text style={{ fontSize: 12, color: '#9ca3af' }}>{t('warehouse.empty.noReceipts', 'No receipts in this period')}</Text>
                 </View>
               )}
             </View>
@@ -2020,8 +2087,8 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
       />
 
       {/* Add / Edit sheet */}
-      <Sheet visible={sheet} onClose={closeSheet} title={editingDelivery ? 'Edit Delivery' : 'Record Delivery'} tall>
-        <Field label="Supplier">
+      <Sheet visible={sheet} onClose={closeSheet} title={editingDelivery ? t('warehouse.editDelivery','Edit Delivery') : t('warehouse.recordDelivery','Record Delivery')} tall>
+        <Field label={t('warehouse.fields.supplier', 'Supplier')}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
             {suppliers.map(s => (
               <TouchableOpacity key={s.id} style={[styles.pickerPill, form.supplierId === s.id && styles.pickerPillActive]} onPress={() => setForm(p => ({ ...p, supplierId: s.id, supplierName: s.name }))}>
@@ -2034,17 +2101,17 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
 
         <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
           <View style={{ flex: 1 }}>
-            <DateField label="Date" value={form.date} onChange={v => setForm(p => ({ ...p, date: v || todayStr() }))} placeholder="Tap to pick date" />
+            <DateField label="Date" value={form.date} onChange={v => setForm(p => ({ ...p, date: v || todayStr() }))} placeholder={t('warehouse.tapPickDate','Tap to pick date')} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.fieldLabel}>Invoice #</Text>
-            <TInput value={form.invoice} onChangeText={v => setForm(p => ({ ...p, invoice: v }))} placeholder="INV-001" />
+            <TInput value={form.invoice} onChangeText={v => setForm(p => ({ ...p, invoice: v }))} placeholder={t('warehouse.invoiceNumber','INV-001')} />
           </View>
         </View>
 
         {/* Delivery status — lets users track in-transit orders */}
-        <Field label="Delivery Status">
-          <PickerRow options={DELIVERY_STATUSES} value={form.status} onSelect={v => setForm(p => ({ ...p, status: v }))} />
+        <Field label={t('warehouse.fields.deliveryStatus', 'Delivery Status')}>
+          <PickerRow options={DELIVERY_STATUSES} value={form.status} onSelect={v => setForm(p => ({ ...p, status: v }))} labels={DELIVERY_STATUSES.map(s => deliveryStatusLabel(s, t))} />
         </Field>
 
         {/* Payment status — compact toggle buttons */}
@@ -2063,7 +2130,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               }}
             >
               <MaterialIcons name="schedule" size={18} color={form.paymentStatus === 'unpaid' ? C.danger : C.neutralMid} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: form.paymentStatus === 'unpaid' ? C.danger : C.neutralMid }}>Unpaid</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: form.paymentStatus === 'unpaid' ? C.danger : C.neutralMid }}>{t('warehouse.paymentStatus.unpaid', 'Unpaid')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setForm(p => ({ ...p, paymentStatus: 'paid' }))}
@@ -2077,7 +2144,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               }}
             >
               <MaterialIcons name="check-circle" size={18} color={form.paymentStatus === 'paid' ? C.success : C.neutralMid} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: form.paymentStatus === 'paid' ? C.success : C.neutralMid }}>Paid</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: form.paymentStatus === 'paid' ? C.success : C.neutralMid }}>{t('warehouse.paymentStatus.paid', 'Paid')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2089,23 +2156,23 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               label="Payment Due Date (optional)"
               value={form.paymentDueDate}
               onChange={v => setForm(p => ({ ...p, paymentDueDate: v || '' }))}
-              placeholder="Tap to set due date"
+              placeholder={t('warehouse.tapSetDueDate','Tap to set due date')}
             />
           </View>
         )}
 
-        <Field label="Notes (optional)">
-          <TInput value={form.notes} onChangeText={v => setForm(p => ({ ...p, notes: v }))} placeholder="e.g. Partial shipment, driver called…" multiline />
+        <Field label={t('warehouse.fields.notesOptional', 'Notes (optional)')}>
+          <TInput value={form.notes} onChangeText={v => setForm(p => ({ ...p, notes: v }))} placeholder={t('warehouse.egPartialShipment','e.g. Partial shipment, driver called…')} multiline />
         </Field>
 
-        <Field label="Items">
+        <Field label={t('warehouse.fields.items', 'Items')}>
           {/* Item name with autocomplete */}
           <View style={{ marginBottom: 8 }}>
             <TextInput
               style={[styles.tInput, { fontSize: 14 }]}
               value={lineItem}
               onChangeText={setLineItem}
-              placeholder="Search or type item name..."
+              placeholder={t('warehouse.searchOrTypeItem','Search or type item name...')}
               placeholderTextColor={colors.textMuted}
             />
             {lineItem.length > 0 && (() => {
@@ -2135,7 +2202,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
 
           {/* Qty, Unit dropdown, Price, Add button */}
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <TextInput style={[styles.tInput, { flex: 1 }]} value={lineQty} onChangeText={setLineQty} placeholder="Qty" keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
+            <TextInput style={[styles.tInput, { flex: 1 }]} value={lineQty} onChangeText={setLineQty} placeholder={t('warehouse.qty','Qty')} keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
             {/* Unit dropdown — tap to show list */}
             <TouchableOpacity
               onPress={() => setUnitPickerOpen(true)}
@@ -2148,13 +2215,13 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               <Text style={{ fontSize: 13, fontWeight: '700', color: '#1d4ed8' }}>{lineUnit}</Text>
               <MaterialIcons name="arrow-drop-down" size={18} color="#1d4ed8" />
             </TouchableOpacity>
-            <TextInput style={[styles.tInput, { flex: 1 }]} value={linePrice} onChangeText={setLinePrice} placeholder="Price" keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
+            <TextInput style={[styles.tInput, { flex: 1 }]} value={linePrice} onChangeText={setLinePrice} placeholder={t('warehouse.price','Price')} keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
             <TouchableOpacity style={[styles.addLineBtn, { width: 42, height: 42 }]} onPress={addLine}><Text style={styles.addLineBtnText}>+</Text></TouchableOpacity>
           </View>
 
           {/* Expiry date */}
           <View style={{ marginTop: 8 }}>
-            <DateField value={lineExpiry} onChange={setLineExpiry} placeholder="Expiry date (optional)" />
+            <DateField value={lineExpiry} onChange={setLineExpiry} placeholder={t('warehouse.expiryDateOptionalShort','Expiry date (optional)')} />
           </View>
         </Field>
 
@@ -2192,7 +2259,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
             <View style={{ alignItems: 'center', paddingVertical: 12 }}>
               <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB' }} />
             </View>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: C.neutralDark, textAlign: 'center', marginBottom: 12 }}>Measurement Unit</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.neutralDark, textAlign: 'center', marginBottom: 12 }}>{t('warehouse.fields.measurementUnit', 'Measurement Unit')}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 }}>
               {DELIVERY_UNITS.map(u => (
                 <TouchableOpacity
@@ -2218,7 +2285,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
       </Modal>
 
       {/* Payment Sheet */}
-      <Sheet visible={paySheet} onClose={() => setPaySheet(false)} title={payStep === 'form' ? 'Record Payment' : 'Confirm Payment'}>
+      <Sheet visible={paySheet} onClose={() => setPaySheet(false)} title={payStep === 'form' ? t('warehouse.sections.recordPayment', 'Record Payment') : t('warehouse.sections.confirmPayment', 'Confirm Payment')}>
         {payTarget && payStep === 'form' && (
           <>
             {/* Delivery summary */}
@@ -2236,7 +2303,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
                   return (
                     <TouchableOpacity key={m} onPress={() => setPayMethod(m)}
                       style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: active ? C.success : C.border, backgroundColor: active ? '#F0FDF4' : C.neutralLight }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#15803d' : C.neutralMid }}>{m}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#15803d' : C.neutralMid }}>{payMethodLabel(m, t)}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -2258,7 +2325,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
             </Field>
             {/* Invoice / Cheque */}
             <Field label="Invoice / Cheque (optional)">
-              <TInput value={payNote} onChangeText={setPayNote} placeholder="e.g. INV-2026-0042" />
+              <TInput value={payNote} onChangeText={setPayNote} placeholder={t('warehouse.egInvoice','e.g. INV-2026-0042')} />
             </Field>
             <View style={{ gap: 8, marginTop: 8 }}>
               <SaveBtn onPress={() => setPayStep('confirm')} label="Continue" />
@@ -2272,7 +2339,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#F0FDF4', justifyContent: 'center', alignItems: 'center', marginBottom: 10 }}>
                 <MaterialIcons name="check-circle" size={32} color={C.success} />
               </View>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: C.neutralDark }}>Confirm Payment</Text>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: C.neutralDark }}>{t('warehouse.sections.confirmPayment', 'Confirm Payment')}</Text>
               <Text style={{ fontSize: 12, color: C.neutralMid, marginTop: 4 }}>Has this payment been made?</Text>
             </View>
             <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border, gap: 8 }}>
@@ -2389,7 +2456,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
                     const sc = DELIVERY_STATUS_COLORS[detailDelivery.status] || DELIVERY_STATUS_COLORS['In Transit'];
                     return (
                       <View style={[styles.catBadge, { backgroundColor: sc.bg, paddingHorizontal: 8, paddingVertical: 3 }]}>
-                        <Text style={[styles.catBadgeText, { color: sc.text, fontSize: 11 }]}>{detailDelivery.status}</Text>
+                        <Text style={[styles.catBadgeText, { color: sc.text, fontSize: 11 }]}>{deliveryStatusLabel(detailDelivery.status, t)}</Text>
                       </View>
                     );
                   })()}
@@ -2423,7 +2490,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
                     }}>
                     <Text style={{ fontSize: 12, fontWeight: '700',
                       color: s === detailDelivery?.status ? '#3b82f6' : '#6b7280',
-                    }}>{s}</Text>
+                    }}>{deliveryStatusLabel(s, t)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -2468,7 +2535,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
               ) : (
                 <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                   <MaterialIcons name="inventory-2" size={32} color="#d1d5db" />
-                  <Text style={{ fontSize: 13, color: '#9ca3af', marginTop: 6 }}>No items recorded</Text>
+                  <Text style={{ fontSize: 13, color: '#9ca3af', marginTop: 6 }}>{t('warehouse.empty.noItemsRecorded', 'No items recorded')}</Text>
                 </View>
               )}
 
@@ -2498,6 +2565,7 @@ function DeliveriesTab({ items, suppliers, history, setHistory, onRefresh, refre
 // TAB 3 — STOCK OUTPUT (with kitchen analytics)
 // ═══════════════════════════════════════════════════════════════════════════════
 function StockOutputTab({ items, onRefresh, setDialog }) {
+  const { t } = useTranslation();
   const [movements,     setMovements]     = useState([]);
   const [movLoading,    setMovLoading]    = useState(false);
   const [movRefreshing, setMovRefreshing] = useState(false);
@@ -2705,7 +2773,7 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <MaterialIcons name="add-circle-outline" size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Record Output</Text>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{t('warehouse.recordOutput', 'Record Output')}</Text>
           </View>
         </TouchableOpacity>
 
@@ -2723,7 +2791,7 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
             activeOpacity={0.8}
           >
             <MaterialIcons name="today" size={18} color={range === 'Today' ? '#fff' : C.primary} />
-            <Text style={{ fontSize: 14, fontWeight: '700', color: range === 'Today' ? '#fff' : C.neutralDark }}>Today</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: range === 'Today' ? '#fff' : C.neutralDark }}>{t('warehouse.outputTab.today', 'Today')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2746,21 +2814,21 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
 
         {/* ── 3. Type filter pills ── */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 14, paddingTop: 12 }}>
-          {OUTPUT_TYPES.map(t => {
-            const active = typeFilter === t.value;
-            const tc = t.value ? (TYPE_COLORS[t.value] || { bg: '#f1f5f9', text: '#475569' }) : null;
+          {OUTPUT_TYPES.map(ot => {
+            const active = typeFilter === ot.value;
+            const tc = ot.value ? (TYPE_COLORS[ot.value] || { bg: '#f1f5f9', text: '#475569' }) : null;
             return (
               <TouchableOpacity
-                key={t.value}
+                key={ot.value}
                 style={{
                   paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
                   backgroundColor: active ? (tc ? tc.bg : C.primary) : C.card,
                   borderWidth: 1.5,
                   borderColor: active ? (tc ? tc.text : C.primary) : C.border,
                 }}
-                onPress={() => setTypeFilter(t.value)}
+                onPress={() => setTypeFilter(ot.value)}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: active ? (tc ? tc.text : '#fff') : C.neutralMid }}>{t.label}</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: active ? (tc ? tc.text : '#fff') : C.neutralMid }}>{ot.label}</Text>
               </TouchableOpacity>
             );
           })}
@@ -2775,7 +2843,7 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
                 <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center' }}>
                   <MaterialIcons name="receipt-long" size={16} color={C.primary} />
                 </View>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: C.neutralMid }}>Entries</Text>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: C.neutralMid }}>{t('warehouse.outputTab.entries', 'Entries')}</Text>
               </View>
               <Text style={{ fontSize: 22, fontWeight: '800', color: C.neutralDark }}>{filtered.length}</Text>
               <Text style={{ fontSize: 11, color: C.neutralMid, marginTop: 2 }}>Qty: {fmtNum(periodQty)}</Text>
@@ -2785,7 +2853,7 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
                 <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' }}>
                   <MaterialIcons name="trending-down" size={16} color={C.danger} />
                 </View>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: C.neutralMid }}>Total Cost</Text>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: C.neutralMid }}>{t('warehouse.outputTab.totalCost', 'Total Cost')}</Text>
               </View>
               <Text style={{ fontSize: 18, fontWeight: '800', color: C.danger }} numberOfLines={1} adjustsFontSizeToFit>{money(periodCost)}</Text>
             </View>
@@ -2857,7 +2925,7 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
         {filtered.length === 0 ? (
           <View style={styles.emptyWrap}>
             <MaterialIcons name="trending-down" size={48} color={C.border} style={{ marginBottom: 8 }} />
-            <Text style={styles.emptyText}>No outputs in this period</Text>
+            <Text style={styles.emptyText}>{t('warehouse.empty.noOutputs', 'No outputs in this period')}</Text>
           </View>
         ) : (
           <>
@@ -2945,7 +3013,7 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
                           <Text style={[styles.catBadgeText, { color: tc.text, fontWeight: '800' }]}>{o.type}</Text>
                         </View>
                         <View style={[styles.catBadge, { backgroundColor: rc.bg }]}>
-                          <Text style={[styles.catBadgeText, { color: rc.text }]}>{o.reason}</Text>
+                          <Text style={[styles.catBadgeText, { color: rc.text }]}>{outputReasonLabel(o.reason, t)}</Text>
                         </View>
                       </View>
                     </View>
@@ -2958,10 +3026,10 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
       </ScrollView>
 
       {/* Manual output sheet */}
-      <Sheet visible={sheet} onClose={() => setSheet(false)} title="Record Output" tall>
+      <Sheet visible={sheet} onClose={() => setSheet(false)} title={t('warehouse.recordOutput','Record Output')} tall>
         {/* Search */}
         <Field label="Item *">
-          <TInput value={form.search} onChangeText={v => fi('search', v)} placeholder="Search items..." />
+          <TInput value={form.search} onChangeText={v => fi('search', v)} placeholder={t('warehouse.searchItems','Search items...')} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
             {(form.search ? items.filter(i => i.name.toLowerCase().includes(form.search.toLowerCase())) : items).map(i => (
               <TouchableOpacity key={i.id} style={[styles.pickerPill, form.itemId === i.id && styles.pickerPillActive]} onPress={() => setForm(p => ({ ...p, itemId: i.id, itemName: i.name, search: '' }))}>
@@ -2972,29 +3040,29 @@ function StockOutputTab({ items, onRefresh, setDialog }) {
         </Field>
         {/* Quantity + Date */}
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <View style={{ flex: 1 }}><Field label="Quantity *"><TInput value={form.qty} onChangeText={v => fi('qty', v)} placeholder="0" keyboardType="decimal-pad" /></Field></View>
-          <View style={{ flex: 1 }}><Field label="Date"><DateField value={form.date} onChange={v => fi('date', v)} placeholder="Select date" /></Field></View>
+          <View style={{ flex: 1 }}><Field label="Quantity *"><TInput value={form.qty} onChangeText={v => fi('qty', v)} placeholder={t('warehouse.zero','0')} keyboardType="decimal-pad" /></Field></View>
+          <View style={{ flex: 1 }}><Field label="Date"><DateField value={form.date} onChange={v => fi('date', v)} placeholder={t('warehouse.selectDate','Select date')} /></Field></View>
         </View>
         {/* Type */}
         <Field label="Type *">
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {APP_TYPES.map(t => {
-              const active = form.type === t.value;
-              const bg = active ? (t.value === 'OUT' ? '#fff7ed' : t.value === 'WASTE' ? '#fef2f2' : '#eef2ff') : C.neutralLight;
-              const tx = active ? (t.value === 'OUT' ? '#c2410c' : t.value === 'WASTE' ? '#dc2626' : '#4338ca') : C.neutralMid;
+            {APP_TYPES.map(typ => {
+              const active = form.type === typ.value;
+              const bg = active ? (typ.value === 'OUT' ? '#fff7ed' : typ.value === 'WASTE' ? '#fef2f2' : '#eef2ff') : C.neutralLight;
+              const tx = active ? (typ.value === 'OUT' ? '#c2410c' : typ.value === 'WASTE' ? '#dc2626' : '#4338ca') : C.neutralMid;
               const bd = active ? tx : C.border;
               return (
-                <TouchableOpacity key={t.value} onPress={() => { fi('type', t.value); fi('reason', appReasonsFor(t.value)[0]); }}
+                <TouchableOpacity key={typ.value} onPress={() => { fi('type', typ.value); fi('reason', appReasonsFor(typ.value)[0]); }}
                   style={{ flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: bd, backgroundColor: bg, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: tx }}>{t.label}</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: tx }}>{typ.label}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
         </Field>
         {/* Reason */}
-        <Field label="Reason *"><PickerRow options={appReasonsFor(form.type)} value={form.reason} onSelect={v => fi('reason', v)} /></Field>
-        <View style={{ gap: 8, marginTop: 8 }}><SaveBtn onPress={saveOutput} label="Record Output" loading={saving} /><CancelBtn onPress={() => setSheet(false)} /></View>
+        <Field label="Reason *"><PickerRow options={appReasonsFor(form.type)} value={form.reason} onSelect={v => fi('reason', v)} labels={appReasonsFor(form.type).map(r => outputReasonLabel(r, t))} /></Field>
+        <View style={{ gap: 8, marginTop: 8 }}><SaveBtn onPress={saveOutput} label={t('warehouse.recordOutput', 'Record Output')} loading={saving} /><CancelBtn onPress={() => setSheet(false)} /></View>
       </Sheet>
 
       {/* Analytics drill-down */}
@@ -3027,6 +3095,7 @@ const ku = StyleSheet.create({
 // TAB 4 — SUPPLIERS
 // ═══════════════════════════════════════════════════════════════════════════════
 function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory, setDialog, onRefresh }) {
+  const { t } = useTranslation();
   const [sheet, setSheet]   = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving]   = useState(false);
@@ -3158,7 +3227,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
           AsyncStorage.setItem(DELIVERY_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
-        Alert.alert('Success', `Paid ${payTarget.deliveries.length} deliveries`);
+        Alert.alert(t('alerts.success','Success'), t('alerts.paidDeliveries','Paid {count} deliveries').replace('{count}', payTarget.deliveries.length));
       } else {
         await procurementAPI.payDelivery(String(payTarget.id), { payment_method: payMethod, payment_note: payNote, paid_at: paidAt });
         setHistory(prev => {
@@ -3166,10 +3235,10 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
           AsyncStorage.setItem(DELIVERY_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
           return updated;
         });
-        Alert.alert('Success', 'Delivery marked as paid');
+        Alert.alert(t('alerts.success','Success'), t('alerts.deliveryPaid','Delivery marked as paid'));
       }
     } catch (err) {
-      Alert.alert('Error', 'Payment failed. Please try again.');
+      Alert.alert(t('alerts.error','Error'), t('alerts.paymentFailedRetry','Payment failed. Please try again.'));
     }
   }
 
@@ -3214,7 +3283,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
           {/* Back button */}
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, padding: spacing.md }} onPress={() => setDetailSupplier(null)}>
             <MaterialIcons name="arrow-back" size={20} color={C.primary} />
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.primary }}>All Suppliers</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.primary }}>{t('warehouse.sections.allSuppliers', 'All Suppliers')}</Text>
           </TouchableOpacity>
 
           {/* Supplier Info Card */}
@@ -3263,7 +3332,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
           {unpaidDelivs.length > 0 && (
             <View style={{ marginHorizontal: spacing.md, marginBottom: spacing.md }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: '#991b1b' }}>Unpaid Deliveries ({unpaidDelivs.length})</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: '#991b1b' }}>{t('warehouse.sections.unpaidDeliveries', 'Unpaid Deliveries')} ({unpaidDelivs.length})</Text>
                 <TouchableOpacity
                   style={{ backgroundColor: '#15803d', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 }}
                   onPress={() => openPayBulk(unpaidDelivs, s.name)}
@@ -3279,7 +3348,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
                       <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{fmtDelivDate(d.date)}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                         <View style={{ backgroundColor: DELIVERY_STATUS_COLORS[d.status]?.bg || '#e5e7eb', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: DELIVERY_STATUS_COLORS[d.status]?.text || '#374151' }}>{d.status}</Text>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: DELIVERY_STATUS_COLORS[d.status]?.text || '#374151' }}>{deliveryStatusLabel(d.status, t)}</Text>
                         </View>
                         {d.notes ? <Text style={{ fontSize: 10, color: '#9ca3af' }} numberOfLines={1}>{d.notes}</Text> : null}
                       </View>
@@ -3298,7 +3367,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
 
           {/* All Delivery History */}
           <View style={{ marginHorizontal: spacing.md, marginBottom: spacing.md }}>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: C.neutralDark, marginBottom: 10 }}>All Deliveries ({allDelivs.length})</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.neutralDark, marginBottom: 10 }}>{t('warehouse.sections.allDeliveries', 'All Deliveries')} ({allDelivs.length})</Text>
             {allDelivs.length > 0 ? allDelivs.map(d => {
               const isPaid = d.paymentStatus === 'paid';
               const sc = DELIVERY_STATUS_COLORS[d.status] || DELIVERY_STATUS_COLORS['In Transit'];
@@ -3309,10 +3378,10 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
                       <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>{fmtDelivDate(d.date)}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                         <View style={{ backgroundColor: sc.bg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '700', color: sc.text }}>{d.status}</Text>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: sc.text }}>{deliveryStatusLabel(d.status, t)}</Text>
                         </View>
                         <View style={{ backgroundColor: isPaid ? '#dcfce7' : '#fee2e2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '700', color: isPaid ? '#15803d' : '#dc2626' }}>{isPaid ? 'Paid' : 'Unpaid'}</Text>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: isPaid ? '#15803d' : '#dc2626' }}>{isPaid ? t('warehouse.paymentStatus.paid', 'Paid') : t('warehouse.paymentStatus.unpaid', 'Unpaid')}</Text>
                         </View>
                       </View>
                     </View>
@@ -3322,20 +3391,20 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
               );
             }) : (
               <View style={{ backgroundColor: '#f9fafb', borderRadius: 12, padding: 20, alignItems: 'center' }}>
-                <Text style={{ fontSize: 13, color: C.neutralMid }}>No deliveries yet</Text>
+                <Text style={{ fontSize: 13, color: C.neutralMid }}>{t('warehouse.empty.noDeliveriesYet', 'No deliveries yet')}</Text>
               </View>
             )}
           </View>
         </ScrollView>
 
         <Sheet visible={sheet} onClose={() => setSheet(false)} title="Edit Supplier">
-          <Field label="Company Name"><TInput value={form.name} onChangeText={v => fi('name', v)} placeholder="e.g. FreshFarm Co." /></Field>
-          <Field label="Contact Person"><TInput value={form.contactName} onChangeText={v => fi('contactName', v)} placeholder="e.g. John" /></Field>
+          <Field label="Company Name"><TInput value={form.name} onChangeText={v => fi('name', v)} placeholder={t('warehouse.egFreshFarm','e.g. FreshFarm Co.')} /></Field>
+          <Field label="Contact Person"><TInput value={form.contactName} onChangeText={v => fi('contactName', v)} placeholder={t('warehouse.egJohn','e.g. John')} /></Field>
           <Field label="Category"><PickerRow options={categories.length ? categories : ['Other']} value={form.category} onSelect={v => fi('category', v)} /></Field>
-          <Field label="Phone"><TInput value={form.phone} onChangeText={v => fi('phone', v)} placeholder="+998 90 123 4567" keyboardType="phone-pad" /></Field>
-          <Field label="Email"><TInput value={form.email} onChangeText={v => fi('email', v)} placeholder="supplier@example.com" keyboardType="email-address" /></Field>
-          <Field label="Address (optional)"><TInput value={form.address} onChangeText={v => fi('address', v)} placeholder="Street, City..." /></Field>
-          <Field label="Payment Terms"><TInput value={form.paymentTerms} onChangeText={v => fi('paymentTerms', v)} placeholder="e.g. Net 30, COD" /></Field>
+          <Field label="Phone"><TInput value={form.phone} onChangeText={v => fi('phone', v)} placeholder={t('warehouse.egPhone','+998 90 123 4567')} keyboardType="phone-pad" /></Field>
+          <Field label="Email"><TInput value={form.email} onChangeText={v => fi('email', v)} placeholder={t('warehouse.egSupplierEmail','supplier@example.com')} keyboardType="email-address" /></Field>
+          <Field label="Address (optional)"><TInput value={form.address} onChangeText={v => fi('address', v)} placeholder={t('warehouse.egAddress','Street, City...')} /></Field>
+          <Field label="Payment Terms"><TInput value={form.paymentTerms} onChangeText={v => fi('paymentTerms', v)} placeholder={t('warehouse.egTerms','e.g. Net 30, COD')} /></Field>
           <View style={{ gap: 8, marginTop: 8 }}><SaveBtn onPress={save} loading={saving} /><CancelBtn onPress={() => setSheet(false)} /></View>
         </Sheet>
       </View>
@@ -3388,7 +3457,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
                             <Text style={{ fontSize: 12, fontWeight: '600', color: '#111827' }}>{fmtDelivDate(d.date)} — {money(d.total)}</Text>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
                               <View style={{ backgroundColor: DELIVERY_STATUS_COLORS[d.status]?.bg || '#e5e7eb', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                                <Text style={{ fontSize: 9, fontWeight: '700', color: DELIVERY_STATUS_COLORS[d.status]?.text || '#374151' }}>{d.status}</Text>
+                                <Text style={{ fontSize: 9, fontWeight: '700', color: DELIVERY_STATUS_COLORS[d.status]?.text || '#374151' }}>{deliveryStatusLabel(d.status, t)}</Text>
                               </View>
                               {d.notes ? <Text style={{ fontSize: 10, color: '#9ca3af' }} numberOfLines={1}>{d.notes}</Text> : null}
                             </View>
@@ -3448,23 +3517,23 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
         }) : (
           <View style={[styles.emptyWrap, { marginHorizontal: spacing.md }]}>
             <MaterialIcons name="factory" size={48} color={C.border} style={{ marginBottom: 8 }} />
-            <Text style={styles.emptyText}>No suppliers yet</Text>
+            <Text style={styles.emptyText}>{t('warehouse.empty.noSuppliers', 'No suppliers yet')}</Text>
           </View>
         )}
       </ScrollView>
       <Sheet visible={sheet} onClose={() => setSheet(false)} title={editing ? 'Edit Supplier' : 'Add Supplier'}>
-        <Field label="Company Name"><TInput value={form.name} onChangeText={v => fi('name', v)} placeholder="e.g. FreshFarm Co." /></Field>
-        <Field label="Contact Person"><TInput value={form.contactName} onChangeText={v => fi('contactName', v)} placeholder="e.g. John" /></Field>
+        <Field label="Company Name"><TInput value={form.name} onChangeText={v => fi('name', v)} placeholder={t('warehouse.egFreshFarm','e.g. FreshFarm Co.')} /></Field>
+        <Field label="Contact Person"><TInput value={form.contactName} onChangeText={v => fi('contactName', v)} placeholder={t('warehouse.egJohn','e.g. John')} /></Field>
         <Field label="Category"><PickerRow options={categories.length ? categories : ['Other']} value={form.category} onSelect={v => fi('category', v)} /></Field>
-        <Field label="Phone"><TInput value={form.phone} onChangeText={v => fi('phone', v)} placeholder="+998 90 123 4567" keyboardType="phone-pad" /></Field>
-        <Field label="Email"><TInput value={form.email} onChangeText={v => fi('email', v)} placeholder="supplier@example.com" keyboardType="email-address" /></Field>
-        <Field label="Address (optional)"><TInput value={form.address} onChangeText={v => fi('address', v)} placeholder="Street, City..." /></Field>
-        <Field label="Payment Terms"><TInput value={form.paymentTerms} onChangeText={v => fi('paymentTerms', v)} placeholder="e.g. Net 30, COD" /></Field>
+        <Field label="Phone"><TInput value={form.phone} onChangeText={v => fi('phone', v)} placeholder={t('warehouse.egPhone','+998 90 123 4567')} keyboardType="phone-pad" /></Field>
+        <Field label="Email"><TInput value={form.email} onChangeText={v => fi('email', v)} placeholder={t('warehouse.egSupplierEmail','supplier@example.com')} keyboardType="email-address" /></Field>
+        <Field label="Address (optional)"><TInput value={form.address} onChangeText={v => fi('address', v)} placeholder={t('warehouse.egAddress','Street, City...')} /></Field>
+        <Field label="Payment Terms"><TInput value={form.paymentTerms} onChangeText={v => fi('paymentTerms', v)} placeholder={t('warehouse.egTerms','e.g. Net 30, COD')} /></Field>
         <View style={{ gap: 8, marginTop: 8 }}><SaveBtn onPress={save} loading={saving} /><CancelBtn onPress={() => setSheet(false)} /></View>
       </Sheet>
 
       {/* ── Payment Sheet ─────────────────────────────────────────────── */}
-      <Sheet visible={paySheet} onClose={() => setPaySheet(false)} title={payStep === 'form' ? 'Record Payment' : 'Confirm Payment'}>
+      <Sheet visible={paySheet} onClose={() => setPaySheet(false)} title={payStep === 'form' ? t('warehouse.sections.recordPayment', 'Record Payment') : t('warehouse.sections.confirmPayment', 'Confirm Payment')}>
         {payTarget && payStep === 'form' && (
           <>
             <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border }}>
@@ -3481,7 +3550,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
                   return (
                     <TouchableOpacity key={m} onPress={() => setPayMethod(m)}
                       style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: active ? C.success : C.border, backgroundColor: active ? '#F0FDF4' : C.neutralLight }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#15803d' : C.neutralMid }}>{m}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#15803d' : C.neutralMid }}>{payMethodLabel(m, t)}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -3501,7 +3570,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
               </TouchableOpacity>
             </Field>
             <Field label="Invoice / Cheque (optional)">
-              <TInput value={payNote} onChangeText={setPayNote} placeholder="e.g. INV-2026-0042" />
+              <TInput value={payNote} onChangeText={setPayNote} placeholder={t('warehouse.egInvoice','e.g. INV-2026-0042')} />
             </Field>
             <View style={{ gap: 8, marginTop: 8 }}>
               <SaveBtn onPress={() => setPayStep('confirm')} label="Continue" />
@@ -3515,7 +3584,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
               <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#F0FDF4', justifyContent: 'center', alignItems: 'center', marginBottom: 10 }}>
                 <MaterialIcons name="check-circle" size={32} color={C.success} />
               </View>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: C.neutralDark }}>Confirm Payment</Text>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: C.neutralDark }}>{t('warehouse.sections.confirmPayment', 'Confirm Payment')}</Text>
               <Text style={{ fontSize: 12, color: C.neutralMid, marginTop: 4 }}>Has this payment been made?</Text>
             </View>
             <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border, gap: 8 }}>
@@ -3633,6 +3702,7 @@ function SuppliersTab({ suppliers, setSuppliers, categories, history, setHistory
 // MAIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function WarehouseScreen() {
+  const { t } = useTranslation();
   const [items,           setItems]           = useState([]);
   const [suppliers,       setSuppliers]       = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -3742,10 +3812,10 @@ export default function WarehouseScreen() {
   }, [items]);
 
   const TABS = [
-    { id: 'inventory',  label: 'Inventory',  icon: 'inventory-2' },
-    { id: 'deliveries', label: 'Deliveries', icon: 'local-shipping' },
-    { id: 'outputs',    label: 'Output',     icon: 'trending-down' },
-    { id: 'suppliers',  label: 'Suppliers',  icon: 'factory' },
+    { id: 'inventory',  label: t('warehouse.tabs.inventory',  'Inventory'),  icon: 'inventory-2' },
+    { id: 'deliveries', label: t('warehouse.tabs.deliveries', 'Deliveries'), icon: 'local-shipping' },
+    { id: 'outputs',    label: t('warehouse.tabs.output',     'Output'),     icon: 'trending-down' },
+    { id: 'suppliers',  label: t('warehouse.tabs.suppliers',  'Suppliers'),  icon: 'factory' },
   ];
 
   if (loading) {
@@ -3758,10 +3828,10 @@ export default function WarehouseScreen() {
       <View style={styles.header}><Text style={styles.headerTitle}>Inventory</Text></View>
       <StatusBanner items={items} lowStockAlertNames={lowAlertNames} />
       <View style={styles.innerTabBar}>
-        {TABS.map(t => (
-          <TouchableOpacity key={t.id} style={[styles.innerTab, tab === t.id && styles.innerTabActive]} onPress={() => setTab(t.id)}>
-            <MaterialIcons name={t.icon} size={18} color={tab === t.id ? C.primary : C.neutralMid} />
-            <Text style={[styles.innerTabLabel, tab === t.id && styles.innerTabLabelActive]}>{t.label}</Text>
+        {TABS.map(tb => (
+          <TouchableOpacity key={tb.id} style={[styles.innerTab, tab === tb.id && styles.innerTabActive]} onPress={() => setTab(tb.id)}>
+            <MaterialIcons name={tb.icon} size={18} color={tab === tb.id ? C.primary : C.neutralMid} />
+            <Text style={[styles.innerTabLabel, tab === tb.id && styles.innerTabLabelActive]}>{tb.label}</Text>
           </TouchableOpacity>
         ))}
       </View>

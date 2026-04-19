@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { reportsAPI, ordersAPI, tablesAPI, warehouseAPI, notificationsAPI, staffPaymentsAPI, shiftsAPI, loansAPI, procurementAPI } from '../../api/client';
 import { colors, shadow, topInset } from '../../utils/theme';
 
@@ -58,11 +59,11 @@ const fmtMoney = (n) => {
 const fmtMoneyFull = (n) =>
   isNaN(Number(n)) ? "0 so'm" : `${Math.round(Number(n)).toLocaleString('ru-RU')} so'm`;
 
-const getGreeting = () => {
+const getGreeting = (t) => {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return t ? t('greeting.morning') : 'Good morning';
+  if (h < 17) return t ? t('greeting.afternoon') : 'Good afternoon';
+  return t ? t('greeting.evening') : 'Good evening';
 };
 
 const fmtTime = () =>
@@ -71,15 +72,15 @@ const fmtTime = () =>
 const fmtDateLong = () =>
   new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-const fmtNotifTime = (iso) => {
+const fmtNotifTime = (iso, t) => {
   try {
     const d       = new Date(iso);
     const diffMs  = Date.now() - d.getTime();
     const mins    = Math.floor(diffMs / 60000);
-    if (mins < 1)   return 'Just now';
-    if (mins < 60)  return `${mins} min ago`;
+    if (mins < 1)   return t ? t('adminExtra.justNow') : 'Just now';
+    if (mins < 60)  return `${mins} ${t ? t('adminExtra.minAgo') : 'min ago'}`;
     const hrs = Math.floor(mins / 60);
-    if (hrs  < 24)  return `${hrs}h ago`;
+    if (hrs  < 24)  return `${hrs}${t ? t('adminExtra.hAgo') : 'h ago'}`;
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   } catch (_) { return '—'; }
 };
@@ -161,6 +162,7 @@ function TableCell({ table }) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function AdminDashboard({ navigation }) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [summary,   setSummary]   = useState(null);
   const [dash,      setDash]      = useState(null);
   const [tables,    setTables]    = useState([]);
@@ -290,7 +292,7 @@ export default function AdminDashboard({ navigation }) {
     return (
       <View style={s.center}>
         <ActivityIndicator size="large" color={C.primary} />
-        <Text style={{ color: C.textMuted, marginTop: 14, fontSize: 14 }}>Loading dashboard…</Text>
+        <Text style={{ color: C.textMuted, marginTop: 14, fontSize: 14 }}>{t('common.loading')}</Text>
       </View>
     );
   }
@@ -415,7 +417,7 @@ export default function AdminDashboard({ navigation }) {
         {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <View style={s.header}>
           <View style={{ flex: 1 }}>
-            <Text style={s.greeting}>{getGreeting()},</Text>
+            <Text style={s.greeting}>{getGreeting(t)},</Text>
             <Text style={s.name}>{user?.name || 'Admin'}</Text>
             <Text style={s.date}>{fmtDateLong()}</Text>
           </View>
@@ -437,7 +439,7 @@ export default function AdminDashboard({ navigation }) {
               <Text style={s.adminBadgeTxt}>ADMIN</Text>
             </View>
             {lastUpdate ? (
-              <Text style={s.lastUpdate}>Updated {lastUpdate}</Text>
+              <Text style={s.lastUpdate}>{t('adminExtra.updated')} {lastUpdate}</Text>
             ) : null}
           </View>
         </View>
@@ -445,19 +447,19 @@ export default function AdminDashboard({ navigation }) {
         {/* ── REVENUE HERO ───────────────────────────────────────────────── */}
         <View style={s.heroCard}>
           <View style={{ flex: 1 }}>
-            <Text style={s.heroLabel}>Today's Revenue</Text>
+            <Text style={s.heroLabel}>{t('admin.dashboard.todaysRevenue')}</Text>
             <Text style={s.heroValue}>{fmtMoneyFull(revenue)}</Text>
             <View style={{ flexDirection: 'row', marginTop: 8 }}>
               <View style={s.heroPill}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialIcons name="check-circle" size={12} color="#fff" style={{ marginRight: 4 }} />
-                  <Text style={s.heroPillTxt}>{todayOrders} orders paid</Text>
+                  <Text style={s.heroPillTxt}>{todayOrders} {t('statuses.paid').toLowerCase()}</Text>
                 </View>
               </View>
               <View style={[s.heroPill, { backgroundColor: 'rgba(255,255,255,0.15)', marginLeft: 8 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <MaterialIcons name="hourglass-empty" size={12} color="#fff" style={{ marginRight: 4 }} />
-                  <Text style={s.heroPillTxt}>{activeOrders} active</Text>
+                  <Text style={s.heroPillTxt}>{activeOrders} {t('common.active').toLowerCase()}</Text>
                 </View>
               </View>
             </View>
@@ -471,23 +473,23 @@ export default function AdminDashboard({ navigation }) {
         <View style={{ flexDirection: 'row', paddingHorizontal: 12, marginBottom: 4 }}>
           <StatCard
             iconName="shopping-cart"
-            label="Active Orders"
+            label={t('admin.dashboard.activeOrders')}
             value={String(activeOrders)}
-            sub={activeOrders === 1 ? 'in progress' : 'in progress'}
+            sub={t('adminExtra.inProgress')}
             accentColor={C.primary}
           />
           <StatCard
             iconName="chair"
-            label="Tables"
+            label={t('nav.tables')}
             value={`${occupiedTables}/${totalTables}`}
-            sub={`${freeTables} free`}
+            sub={`${freeTables} ${t('adminExtra.freeCount')}`}
             accentColor={C.success}
           />
           <StatCard
             iconName="group"
-            label="On Shift"
+            label={t('admin.dashboard.staffOnShift')}
             value={String(staffOnShift)}
-            sub="working today"
+            sub={t('adminExtra.workingToday')}
             accentColor={C.warning}
           />
         </View>
@@ -502,8 +504,8 @@ export default function AdminDashboard({ navigation }) {
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
               <MaterialIcons name="warning" size={18} color={C.warning} style={{ marginRight: 8 }} />
               <View>
-                <Text style={s.alertTitle}>{lowStock.length} Low Stock Item{lowStock.length > 1 ? 's' : ''}</Text>
-                <Text style={s.alertSub}>Tap to see items that need restocking</Text>
+                <Text style={s.alertTitle}>{lowStock.length} {t('adminExtra.lowStockItems')}</Text>
+                <Text style={s.alertSub}>{t('adminExtra.tapToRestock')}</Text>
               </View>
             </View>
             <Text style={{ color: '#92400E', fontWeight: '700' }}>{stockOpen ? '▲' : '▼'}</Text>
@@ -529,20 +531,20 @@ export default function AdminDashboard({ navigation }) {
 
         {/* ── ACTIVE ORDERS BREAKDOWN ─────────────────────────────────────── */}
         <View style={s.section}>
-          <SectionHead title="Active Orders Breakdown" right={`${activeOrders} total`} />
+          <SectionHead title={t('admin.dashboard.activeOrdersBreakdown')} right={`${activeOrders} ${t('common.total').toLowerCase()}`} />
           {orderTypes.length === 0 && activeOrders === 0 ? (
-            <Text style={s.emptyTxt}>No active orders right now</Text>
+            <Text style={s.emptyTxt}>{t('adminExtra.noActiveOrdersNow')}</Text>
           ) : (
             <>
-              {orderTypes.filter(t => t.id !== 'total').map(t => {
+              {orderTypes.filter(ot => ot.id !== 'total').map(ot => {
                 const iconNames = { dine_in: 'restaurant', takeaway: 'takeout-dining', delivery: 'delivery-dining' };
                 const lbls  = { dine_in: 'Dine-in', takeaway: 'To-Go', delivery: 'Delivery' };
                 return (
                   <OrderBar
-                    key={t.id}
-                    iconName={iconNames[t.id] || 'inventory-2'}
-                    label={lbls[t.id] || t.name}
-                    count={t.count || 0}
+                    key={ot.id}
+                    iconName={iconNames[ot.id] || 'inventory-2'}
+                    label={lbls[ot.id] || ot.name}
+                    count={ot.count || 0}
                     total={activeOrders}
                   />
                 );
@@ -550,7 +552,7 @@ export default function AdminDashboard({ navigation }) {
               {orderTypes.length === 0 && activeOrders > 0 && (
                 <View style={s.orderBarRow}>
                   <MaterialIcons name="restaurant" size={18} color={C.primary} />
-                  <Text style={s.orderBarLabel}>All types</Text>
+                  <Text style={s.orderBarLabel}>{t('adminExtra.allTypes')}</Text>
                   <View style={s.orderBarTrack}>
                     <View style={[s.orderBarFill, { width: SW - 32 - 24 - 60 - 32, backgroundColor: C.primary }]} />
                   </View>
@@ -564,15 +566,15 @@ export default function AdminDashboard({ navigation }) {
         {/* ── TABLE STATUS GRID ───────────────────────────────────────────── */}
         {tables.length > 0 && (
           <View style={s.section}>
-            <SectionHead title="Table Status" right={`${occupiedTables} busy · ${freeTables} free · ${reservedTables} reserved`} />
+            <SectionHead title={t('admin.dashboard.tableStatus')} right={`${occupiedTables} ${t('statuses.occupied').toLowerCase()} · ${freeTables} ${t('statuses.free').toLowerCase()} · ${reservedTables} ${t('statuses.reserved').toLowerCase()}`} />
 
             {/* Legend */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
               {[
-                { label: 'Free',     col: '#16A34A' },
-                { label: 'Occupied', col: '#DC2626' },
-                { label: 'Reserved', col: '#D97706' },
-                { label: 'Cleaning', col: '#2563EB' },
+                { label: t('statuses.free'),     col: '#16A34A' },
+                { label: t('statuses.occupied'), col: '#DC2626' },
+                { label: t('statuses.reserved'), col: '#D97706' },
+                { label: t('statuses.cleaning'), col: '#2563EB' },
               ].map(l => (
                 <View key={l.label} style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12, marginBottom: 4 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: l.col, marginRight: 4 }} />
@@ -586,36 +588,36 @@ export default function AdminDashboard({ navigation }) {
               {tables
                 .slice()
                 .sort((a, b) => Number(a.table_number) - Number(b.table_number))
-                .map(t => <TableCell key={t.id} table={t} />)
+                .map(tb => <TableCell key={tb.id} table={tb} />)
               }
             </View>
 
             {/* Occupied table detail */}
-            {tables.filter(t => t.status === 'occupied' && t.order_total > 0).length > 0 && (
+            {tables.filter(tb => tb.status === 'occupied' && tb.order_total > 0).length > 0 && (
               <>
                 <Divider />
                 <View style={{ marginTop: 10 }}>
-                  <Text style={[s.sectionTitle, { marginBottom: 8, fontSize: 12 }]}>Occupied Table Details</Text>
+                  <Text style={[s.sectionTitle, { marginBottom: 8, fontSize: 12 }]}>{t('adminExtra.occupiedTableDetails')}</Text>
                   {tables
-                    .filter(t => t.status === 'occupied')
+                    .filter(tb => tb.status === 'occupied')
                     .sort((a, b) => Number(a.table_number) - Number(b.table_number))
-                    .map(t => (
-                      <View key={t.id} style={s.tableDetailRow}>
+                    .map(tb => (
+                      <View key={tb.id} style={s.tableDetailRow}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontWeight: '700', color: C.textDark, fontSize: 13 }}>
-                            Table {t.table_number}
-                            {t.name && t.name !== `Table ${t.table_number}` ? ` · ${t.name}` : ''}
+                            {t('adminExtra.table')} {tb.table_number}
+                            {tb.name && tb.name !== `Table ${tb.table_number}` ? ` · ${tb.name}` : ''}
                           </Text>
-                          {t.waitress_name ? (
+                          {tb.waitress_name ? (
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
                               <MaterialIcons name="person" size={11} color={C.textMuted} style={{ marginRight: 4 }} />
-                              <Text style={{ color: C.textMuted, fontSize: 11 }}>{t.waitress_name}</Text>
+                              <Text style={{ color: C.textMuted, fontSize: 11 }}>{tb.waitress_name}</Text>
                             </View>
                           ) : null}
                         </View>
-                        {t.order_total > 0 && (
+                        {tb.order_total > 0 && (
                           <Text style={{ fontWeight: '800', color: C.primary, fontSize: 14 }}>
-                            {fmtMoneyFull(t.order_total)}
+                            {fmtMoneyFull(tb.order_total)}
                           </Text>
                         )}
                       </View>
@@ -630,7 +632,7 @@ export default function AdminDashboard({ navigation }) {
         {/* ── FINANCIAL FLOW ──────────────────────────────────────────────── */}
         <View style={s.section}>
           <SectionHead
-            title="Financial Flow · Today"
+            title={t('admin.dashboard.financialFlowToday')}
             right={netFlow >= 0 ? `+${fmtMoney(netFlow)} net` : fmtMoney(netFlow)}
           />
           <View style={{ flexDirection: 'row' }}>
@@ -638,11 +640,11 @@ export default function AdminDashboard({ navigation }) {
             <View style={[s.financeCard, { borderLeftColor: C.success }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                 <MaterialIcons name="payments" size={14} color={C.success} style={{ marginRight: 6 }} />
-                <Text style={s.financeCardHead}>Cash Inflow</Text>
+                <Text style={s.financeCardHead}>{t('admin.dashboard.cashInflow')}</Text>
               </View>
               <Text style={s.financeTotalAmt}>{fmtMoney(totalInflow)}</Text>
               {totalInflow === 0 && (
-                <Text style={s.emptyTxt}>No payments yet</Text>
+                <Text style={s.emptyTxt}>{t('admin.dashboard.noPaymentsYet')}</Text>
               )}
               {inflowBreakdown.length > 0
                 ? inflowBreakdown.map((item, i) => (
@@ -656,7 +658,7 @@ export default function AdminDashboard({ navigation }) {
                   ))
                 : totalInflow > 0 && (
                     <View style={s.financeRow}>
-                      <Text style={s.financeMethod}>Sales</Text>
+                      <Text style={s.financeMethod}>{t('adminExtra.sales')}</Text>
                       <Text style={s.financeAmt}>{fmtMoney(totalInflow)}</Text>
                     </View>
                   )
@@ -667,39 +669,39 @@ export default function AdminDashboard({ navigation }) {
             <View style={[s.financeCard, { borderLeftColor: C.danger }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                 <MaterialIcons name="trending-down" size={14} color={C.danger} style={{ marginRight: 6 }} />
-                <Text style={s.financeCardHead}>Outflow</Text>
+                <Text style={s.financeCardHead}>{t('admin.dashboard.outflow')}</Text>
               </View>
               <Text style={[s.financeTotalAmt, { color: C.danger }]}>{fmtMoney(totalOutflow)}</Text>
               {expensesOnlyToday > 0 && (
                 <View style={s.financeRow}>
-                  <Text style={s.financeMethod}>Expenses</Text>
+                  <Text style={s.financeMethod}>{t('admin.dashboard.expenses')}</Text>
                   <Text style={[s.financeAmt, { color: C.danger }]}>{fmtMoney(expensesOnlyToday)}</Text>
                 </View>
               )}
               {salariesToday > 0 && (
                 <View style={s.financeRow}>
-                  <Text style={s.financeMethod}>Salaries</Text>
+                  <Text style={s.financeMethod}>{t('admin.dashboard.salaries')}</Text>
                   <Text style={[s.financeAmt, { color: C.danger }]}>{fmtMoney(salariesToday)}</Text>
                 </View>
               )}
               {deliveryPaymentsToday > 0 && (
                 <View style={s.financeRow}>
-                  <Text style={s.financeMethod}>Supplier Payments</Text>
+                  <Text style={s.financeMethod}>{t('admin.dashboard.supplierPayments')}</Text>
                   <Text style={[s.financeAmt, { color: C.danger }]}>{fmtMoney(deliveryPaymentsToday)}</Text>
                 </View>
               )}
               {goodsConsumedFinal > 0 && (
                 <View style={s.financeRow}>
-                  <Text style={s.financeMethod}>Inventory</Text>
+                  <Text style={s.financeMethod}>{t('adminExtra.inventory')}</Text>
                   <Text style={[s.financeAmt, { color: C.danger }]}>{fmtMoney(goodsConsumedFinal)}</Text>
                 </View>
               )}
               {totalOutflow === 0 && (
-                <Text style={[s.emptyTxt, { textAlign: 'left', paddingVertical: 4 }]}>No outflow yet</Text>
+                <Text style={[s.emptyTxt, { textAlign: 'left', paddingVertical: 4 }]}>{t('admin.dashboard.noOutflowYet')}</Text>
               )}
               <Divider />
               <View style={[s.financeRow, { marginTop: 6 }]}>
-                <Text style={[s.financeMethod, { fontWeight: '700' }]}>Net</Text>
+                <Text style={[s.financeMethod, { fontWeight: '700' }]}>{t('common.net')}</Text>
                 <Text style={[s.financeAmt, { color: netFlow >= 0 ? C.success : C.danger, fontWeight: '800' }]}>
                   {netFlow >= 0 ? '+' : ''}{fmtMoney(netFlow)}
                 </Text>
@@ -710,7 +712,7 @@ export default function AdminDashboard({ navigation }) {
 
         {/* ── DEBTS & PAYABLES ────────────────────────────────────────────── */}
         <View style={s.section}>
-          <SectionHead title="Debts & Payables" right="This month" />
+          <SectionHead title={t('admin.dashboard.debtsPayables')} right={t('admin.dashboard.thisMonth')} />
 
           {/* ── Row 1: Employee payroll owed ─────────────────────────── */}
           <View style={s.debtRow}>
@@ -718,13 +720,13 @@ export default function AdminDashboard({ navigation }) {
               <MaterialIcons name="badge" size={20} color={C.purple} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.debtLabel}>Employee Payroll Owed</Text>
+              <Text style={s.debtLabel}>{t('admin.dashboard.employeePayrollOwed')}</Text>
               <Text style={s.debtSub}>
-                Earned {fmtMoney(monthGrossPay)} · Paid {fmtMoney(monthSalariesPaid)}
+                {t('adminExtra.earned')} {fmtMoney(monthGrossPay)} {'\u00b7'} {t('adminExtra.paid')} {fmtMoney(monthSalariesPaid)}
               </Text>
             </View>
             <Text style={[s.debtAmt, { color: payrollOwed > 0 ? C.danger : C.success }]}>
-              {payrollOwed > 0 ? fmtMoney(payrollOwed) : 'Settled'}
+              {payrollOwed > 0 ? fmtMoney(payrollOwed) : t('adminExtra.settled')}
             </Text>
           </View>
 
@@ -735,11 +737,11 @@ export default function AdminDashboard({ navigation }) {
               <MaterialIcons name="local-shipping" size={20} color={C.danger} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.debtLabel}>Supplier Debt</Text>
-              <Text style={s.debtSub}>Unpaid delivered goods</Text>
+              <Text style={s.debtLabel}>{t('admin.dashboard.supplierDebt')}</Text>
+              <Text style={s.debtSub}>{t('admin.dashboard.unpaidDeliveredGoods')}</Text>
             </View>
             <Text style={[s.debtAmt, { color: supplierDebt > 0 ? C.danger : C.success }]}>
-              {supplierDebt > 0 ? fmtMoney(supplierDebt) : 'None'}
+              {supplierDebt > 0 ? fmtMoney(supplierDebt) : t('adminExtra.noneLabel')}
             </Text>
           </View>
 
@@ -750,14 +752,14 @@ export default function AdminDashboard({ navigation }) {
               <MaterialIcons name="account-balance-wallet" size={20} color={C.warning} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.debtLabel}>Customer Outstanding Loans</Text>
+              <Text style={s.debtLabel}>{t('admin.dashboard.customerOutstandingLoans')}</Text>
               <Text style={s.debtSub}>
-                {activeLoanCount} active loan{activeLoanCount !== 1 ? 's' : ''}
-                {overdueLoanCount > 0 ? ` · ${overdueLoanCount} overdue` : ''}
+                {activeLoanCount} {t('adminExtra.activeLoans')}
+                {overdueLoanCount > 0 ? ` \u00b7 ${overdueLoanCount} ${t('adminExtra.overdueLoans')}` : ''}
               </Text>
             </View>
             <Text style={[s.debtAmt, { color: overdueLoanCount > 0 ? C.danger : C.warning }]}>
-              {activeLoanTotal > 0 ? fmtMoney(activeLoanTotal) : 'None'}
+              {activeLoanTotal > 0 ? fmtMoney(activeLoanTotal) : t('adminExtra.noneLabel')}
             </Text>
           </View>
 
@@ -770,8 +772,8 @@ export default function AdminDashboard({ navigation }) {
                   <MaterialIcons name="payments" size={20} color={C.success} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.debtLabel}>Salaries Paid Today</Text>
-                  <Text style={s.debtSub}>{todaySalaries.length} payment{todaySalaries.length !== 1 ? 's' : ''} recorded</Text>
+                  <Text style={s.debtLabel}>{t('adminExtra.salariesPaidToday')}</Text>
+                  <Text style={s.debtSub}>{todaySalaries.length} {t('adminExtra.paymentsRecorded')}</Text>
                 </View>
                 <Text style={[s.debtAmt, { color: C.success }]}>{fmtMoney(salariesToday)}</Text>
               </View>
@@ -782,7 +784,7 @@ export default function AdminDashboard({ navigation }) {
         {/* ── TOP SELLERS (7-day) ─────────────────────────────────────────── */}
         {topSellers.length > 0 && (
           <View style={s.section}>
-            <SectionHead title="Top Sellers · 7 Days" right={`${topSellers.length} items`} />
+            <SectionHead title={t('admin.dashboard.topSellers')} right={`${topSellers.length} ${t('common.items')}`} />
             {topSellers.map((item, i) => {
               const barPct = maxSold > 0 ? Number(item.total_sold) / maxSold : 0;
               const barW   = Math.round(barPct * (SW - 120));
@@ -813,8 +815,8 @@ export default function AdminDashboard({ navigation }) {
           <View style={s.section}>
             <TouchableOpacity onPress={() => setGoodsOpen(o => !o)}>
               <SectionHead
-                title="Goods Sold · Today"
-                right={goodsOpen ? '▲ Hide' : `${goodsSold.length} items ▼`}
+                title={t('adminExtra.goodsSoldToday')}
+                right={goodsOpen ? `▲ ${t('adminExtra.hideLabel')}` : `${goodsSold.length} ${t('common.items')} ▼`}
               />
             </TouchableOpacity>
             {goodsOpen && goodsSold.map((g, i) => (
@@ -839,7 +841,7 @@ export default function AdminDashboard({ navigation }) {
                 ))}
                 {goodsSold.length > 5 && (
                   <TouchableOpacity style={[s.goodsChip, { backgroundColor: '#EFF6FF', borderColor: C.primary }]} onPress={() => setGoodsOpen(true)}>
-                    <Text style={[s.goodsChipTxt, { color: C.primary }]}>+{goodsSold.length - 5} more</Text>
+                    <Text style={[s.goodsChipTxt, { color: C.primary }]}>+{goodsSold.length - 5} {t('adminExtra.more')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -849,21 +851,21 @@ export default function AdminDashboard({ navigation }) {
 
         {/* ── WAREHOUSE SNAPSHOT ──────────────────────────────────────────── */}
         <View style={s.section}>
-          <SectionHead title="Warehouse · Today" right={`${stockCount} items in stock`} />
+          <SectionHead title={t('admin.dashboard.warehouseToday')} right={`${stockCount} ${t('common.items')}`} />
           <View style={{ flexDirection: 'row' }}>
             <View style={[s.warehouseCard, { backgroundColor: '#F0FDF4' }]}>
               <MaterialIcons name="inventory-2" size={22} color={C.success} />
               <Text style={[s.whValue, { color: C.success }]}>{fmtMoney(goodsArrivedFinal)}</Text>
-              <Text style={s.whLabel}>Goods Arrived</Text>
+              <Text style={s.whLabel}>{t('admin.dashboard.goodsArrived')}</Text>
             </View>
             <View style={[s.warehouseCard, { backgroundColor: '#FFF7ED' }]}>
               <MaterialIcons name="whatshot" size={22} color={C.warning} />
               <Text style={[s.whValue, { color: C.warning }]}>{fmtMoney(goodsConsumedFinal)}</Text>
-              <Text style={s.whLabel}>Goods Consumed</Text>
+              <Text style={s.whLabel}>{t('admin.dashboard.goodsConsumed')}</Text>
             </View>
           </View>
           <View style={s.stockValueRow}>
-            <Text style={s.stockValueLabel}>Total stock value</Text>
+            <Text style={s.stockValueLabel}>{t('admin.dashboard.totalStockValue')}</Text>
             <Text style={s.stockValueAmt}>{fmtMoneyFull(stockValue)}</Text>
           </View>
         </View>
@@ -871,11 +873,11 @@ export default function AdminDashboard({ navigation }) {
         {/* ── STAFF ON SHIFT ──────────────────────────────────────────────── */}
         <View style={s.section}>
           <SectionHead
-            title="Staff on Shift · Today"
-            right={staffOnShift > 0 ? `${staffOnShift} working` : undefined}
+            title={t('admin.dashboard.staffOnShiftSection')}
+            right={staffOnShift > 0 ? `${staffOnShift}` : undefined}
           />
           {staffList.length === 0 ? (
-            <Text style={s.emptyTxt}>No waitress shifts recorded yet today</Text>
+            <Text style={s.emptyTxt}>{t('adminExtra.noShiftsToday')}</Text>
           ) : (
             staffList.map((st, i) => (
               <View
@@ -890,12 +892,12 @@ export default function AdminDashboard({ navigation }) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.staffName}>{st.name}</Text>
-                  <Text style={s.staffSub}>{st.hours}h worked</Text>
+                  <Text style={s.staffSub}>{st.hours}{t('adminExtra.hWorked')}</Text>
                 </View>
                 {/* Orders badge */}
                 <View style={s.staffOrdersBadge}>
                   <Text style={s.staffOrdersNum}>{st.orders}</Text>
-                  <Text style={s.staffOrdersLabel}>orders</Text>
+                  <Text style={s.staffOrdersLabel}>{t('adminExtra.ordersLabel')}</Text>
                 </View>
               </View>
             ))
@@ -904,13 +906,13 @@ export default function AdminDashboard({ navigation }) {
 
         {/* ── QUICK ACTIONS ───────────────────────────────────────────────── */}
         <View style={[s.section, { paddingBottom: 4 }]}>
-          <SectionHead title="Quick Actions" />
+          <SectionHead title={t('admin.dashboard.quickActions')} />
           <View style={s.qaGrid}>
             {[
-              { iconName: 'shopping-cart', label: 'View Orders',   sub: 'Browse & manage orders',    iconBg: '#2563EB', softBg: '#EFF6FF', tab: 'Orders'    },
-              { iconName: 'chair', label: 'Manage Tables',  sub: 'Floor map & status',        iconBg: '#16A34A', softBg: '#F0FDF4', tab: 'Tables'    },
-              { iconName: 'inventory-2', label: 'Check Stock',    sub: 'Inventory & warehouse',     iconBg: '#D97706', softBg: '#FFF7ED', tab: 'Inventory' },
-              { iconName: 'group', label: 'Staff & Pay',    sub: 'Attendance & payroll',      iconBg: '#7C3AED', softBg: '#F5F3FF', tab: 'Staff'     },
+              { iconName: 'shopping-cart', label: t('adminExtra.viewOrders'),   sub: t('adminExtra.browseManage'),    iconBg: '#2563EB', softBg: '#EFF6FF', tab: 'Orders'    },
+              { iconName: 'chair', label: t('adminExtra.manageTables'),  sub: t('adminExtra.floorMap'),        iconBg: '#16A34A', softBg: '#F0FDF4', tab: 'Tables'    },
+              { iconName: 'inventory-2', label: t('adminExtra.checkStock'),    sub: t('adminExtra.inventoryWarehouse'),     iconBg: '#D97706', softBg: '#FFF7ED', tab: 'Inventory' },
+              { iconName: 'group', label: t('adminExtra.staffPay'),    sub: t('adminExtra.attendancePayroll'),      iconBg: '#7C3AED', softBg: '#F5F3FF', tab: 'Staff'     },
             ].map((a, i) => (
               <TouchableOpacity
                 key={i}
@@ -953,15 +955,15 @@ export default function AdminDashboard({ navigation }) {
             <View style={s.notifPanelHandle} />
             <View style={s.notifPanelHeader}>
               <View>
-                <Text style={s.notifPanelTitle}>Notifications</Text>
+                <Text style={s.notifPanelTitle}>{t('admin.dashboard.notifications')}</Text>
                 {unreadCount > 0 && (
-                  <Text style={s.notifPanelSub}>{unreadCount} unread</Text>
+                  <Text style={s.notifPanelSub}>{unreadCount} {t('adminExtra.unread')}</Text>
                 )}
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 {unreadCount > 0 && (
                   <TouchableOpacity onPress={handleMarkAllRead} style={s.markAllBtn} activeOpacity={0.7}>
-                    <Text style={s.markAllTxt}>Mark all read</Text>
+                    <Text style={s.markAllTxt}>{t('admin.dashboard.markAllRead')}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -978,8 +980,8 @@ export default function AdminDashboard({ navigation }) {
             {notifications.length === 0 ? (
               <View style={s.notifEmpty}>
                 <MaterialIcons name="notifications" size={36} color={C.primary} style={{ marginBottom: 12 }} />
-                <Text style={s.notifEmptyTitle}>No notifications</Text>
-                <Text style={s.notifEmptyHint}>You're all caught up!</Text>
+                <Text style={s.notifEmptyTitle}>{t('admin.dashboard.noNotifications')}</Text>
+                <Text style={s.notifEmptyHint}>{t('adminExtra.allCaughtUp')}</Text>
               </View>
             ) : (
               <FlatList
@@ -1002,7 +1004,7 @@ export default function AdminDashboard({ navigation }) {
                       {n.body ? (
                         <Text style={s.notifBody} numberOfLines={2}>{n.body}</Text>
                       ) : null}
-                      <Text style={s.notifTime}>{fmtNotifTime(n.created_at)}</Text>
+                      <Text style={s.notifTime}>{fmtNotifTime(n.created_at, t)}</Text>
                     </View>
                     {/* Unread indicator dot */}
                     {!n.is_read && <View style={s.notifUnreadDot} />}

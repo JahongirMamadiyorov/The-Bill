@@ -12,6 +12,7 @@ import {
 import { shadow } from '../../utils/theme';
 import { financeAPI } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -104,15 +105,16 @@ function Bar({ pct, color = P, h = 8 }) {
   );
 }
 
-function Pills({ opts, val, onPick, icons }) {
+function Pills({ opts, val, onPick, icons, labels }) {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       {opts.map(o => {
         const on = val === o;
+        const txt = labels && labels[o] ? labels[o] : o;
         return (
           <Pressable key={o} onPress={() => onPick(o)} style={[s.pill, on && s.pillOn]}>
             {icons && icons[o] ? <MaterialIcons name={icons[o]} size={14} color={on ? P : '#6B7280'} style={{ marginRight: 4 }} /> : null}
-            <Text style={[s.pillTx, on && s.pillTxOn]}>{o}</Text>
+            <Text style={[s.pillTx, on && s.pillTxOn]}>{txt}</Text>
           </Pressable>
         );
       })}
@@ -133,10 +135,16 @@ function LabelInput({ icon, label, children }) {
 }
 
 // ── Single-date calendar picker (mirrors OwnerCalendarPicker style) ──
-const CAL_DAYS = ['Mo','Tu','We','Th','Fr','Sa','Su'];
-const CAL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const CAL_DAYS_EN = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+const CAL_MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function DatePickerModal({ visible, onClose, value, onChange }) {
+  const { t } = useTranslation();
+  const monthNamesT = t('owner.finance.monthNames');
+  const CAL_MONTHS = Array.isArray(monthNamesT) && monthNamesT.length === 12 ? monthNamesT : CAL_MONTHS_EN;
+  const dayHdrsT = t('owner.finance.dayHeaders');
+  const CAL_DAYS = Array.isArray(dayHdrsT) && dayHdrsT.length === 7 ? dayHdrsT : CAL_DAYS_EN;
+
   const initD = value ? new Date(value + 'T00:00:00') : new Date();
   const [vYear, setVYear] = useState(initD.getFullYear());
   const [vMonth, setVMonth] = useState(initD.getMonth());
@@ -175,11 +183,11 @@ function DatePickerModal({ visible, onClose, value, onChange }) {
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, paddingTop: topPad + 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
           <TouchableOpacity onPress={onClose} style={{ width: 70 }}>
-            <Text style={{ fontSize: 15, color: P, fontWeight: '700' }}>{'<-'} Back</Text>
+            <Text style={{ fontSize: 15, color: P, fontWeight: '700' }}>{'<-'} {t('owner.finance.back', 'Back')}</Text>
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
             <MaterialIcons name="calendar-today" size={18} color={P} style={{ marginRight: 6 }} />
-            <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827' }}>Select Date</Text>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827' }}>{t('owner.finance.selectDate', 'Select Date')}</Text>
           </View>
           <View style={{ width: 70 }} />
         </View>
@@ -188,7 +196,7 @@ function DatePickerModal({ visible, onClose, value, onChange }) {
           {/* Selected date display */}
           <View style={{ alignItems: 'center', marginBottom: 16 }}>
             <View style={{ backgroundColor: PL, borderWidth: 2, borderColor: P, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 }}>
-              <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '700', marginBottom: 2, textAlign: 'center' }}>SELECTED</Text>
+              <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '700', marginBottom: 2, textAlign: 'center' }}>{t('owner.finance.selected', 'SELECTED')}</Text>
               <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827' }}>{selected}</Text>
             </View>
           </View>
@@ -241,10 +249,10 @@ function DatePickerModal({ visible, onClose, value, onChange }) {
 
           {/* Quick selects */}
           <View style={{ marginTop: 18 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#6B7280', marginBottom: 8 }}>Quick Select</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#6B7280', marginBottom: 8 }}>{t('owner.finance.quickSelect', 'Quick Select')}</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity style={{ flex: 1, backgroundColor: '#F1F5F9', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }} onPress={() => { setSelected(TODAY_STR); const d = new Date(); setVYear(d.getFullYear()); setVMonth(d.getMonth()); }}>
-                <Text style={{ color: '#6B7280', fontWeight: '700', fontSize: 12 }}>Today</Text>
+                <Text style={{ color: '#6B7280', fontWeight: '700', fontSize: 12 }}>{t('owner.finance.today', 'Today')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -256,7 +264,7 @@ function DatePickerModal({ visible, onClose, value, onChange }) {
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <MaterialIcons name="check" size={18} color="#fff" style={{ marginRight: 4 }} />
-              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Apply  {'\u00B7'}  {selected}</Text>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{t('owner.finance.apply', 'Apply')}  {'\u00B7'}  {selected}</Text>
             </View>
           </TouchableOpacity>
         </ScrollView>
@@ -266,12 +274,13 @@ function DatePickerModal({ visible, onClose, value, onChange }) {
 }
 
 function DatePickerField({ value, onChange, placeholder }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <View>
       <Pressable style={[s.inp, { flexDirection: 'row', alignItems: 'center' }]} onPress={() => setOpen(true)}>
         <MaterialIcons name="calendar-today" size={16} color={P} style={{ marginRight: 8 }} />
-        <Text style={{ flex: 1, fontSize: 14, color: value ? '#111827' : '#9CA3AF' }}>{value || placeholder || 'Select date'}</Text>
+        <Text style={{ flex: 1, fontSize: 14, color: value ? '#111827' : '#9CA3AF' }}>{value || placeholder || t('owner.finance.selectDate', 'Select date')}</Text>
         <MaterialIcons name="expand-more" size={18} color="#6B7280" />
       </Pressable>
       <DatePickerModal visible={open} onClose={() => setOpen(false)} value={value} onChange={onChange} />
@@ -283,6 +292,7 @@ function DatePickerField({ value, onChange, placeholder }) {
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════════
 export default function OwnerFinance() {
+  const { t } = useTranslation();
   // ── state ─────────────────────────────────────────────────────────
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
   const [showPicker, setShowPicker] = useState(false);
@@ -391,10 +401,10 @@ export default function OwnerFinance() {
       })));
     } catch (err) {
       console.warn('Finance fetch error:', err.message);
-      setError('Could not load finance data. Pull to retry.');
+      setError(t('owner.finance.couldNotLoadFinance', 'Could not load finance data. Pull to retry.'));
     }
     setLoading(false);
-  }, [period]);
+  }, [period, t]);
 
   // Fetch on mount and when period changes
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -528,14 +538,14 @@ export default function OwnerFinance() {
       setSheetExp(false);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
   const delExp = async (id) => {
     try {
       await financeAPI.deleteExpense(id);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
 
   const openLoanForm = () => { setLName(''); setLTotal(''); setLPaid('0'); setLRate(''); setLDue(''); setLNotes(''); setSheetLoan(true); };
@@ -549,7 +559,7 @@ export default function OwnerFinance() {
       setSheetLoan(false);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
 
   const openPayForm = (lid) => { setPLoanId(lid); setPAmt(''); setPDate(TODAY_STR); setPMethod('Cash'); setSheetPay(true); };
@@ -560,7 +570,7 @@ export default function OwnerFinance() {
       setSheetPay(false);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
 
   const delLoan = async (id) => {
@@ -569,7 +579,7 @@ export default function OwnerFinance() {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setConfirmDel(null);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
 
   const openBgtForm = () => { setBgtEdits({...budgets}); setSheetBgt(true); };
@@ -579,7 +589,7 @@ export default function OwnerFinance() {
       await financeAPI.upsertBudgets({ budgets: o });
       setSheetBgt(false);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
 
   const openIncForm = () => { setIAmt(''); setICat('Sales'); setIDate(TODAY_STR); setINote(''); setSheetInc(true); };
@@ -590,7 +600,7 @@ export default function OwnerFinance() {
       setSheetInc(false);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       fetchAll(false);
-    } catch (err) { setDialog({ title: 'Error', message: err.message, type: 'error' }); }
+    } catch (err) { setDialog({ title: t('common.error', 'Error'), message: err.message, type: 'error' }); }
   };
 
   const onRefresh = useCallback(() => { fetchAll(); }, [fetchAll]);
@@ -610,7 +620,7 @@ export default function OwnerFinance() {
       f.cfDays.forEach(d => {
         txt += `${d.date}   In: +${money(d.ci)}   Out: \u2212${money(d.co)}   Bal: ${money(d.bal)}\n`;
       });
-      await Share.share({ title: 'Cash Flow Report', message: txt });
+      await Share.share({ title: t('owner.finance.cashFlowReport', 'Cash Flow Report'), message: txt });
     } catch (_) {}
     setExporting(false);
   };
@@ -628,7 +638,7 @@ export default function OwnerFinance() {
       f.taxHist.forEach(h => {
         txt += `${h.month}   Revenue: ${money(h.rev)}   Tax: ${money(h.tax)}\n`;
       });
-      await Share.share({ title: 'Tax Report', message: txt });
+      await Share.share({ title: t('owner.finance.taxReport', 'Tax Report'), message: txt });
     } catch (_) {}
     setExporting(false);
   };
@@ -672,7 +682,7 @@ export default function OwnerFinance() {
         txt += `${d.date}   In: +${money(d.ci)}   Out: \u2212${money(d.co)}   Bal: ${money(d.bal)}\n`;
       });
 
-      await Share.share({ title: 'Financial Report', message: txt });
+      await Share.share({ title: t('owner.finance.financialReport', 'Financial Report'), message: txt });
     } catch (_) {}
     setExporting(false);
   };
@@ -685,12 +695,12 @@ export default function OwnerFinance() {
   if (loading && !summary) {
     return (
       <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
-        <OwnerPageHeader icon="account-balance" title="Finance" subtitle="Accounting & Insights" />
+        <OwnerPageHeader icon="account-balance" title={t('owner.finance.title', 'Finance')} subtitle={t('owner.finance.subtitle', 'Accounting & Insights')} />
         <OwnerPeriodBar period={period} onOpen={() => setShowPicker(true)} />
         <OwnerCalendarPicker visible={showPicker} onClose={() => setShowPicker(false)} period={period} onChange={setPeriod} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="large" color={P} />
-          <Text style={{ marginTop: 12, fontSize: 14, color: '#6B7280' }}>Loading finance data...</Text>
+          <Text style={{ marginTop: 12, fontSize: 14, color: '#6B7280' }}>{t('owner.finance.loadingFinanceData', 'Loading finance data...')}</Text>
         </View>
       </View>
     );
@@ -700,14 +710,14 @@ export default function OwnerFinance() {
   if (error && !summary) {
     return (
       <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
-        <OwnerPageHeader icon="account-balance" title="Finance" subtitle="Accounting & Insights" />
+        <OwnerPageHeader icon="account-balance" title={t('owner.finance.title', 'Finance')} subtitle={t('owner.finance.subtitle', 'Accounting & Insights')} />
         <OwnerPeriodBar period={period} onOpen={() => setShowPicker(true)} />
         <OwnerCalendarPicker visible={showPicker} onClose={() => setShowPicker(false)} period={period} onChange={setPeriod} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
           <MaterialIcons name="cloud-off" size={48} color="#D1D5DB" />
           <Text style={{ marginTop: 12, fontSize: 14, color: '#6B7280', textAlign: 'center' }}>{error}</Text>
           <Pressable style={{ marginTop: 16, backgroundColor: P, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 }} onPress={onRefresh}>
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Retry</Text>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{t('common.retry', 'Retry')}</Text>
           </Pressable>
         </View>
       </View>
@@ -717,7 +727,7 @@ export default function OwnerFinance() {
   return (
     <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
       {/* HEADER */}
-      <OwnerPageHeader icon="account-balance" title="Finance" subtitle="Accounting & Insights"
+      <OwnerPageHeader icon="account-balance" title={t('owner.finance.title', 'Finance')} subtitle={t('owner.finance.subtitle', 'Accounting & Insights')}
         right={<Pressable onPress={onRefresh} style={{padding:4}}><MaterialIcons name="refresh" size={22} color="rgba(255,255,255,0.85)" /></Pressable>}
       />
       <OwnerPeriodBar period={period} onOpen={() => setShowPicker(true)} />
@@ -729,12 +739,12 @@ export default function OwnerFinance() {
         {error && summary && (
           <Pressable style={[s.warn, { marginBottom: 12 }]} onPress={onRefresh}>
             <MaterialIcons name="warning" size={16} color="#D97706" />
-            <Text style={s.warnTx}>{error} Tap to retry.</Text>
+            <Text style={s.warnTx}>{error} {t('owner.finance.tapToRetry', 'Tap to retry.')}</Text>
           </Pressable>
         )}
 
         {/* ─── SECTION 1: PROFIT & LOSS ─────────────────────────────── */}
-        <Sec title="Profit & Loss" icon="trending-up" open>
+        <Sec title={t('owner.finance.profitLoss', 'Profit & Loss')} icon="trending-up" open>
           {/* 2×2 grid — two explicit rows with flex:1 children */}
           <View style={{ gap: 10 }}>
             {/* Row 1 */}
@@ -744,7 +754,7 @@ export default function OwnerFinance() {
                 <View style={[s.mCardIcWrap, { backgroundColor: '#ECFDF5' }]}>
                   <MaterialIcons name="trending-up" size={20} color={GN} />
                 </View>
-                <Text style={s.mCardLbl}>Revenue</Text>
+                <Text style={s.mCardLbl}>{t('owner.finance.revenue', 'Revenue')}</Text>
                 <Text style={[s.mCardVal, { color: GN }]}>{money(f.totalRev)}</Text>
               </View>
               {/* Expenses */}
@@ -752,7 +762,7 @@ export default function OwnerFinance() {
                 <View style={[s.mCardIcWrap, { backgroundColor: '#FEF2F2' }]}>
                   <MaterialIcons name="trending-down" size={20} color={RD} />
                 </View>
-                <Text style={s.mCardLbl}>Expenses</Text>
+                <Text style={s.mCardLbl}>{t('owner.finance.expenses', 'Expenses')}</Text>
                 <Text style={[s.mCardVal, { color: RD }]}>{money(f.totalExp)}</Text>
               </View>
             </View>
@@ -763,7 +773,7 @@ export default function OwnerFinance() {
                 <View style={[s.mCardIcWrap, { backgroundColor: f.net >= 0 ? '#ECFDF5' : '#FEF2F2' }]}>
                   <MaterialIcons name={f.net >= 0 ? 'trending-up' : 'trending-down'} size={20} color={f.net >= 0 ? GN : RD} />
                 </View>
-                <Text style={s.mCardLbl}>Net Profit</Text>
+                <Text style={s.mCardLbl}>{t('owner.finance.netProfit', 'Net Profit')}</Text>
                 <Text style={[s.mCardVal, { color: f.net >= 0 ? GN : RD }]}>{money(f.net)}</Text>
               </View>
               {/* Margin */}
@@ -771,7 +781,7 @@ export default function OwnerFinance() {
                 <View style={[s.mCardIcWrap, { backgroundColor: PL }]}>
                   <MaterialIcons name="percent" size={20} color={P} />
                 </View>
-                <Text style={s.mCardLbl}>Profit Margin</Text>
+                <Text style={s.mCardLbl}>{t('owner.finance.profitMargin', 'Profit Margin')}</Text>
                 <Text style={[s.mCardVal, { color: f.margin >= 0 ? P : RD }]}>{f.margin.toFixed(1)}%</Text>
               </View>
             </View>
@@ -780,21 +790,21 @@ export default function OwnerFinance() {
           {/* Comparison table */}
           <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}>
             <MaterialIcons name="compare-arrows" size={16} color="#6B7280" style={{marginRight:6}} />
-            <Text style={s.subH}>This Period vs Last Period</Text>
+            <Text style={s.subH}>{t('owner.finance.thisPeriodVsLast', 'This Period vs Last Period')}</Text>
           </View>
           <View style={s.tbl}>
             <View style={s.tblHdr}>
-              <Text style={[s.tblC,{flex:2,fontWeight:'700'}]}>Metric</Text>
-              <Text style={[s.tblC,{fontWeight:'700'}]}>Current</Text>
-              <Text style={[s.tblC,{fontWeight:'700'}]}>Previous</Text>
-              <Text style={[s.tblC,{fontWeight:'700'}]}>Change</Text>
+              <Text style={[s.tblC,{flex:2,fontWeight:'700'}]}>{t('owner.finance.metric', 'Metric')}</Text>
+              <Text style={[s.tblC,{fontWeight:'700'}]}>{t('owner.finance.current', 'Current')}</Text>
+              <Text style={[s.tblC,{fontWeight:'700'}]}>{t('owner.finance.previous', 'Previous')}</Text>
+              <Text style={[s.tblC,{fontWeight:'700'}]}>{t('owner.finance.change', 'Change')}</Text>
             </View>
             {/* Revenue row */}
             <Pressable onPress={()=>{LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);setXRevRow(r=>!r);}}>
               <View style={s.tblRow}>
                 <View style={{flex:2,flexDirection:'row',alignItems:'center'}}>
                   <MaterialIcons name="trending-up" size={14} color={GN} style={{marginRight:4}} />
-                  <Text style={s.tblC}>Revenue</Text>
+                  <Text style={s.tblC}>{t('owner.finance.revenue', 'Revenue')}</Text>
                   <MaterialIcons name={xRevRow?'expand-less':'expand-more'} size={14} color={P} />
                 </View>
                 <Text style={s.tblC}>{money(f.totalRev)}</Text>
@@ -804,7 +814,7 @@ export default function OwnerFinance() {
             </Pressable>
             {xRevRow && (
               <View style={{paddingLeft:16,paddingVertical:8,backgroundColor:'#FAFAFA'}}>
-                {[{l:'Cash',v:f.byPay.Cash,ic:'payments'},{l:'Card',v:f.byPay.Card,ic:'credit-card'},{l:'QR/Online',v:f.byPay['QR/Online'],ic:'qr-code-2'}].map(r=>(
+                {[{l:t('owner.finance.payCash','Cash'),v:f.byPay.Cash,ic:'payments'},{l:t('owner.finance.payCard','Card'),v:f.byPay.Card,ic:'credit-card'},{l:'QR/Online',v:f.byPay['QR/Online'],ic:'qr-code-2'}].map(r=>(
                   <View key={r.l} style={{marginBottom:8}}>
                     <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:3}}>
                       <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name={r.ic} size={13} color="#6B7280" style={{marginRight:4}} /><Text style={{fontSize:12,color:'#6B7280'}}>{r.l}</Text></View>
@@ -820,7 +830,7 @@ export default function OwnerFinance() {
               <View style={s.tblRow}>
                 <View style={{flex:2,flexDirection:'row',alignItems:'center'}}>
                   <MaterialIcons name="trending-down" size={14} color={RD} style={{marginRight:4}} />
-                  <Text style={s.tblC}>Expenses</Text>
+                  <Text style={s.tblC}>{t('owner.finance.expenses', 'Expenses')}</Text>
                   <MaterialIcons name={xExpRow?'expand-less':'expand-more'} size={14} color={P} />
                 </View>
                 <Text style={s.tblC}>{money(f.totalExp)}</Text>
@@ -843,25 +853,25 @@ export default function OwnerFinance() {
             )}
             {/* Net Profit */}
             <View style={s.tblRow}>
-              <View style={{flex:2,flexDirection:'row',alignItems:'center'}}><MaterialIcons name="account-balance-wallet" size={14} color={P} style={{marginRight:4}} /><Text style={[s.tblC,{fontWeight:'600'}]}>Net Profit</Text></View>
+              <View style={{flex:2,flexDirection:'row',alignItems:'center'}}><MaterialIcons name="account-balance-wallet" size={14} color={P} style={{marginRight:4}} /><Text style={[s.tblC,{fontWeight:'600'}]}>{t('owner.finance.netProfit', 'Net Profit')}</Text></View>
               <Text style={[s.tblC,{color:f.net>=0?GN:RD}]}>{money(f.net)}</Text>
               <Text style={[s.tblC,{color:f.prevNet>=0?GN:RD}]}>{money(f.prevNet)}</Text>
               <Text style={[s.tblC,{color:f.net>=f.prevNet?GN:RD}]}>{pctStr(f.net,f.prevNet)}</Text>
             </View>
             {/* Margin */}
             <View style={s.tblRow}>
-              <View style={{flex:2,flexDirection:'row',alignItems:'center'}}><MaterialIcons name="percent" size={14} color={P} style={{marginRight:4}} /><Text style={[s.tblC,{fontWeight:'600'}]}>Margin</Text></View>
+              <View style={{flex:2,flexDirection:'row',alignItems:'center'}}><MaterialIcons name="percent" size={14} color={P} style={{marginRight:4}} /><Text style={[s.tblC,{fontWeight:'600'}]}>{t('owner.finance.margin', 'Margin')}</Text></View>
               <Text style={s.tblC}>{f.margin.toFixed(1)}%</Text>
               <Text style={s.tblC}>{f.prevMargin.toFixed(1)}%</Text>
-              <Text style={[s.tblC,{color:f.margin>=f.prevMargin?GN:RD}]}>{(f.margin-f.prevMargin).toFixed(1)}pp</Text>
+              <Text style={[s.tblC,{color:f.margin>=f.prevMargin?GN:RD}]}>{(f.margin-f.prevMargin).toFixed(1)}{t('owner.finance.ppUnit', 'pp')}</Text>
             </View>
           </View>
         </Sec>
 
         {/* ─── SECTION 2: REVENUE BREAKDOWN ─────────────────────────── */}
-        <Sec title="Revenue Breakdown" icon="bar-chart">
+        <Sec title={t('owner.finance.revenueBreakdown', 'Revenue Breakdown')} icon="bar-chart">
           {/* By payment */}
-          <View style={{flexDirection:'row',alignItems:'center',marginBottom:8}}><MaterialIcons name="payment" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>By Payment Method</Text></View>
+          <View style={{flexDirection:'row',alignItems:'center',marginBottom:8}}><MaterialIcons name="payment" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>{t('owner.finance.byPaymentMethod', 'By Payment Method')}</Text></View>
           {[{k:'Cash',ic:'payments',c:GN},{k:'Card',ic:'credit-card',c:BL},{k:'QR/Online',ic:'qr-code-2',c:P}].map(({k,ic,c})=>(
             <View key={k} style={{marginBottom:10}}>
               <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
@@ -873,11 +883,11 @@ export default function OwnerFinance() {
           ))}
 
           {/* By order type */}
-          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="restaurant-menu" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>By Order Type</Text></View>
-          {[{k:'Dine-In',ic:'restaurant',c:AM},{k:'To-Go',ic:'shopping-bag',c:CY},{k:'Delivery',ic:'delivery-dining',c:PK}].map(({k,ic,c})=>(
+          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="restaurant-menu" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>{t('owner.finance.byOrderType','By Order Type')}</Text></View>
+          {[{k:'Dine-In',lbl:t('owner.finance.ordDineIn','Dine-In'),ic:'restaurant',c:AM},{k:'To-Go',lbl:t('owner.finance.ordToGo','To-Go'),ic:'shopping-bag',c:CY},{k:'Delivery',lbl:t('owner.finance.ordDelivery','Delivery'),ic:'delivery-dining',c:PK}].map(({k,lbl,ic,c})=>(
             <View key={k} style={{marginBottom:10}}>
               <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-                <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name={ic} size={15} color={c} style={{marginRight:6}} /><Text style={{fontSize:13,color:'#374151'}}>{k}</Text></View>
+                <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name={ic} size={15} color={c} style={{marginRight:6}} /><Text style={{fontSize:13,color:'#374151'}}>{lbl}</Text></View>
                 <Text style={{fontSize:13,fontWeight:'600',color:'#111827'}}>{money(f.byOrd[k])} ({f.totalRev>0?((f.byOrd[k]/f.totalRev)*100).toFixed(0):0}%)</Text>
               </View>
               <Bar pct={f.totalRev>0?(f.byOrd[k]/f.totalRev)*100:0} color={c} />
@@ -885,7 +895,7 @@ export default function OwnerFinance() {
           ))}
 
           {/* By time of day */}
-          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="schedule" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>By Time of Day</Text></View>
+          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="schedule" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>{t('owner.finance.byTimeOfDay','By Time of Day')}</Text></View>
           <View style={{flexDirection:'row',alignItems:'flex-end',height:130,gap:12,marginTop:4}}>
             {Object.entries(f.byTime).map(([k,v])=>{
               const mx = Math.max(...Object.values(f.byTime));
@@ -901,7 +911,7 @@ export default function OwnerFinance() {
           </View>
 
           {/* By day of week */}
-          <View style={{flexDirection:'row',alignItems:'center',marginTop:20,marginBottom:8}}><MaterialIcons name="calendar-today" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>By Day of Week</Text></View>
+          <View style={{flexDirection:'row',alignItems:'center',marginTop:20,marginBottom:8}}><MaterialIcons name="calendar-today" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>{t('owner.finance.byDayOfWeek','By Day of Week')}</Text></View>
           <View style={{flexDirection:'row',alignItems:'flex-end',height:130,gap:4,marginTop:4}}>
             {SHORT_DAYS.map(d=>{
               const data = f.byDow[d];
@@ -921,25 +931,25 @@ export default function OwnerFinance() {
         </Sec>
 
         {/* ─── SECTION 3: CASH FLOW ─────────────────────────────────── */}
-        <Sec title="Cash Flow" icon="swap-horiz">
+        <Sec title={t('owner.finance.cashFlow','Cash Flow')} icon="swap-horiz">
           {/* Summary cards */}
           <View style={{flexDirection:'row',gap:8,marginBottom:12}}>
-            <View style={[s.cfCard,{borderLeftColor:GN}]}><View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="south-west" size={14} color={GN} style={{marginRight:4}} /><Text style={s.cfLbl}>Cash In</Text></View><Text style={[s.cfVal,{color:GN}]}>{money(f.totCI)}</Text></View>
-            <View style={[s.cfCard,{borderLeftColor:RD}]}><View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="north-east" size={14} color={RD} style={{marginRight:4}} /><Text style={s.cfLbl}>Cash Out</Text></View><Text style={[s.cfVal,{color:RD}]}>{money(f.totCO)}</Text></View>
-            <View style={[s.cfCard,{borderLeftColor:P}]}><View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="balance" size={14} color={P} style={{marginRight:4}} /><Text style={s.cfLbl}>Net Balance</Text></View><Text style={[s.cfVal,{color:f.netBal>=0?P:RD}]}>{money(f.netBal)}</Text></View>
+            <View style={[s.cfCard,{borderLeftColor:GN}]}><View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="south-west" size={14} color={GN} style={{marginRight:4}} /><Text style={s.cfLbl}>{t('owner.finance.cashIn','Cash In')}</Text></View><Text style={[s.cfVal,{color:GN}]}>{money(f.totCI)}</Text></View>
+            <View style={[s.cfCard,{borderLeftColor:RD}]}><View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="north-east" size={14} color={RD} style={{marginRight:4}} /><Text style={s.cfLbl}>{t('owner.finance.cashOut','Cash Out')}</Text></View><Text style={[s.cfVal,{color:RD}]}>{money(f.totCO)}</Text></View>
+            <View style={[s.cfCard,{borderLeftColor:P}]}><View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="balance" size={14} color={P} style={{marginRight:4}} /><Text style={s.cfLbl}>{t('owner.finance.netBalance','Net Balance')}</Text></View><Text style={[s.cfVal,{color:f.netBal>=0?P:RD}]}>{money(f.netBal)}</Text></View>
           </View>
 
-          {f.negDay && <View style={s.warn}><MaterialIcons name="warning" size={16} color="#D97706" /><Text style={s.warnTx}>Cash flow warning on {f.negDay}</Text></View>}
+          {f.negDay && <View style={s.warn}><MaterialIcons name="warning" size={16} color="#D97706" /><Text style={s.warnTx}>{t('owner.finance.cashFlowWarningOn','Cash flow warning on')} {f.negDay}</Text></View>}
 
           <Pressable style={[s.addBtn,{marginTop:12}]} onPress={exportCashFlowPdf} disabled={exporting}>
-            <MaterialIcons name="share" size={18} color={P} /><Text style={s.addBtnTx}>{exporting ? 'Preparing…' : 'Share Cash Flow Report'}</Text>
+            <MaterialIcons name="share" size={18} color={P} /><Text style={s.addBtnTx}>{exporting ? t('owner.finance.preparing','Preparing...') : t('owner.finance.shareCashFlowReport','Share Cash Flow Report')}</Text>
           </Pressable>
         </Sec>
 
         {/* ─── SECTION 4: EXPENSE MANAGER ───────────────────────────── */}
-        <Sec title="Expense Manager" icon="receipt-long">
+        <Sec title={t('owner.finance.expenseManager','Expense Manager')} icon="receipt-long">
           <Pressable style={s.addBtn} onPress={()=>openExpForm(null)}>
-            <MaterialIcons name="add" size={18} color={P} /><Text style={s.addBtnTx}>Add Expense</Text>
+            <MaterialIcons name="add" size={18} color={P} /><Text style={s.addBtnTx}>{t('owner.finance.addExpense','Add Expense')}</Text>
           </Pressable>
 
           {f.filtExp.map(e=>(
@@ -949,7 +959,7 @@ export default function OwnerFinance() {
                 <Text style={{fontSize:13,fontWeight:'600',color:'#111827'}}>{e.desc}</Text>
                 <View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:2}}>
                   <MaterialIcons name="event" size={11} color="#9CA3AF" /><Text style={{fontSize:11,color:'#6B7280'}}>{e.date}</Text>
-                  {e.rec && <View style={s.badge}><MaterialIcons name="repeat" size={9} color={BL} style={{marginRight:2}} /><Text style={s.badgeTx}>Recurring</Text></View>}
+                  {e.rec && <View style={s.badge}><MaterialIcons name="repeat" size={9} color={BL} style={{marginRight:2}} /><Text style={s.badgeTx}>{t('owner.finance.recurring','Recurring')}</Text></View>}
                 </View>
               </View>
               <Text style={{fontSize:13,fontWeight:'700',color:RD}}>{money(e.amt)}</Text>
@@ -958,7 +968,7 @@ export default function OwnerFinance() {
           ))}
 
           {/* Category breakdown */}
-          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="donut-small" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>Category Breakdown</Text></View>
+          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="donut-small" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>{t('owner.finance.categoryBreakdown','Category Breakdown')}</Text></View>
           {CATS.filter(c=>f.expCat[c]>0).map(c=>(
             <View key={c} style={{marginBottom:10}}>
               <View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}>
@@ -970,21 +980,21 @@ export default function OwnerFinance() {
             </View>
           ))}
           <View style={s.totRow}>
-            <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="functions" size={16} color="#374151" style={{marginRight:4}} /><Text style={s.totLbl}>Total Expenses</Text></View>
+            <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="functions" size={16} color="#374151" style={{marginRight:4}} /><Text style={s.totLbl}>{t('owner.finance.totalExpenses','Total Expenses')}</Text></View>
             <Text style={[s.totVal,{color:RD}]}>{money(f.totalExp)}</Text>
           </View>
         </Sec>
 
         {/* ─── SECTION 5: BUDGET VS ACTUAL ──────────────────────────── */}
-        <Sec title="Budget vs Actual" icon="track-changes">
+        <Sec title={t('owner.finance.budgetVsActual','Budget vs Actual')} icon="track-changes">
           <Pressable style={s.addBtn} onPress={openBgtForm}>
-            <MaterialIcons name="settings" size={18} color={P} /><Text style={s.addBtnTx}>Set Budget</Text>
+            <MaterialIcons name="settings" size={18} color={P} /><Text style={s.addBtnTx}>{t('owner.finance.setBudget','Set Budget')}</Text>
           </Pressable>
 
           {/* Summary */}
           <View style={{flexDirection:'row',justifyContent:'space-between',marginBottom:12}}>
-            <View><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="flag" size={13} color="#6B7280" style={{marginRight:3}} /><Text style={{fontSize:11,color:'#6B7280'}}>Total Budget</Text></View><Text style={{fontSize:16,fontWeight:'700',color:'#111827'}}>{money(f.totBgt)}</Text></View>
-            <View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="payments" size={13} color="#6B7280" style={{marginRight:3}} /><Text style={{fontSize:11,color:'#6B7280'}}>Actual Spent</Text></View><Text style={{fontSize:16,fontWeight:'700',color:f.totalExp>f.totBgt?RD:'#111827'}}>{money(f.totalExp)}</Text></View>
+            <View><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="flag" size={13} color="#6B7280" style={{marginRight:3}} /><Text style={{fontSize:11,color:'#6B7280'}}>{t('owner.finance.totalBudget','Total Budget')}</Text></View><Text style={{fontSize:16,fontWeight:'700',color:'#111827'}}>{money(f.totBgt)}</Text></View>
+            <View style={{alignItems:'flex-end'}}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="payments" size={13} color="#6B7280" style={{marginRight:3}} /><Text style={{fontSize:11,color:'#6B7280'}}>{t('owner.finance.actualSpent','Actual Spent')}</Text></View><Text style={{fontSize:16,fontWeight:'700',color:f.totalExp>f.totBgt?RD:'#111827'}}>{money(f.totalExp)}</Text></View>
           </View>
 
           {CATS.map(c=>{
@@ -997,12 +1007,12 @@ export default function OwnerFinance() {
                   <View style={{flexDirection:'row',alignItems:'center'}}>
                     <MaterialIcons name={CAT_IC[c]} size={14} color={P} style={{marginRight:5}} />
                     <Text style={{fontSize:13,color:'#374151'}}>{c}</Text>
-                    {pct>=100 && <View style={[s.badge,{backgroundColor:'#FEE2E2',marginLeft:6}]}><MaterialIcons name="error" size={9} color="#DC2626" style={{marginRight:2}} /><Text style={[s.badgeTx,{color:'#DC2626'}]}>Over Budget</Text></View>}
+                    {pct>=100 && <View style={[s.badge,{backgroundColor:'#FEE2E2',marginLeft:6}]}><MaterialIcons name="error" size={9} color="#DC2626" style={{marginRight:2}} /><Text style={[s.badgeTx,{color:'#DC2626'}]}>{t('owner.finance.overBudget','Over Budget')}</Text></View>}
                   </View>
                   <Text style={{fontSize:12,color:'#6B7280'}}>{money(a)} / {money(b)}</Text>
                 </View>
                 <Bar pct={Math.min(pct,100)} color={clr} />
-                <Text style={{fontSize:10,color:rem>=0?'#6B7280':RD,marginTop:2}}>{rem>=0?money(rem)+' remaining':money(Math.abs(rem))+' over budget'}</Text>
+                <Text style={{fontSize:10,color:rem>=0?'#6B7280':RD,marginTop:2}}>{rem>=0?money(rem)+' '+t('owner.finance.remaining','remaining'):money(Math.abs(rem))+' '+t('owner.finance.overBudgetAmount','over budget')}</Text>
               </View>
             );
           })}
@@ -1015,8 +1025,8 @@ export default function OwnerFinance() {
               <View style={[s.warn,{marginTop:8}]}>
                 <MaterialIcons name="warning" size={16} color="#D97706" />
                 <View style={{flex:1,marginLeft:8}}>
-                  <Text style={{fontSize:12,fontWeight:'600',color:'#92400E'}}>Budget Alerts</Text>
-                  {alerted.map(c=>{const pct=budgets[c]>0?((f.expCat[c]||0)/budgets[c]*100):0; return <Text key={c} style={{fontSize:11,color:'#92400E',marginTop:2}}><MaterialIcons name="warning" size={10} color="#D97706" /> {c}: {pct.toFixed(0)}% used</Text>;})}
+                  <Text style={{fontSize:12,fontWeight:'600',color:'#92400E'}}>{t('owner.finance.budgetAlerts','Budget Alerts')}</Text>
+                  {alerted.map(c=>{const pct=budgets[c]>0?((f.expCat[c]||0)/budgets[c]*100):0; return <Text key={c} style={{fontSize:11,color:'#92400E',marginTop:2}}><MaterialIcons name="warning" size={10} color="#D97706" /> {c}: {pct.toFixed(0)}{t('owner.finance.pctUsed','% used')}</Text>;})}
                 </View>
               </View>
             );
@@ -1024,46 +1034,46 @@ export default function OwnerFinance() {
         </Sec>
 
         {/* ─── SECTION 6: TAX SUMMARY ───────────────────────────────── */}
-        <Sec title="Tax Summary" icon="description">
+        <Sec title={t('owner.finance.taxSummary','Tax Summary')} icon="description">
           <View style={{gap:6}}>
-            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="percent" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>Tax Rate</Text></View><Text style={s.taxV}>{(f.taxRate*100).toFixed(0)}%</Text></View>
-            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="trending-up" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>Total Revenue</Text></View><Text style={s.taxV}>{money(f.totalRev)}</Text></View>
-            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="receipt" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>Tax Collected</Text></View><Text style={[s.taxV,{color:RD}]}>{money(f.taxCol)}</Text></View>
-            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="room-service" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>Service Charge ({(f.svcRate*100).toFixed(0)}%)</Text></View><Text style={s.taxV}>{money(f.svcCol)}</Text></View>
+            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="percent" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>{t('owner.finance.taxRate','Tax Rate')}</Text></View><Text style={s.taxV}>{(f.taxRate*100).toFixed(0)}%</Text></View>
+            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="trending-up" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>{t('owner.finance.totalRevenue','Total Revenue')}</Text></View><Text style={s.taxV}>{money(f.totalRev)}</Text></View>
+            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="receipt" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>{t('owner.finance.taxCollected','Tax Collected')}</Text></View><Text style={[s.taxV,{color:RD}]}>{money(f.taxCol)}</Text></View>
+            <View style={s.taxR}><View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="room-service" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.taxL}>{t('owner.finance.serviceChargeLabel','Service Charge')} ({(f.svcRate*100).toFixed(0)}%)</Text></View><Text style={s.taxV}>{money(f.svcCol)}</Text></View>
             <View style={[s.taxR,{borderTopWidth:1,borderTopColor:'#E5E7EB',paddingTop:8}]}>
-              <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="account-balance" size={14} color={RD} style={{marginRight:5}} /><Text style={[s.taxL,{fontWeight:'700'}]}>Est. Tax Payable</Text></View>
+              <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="account-balance" size={14} color={RD} style={{marginRight:5}} /><Text style={[s.taxL,{fontWeight:'700'}]}>{t('owner.finance.estTaxPayable','Est. Tax Payable')}</Text></View>
               <Text style={[s.taxV,{fontWeight:'800',color:RD}]}>{money(f.taxCol)}</Text>
             </View>
           </View>
 
-          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="history" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>Monthly Tax History</Text></View>
+          <View style={{flexDirection:'row',alignItems:'center',marginTop:16,marginBottom:8}}><MaterialIcons name="history" size={15} color="#6B7280" style={{marginRight:5}} /><Text style={s.subH}>{t('owner.finance.monthlyTaxHistory','Monthly Tax History')}</Text></View>
           {f.taxHist.map(h=>(
             <View key={h.month} style={s.taxR}>
               <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="calendar-today" size={12} color="#9CA3AF" style={{marginRight:5}} /><Text style={{fontSize:13,color:'#374151'}}>{h.month}</Text></View>
-              <View style={{alignItems:'flex-end'}}><Text style={{fontSize:11,color:'#6B7280'}}>{money(h.rev)} rev</Text><Text style={{fontSize:12,fontWeight:'600',color:'#111827'}}>{money(h.tax)} tax</Text></View>
+              <View style={{alignItems:'flex-end'}}><Text style={{fontSize:11,color:'#6B7280'}}>{money(h.rev)} {t('owner.finance.rev','rev')}</Text><Text style={{fontSize:12,fontWeight:'600',color:'#111827'}}>{money(h.tax)} {t('owner.finance.tax','tax')}</Text></View>
             </View>
           ))}
 
           <Pressable style={[s.addBtn,{marginTop:12}]} onPress={exportTaxPdf} disabled={exporting}>
-            <MaterialIcons name="share" size={18} color={P} /><Text style={s.addBtnTx}>{exporting ? 'Preparing…' : 'Share Tax Report'}</Text>
+            <MaterialIcons name="share" size={18} color={P} /><Text style={s.addBtnTx}>{exporting ? t('owner.finance.preparing','Preparing...') : t('owner.finance.shareTaxReport','Share Tax Report')}</Text>
           </Pressable>
         </Sec>
 
         {/* ─── SECTION 7: LOANS & DEBT ──────────────────────────────── */}
-        <Sec title="Loans & Debt" icon="account-balance">
+        <Sec title={t('owner.finance.loansDebt','Loans & Debt')} icon="account-balance">
           {(()=>{
             const totOut = loans.reduce((a,l) => a+(l.total-l.paid), 0);
             const hasOD = loans.some(l=>l.due&&new Date(l.due+'T00:00:00')<new Date()&&l.paid<l.total);
             return (
               <View style={{marginBottom:12}}>
-                <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="account-balance" size={16} color={hasOD?RD:'#6B7280'} style={{marginRight:5}} /><Text style={{fontSize:12,color:'#6B7280'}}>Total Outstanding</Text></View>
+                <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="account-balance" size={16} color={hasOD?RD:'#6B7280'} style={{marginRight:5}} /><Text style={{fontSize:12,color:'#6B7280'}}>{t('owner.finance.totalOutstanding','Total Outstanding')}</Text></View>
                 <Text style={{fontSize:24,fontWeight:'800',color:hasOD?RD:'#111827'}}>{money(totOut)}</Text>
               </View>
             );
           })()}
 
           <Pressable style={s.addBtn} onPress={openLoanForm}>
-            <MaterialIcons name="add" size={18} color={P} /><Text style={s.addBtnTx}>Add Loan</Text>
+            <MaterialIcons name="add" size={18} color={P} /><Text style={s.addBtnTx}>{t('owner.finance.addLoan','Add Loan')}</Text>
           </Pressable>
 
           {loans.map(l=>{
@@ -1071,7 +1081,7 @@ export default function OwnerFinance() {
             const isOD=l.due&&new Date(l.due+'T00:00:00')<new Date()&&rem>0;
             const soon=!isOD&&l.due&&(new Date(l.due+'T00:00:00')-new Date())<7*86400000&&rem>0;
             const paid=rem<=0;
-            const st2=paid?'Paid':isOD?'Overdue':'Active';
+            const st2=paid?t('owner.finance.paid','Paid'):isOD?t('owner.finance.overdue','Overdue'):t('owner.finance.activeStatus','Active');
             const stC=paid?GN:isOD?RD:BL;
             const stBg=paid?'#F0FDF4':isOD?'#FEF2F2':'#EFF6FF';
             return (
@@ -1084,21 +1094,21 @@ export default function OwnerFinance() {
                   </View>
                 </View>
                 <View style={{flexDirection:'row',justifyContent:'space-between',marginBottom:4}}>
-                  <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="attach-money" size={12} color="#6B7280" /><Text style={{fontSize:12,color:'#6B7280'}}>Total: {money(l.total)}</Text></View>
-                  <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="check" size={12} color={GN} /><Text style={{fontSize:12,color:'#6B7280'}}>Paid: {money(l.paid)}</Text></View>
+                  <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="attach-money" size={12} color="#6B7280" /><Text style={{fontSize:12,color:'#6B7280'}}>{t('owner.finance.totalLabel','Total')}: {money(l.total)}</Text></View>
+                  <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="check" size={12} color={GN} /><Text style={{fontSize:12,color:'#6B7280'}}>{t('owner.finance.paidLabel','Paid')}: {money(l.paid)}</Text></View>
                 </View>
-                <View style={{flexDirection:'row',alignItems:'center',marginBottom:6}}><MaterialIcons name="hourglass-bottom" size={12} color={P} style={{marginRight:3}} /><Text style={{fontSize:12,fontWeight:'600',color:'#111827'}}>Remaining: {money(rem)}</Text></View>
+                <View style={{flexDirection:'row',alignItems:'center',marginBottom:6}}><MaterialIcons name="hourglass-bottom" size={12} color={P} style={{marginRight:3}} /><Text style={{fontSize:12,fontWeight:'600',color:'#111827'}}>{t('owner.finance.remainingLabel','Remaining')}: {money(rem)}</Text></View>
                 <Bar pct={pct} color={stC} />
                 <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
-                  <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="event" size={13} color={isOD?RD:soon?AM:'#6B7280'} style={{marginRight:4}} /><Text style={{fontSize:12,color:isOD?RD:soon?'#D97706':'#6B7280',fontWeight:isOD||soon?'600':'400'}}>Due: {l.due||'N/A'}</Text></View>
-                  {l.rate>0&&<View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="percent" size={11} color="#6B7280" /><Text style={{fontSize:11,color:'#6B7280'}}>{l.rate}% interest</Text></View>}
+                  <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="event" size={13} color={isOD?RD:soon?AM:'#6B7280'} style={{marginRight:4}} /><Text style={{fontSize:12,color:isOD?RD:soon?'#D97706':'#6B7280',fontWeight:isOD||soon?'600':'400'}}>{t('owner.finance.dueLabel','Due')}: {l.due||t('owner.finance.notAvailable','N/A')}</Text></View>
+                  {l.rate>0&&<View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="percent" size={11} color="#6B7280" /><Text style={{fontSize:11,color:'#6B7280'}}>{l.rate}{t('owner.finance.percentInterest','% interest')}</Text></View>}
                 </View>
                 <View style={{flexDirection:'row',gap:8,marginTop:10}}>
-                  {!paid&&<Pressable style={[s.smBtn,{backgroundColor:PL}]} onPress={()=>openPayForm(l.id)}><MaterialIcons name="credit-card" size={14} color={P} /><Text style={{fontSize:12,fontWeight:'600',color:P,marginLeft:4}}>Make Payment</Text></Pressable>}
+                  {!paid&&<Pressable style={[s.smBtn,{backgroundColor:PL}]} onPress={()=>openPayForm(l.id)}><MaterialIcons name="credit-card" size={14} color={P} /><Text style={{fontSize:12,fontWeight:'600',color:P,marginLeft:4}}>{t('owner.finance.makePayment','Make Payment')}</Text></Pressable>}
                   {confirmDel===l.id?(
                     <View style={{flexDirection:'row',gap:6}}>
-                      <Pressable style={[s.smBtn,{backgroundColor:'#FEE2E2'}]} onPress={()=>delLoan(l.id)}><MaterialIcons name="check" size={14} color="#DC2626" /><Text style={{fontSize:12,fontWeight:'600',color:'#DC2626',marginLeft:2}}>Confirm</Text></Pressable>
-                      <Pressable style={s.smBtn} onPress={()=>setConfirmDel(null)}><MaterialIcons name="close" size={14} color="#6B7280" /><Text style={{fontSize:12,color:'#6B7280',marginLeft:2}}>Cancel</Text></Pressable>
+                      <Pressable style={[s.smBtn,{backgroundColor:'#FEE2E2'}]} onPress={()=>delLoan(l.id)}><MaterialIcons name="check" size={14} color="#DC2626" /><Text style={{fontSize:12,fontWeight:'600',color:'#DC2626',marginLeft:2}}>{t('common.confirm','Confirm')}</Text></Pressable>
+                      <Pressable style={s.smBtn} onPress={()=>setConfirmDel(null)}><MaterialIcons name="close" size={14} color="#6B7280" /><Text style={{fontSize:12,color:'#6B7280',marginLeft:2}}>{t('common.cancel','Cancel')}</Text></Pressable>
                     </View>
                   ):(
                     <Pressable style={s.smBtn} onPress={()=>setConfirmDel(l.id)}><MaterialIcons name="delete-outline" size={14} color="#9CA3AF" /></Pressable>
@@ -1110,9 +1120,9 @@ export default function OwnerFinance() {
         </Sec>
 
         {/* ─── SECTION 8: PAYROLL SUMMARY ───────────────────────────── */}
-        <Sec title="Payroll Summary" icon="people">
+        <Sec title={t('owner.finance.payrollSummary','Payroll Summary')} icon="people">
           <View style={{marginBottom:12}}>
-            <View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="payments" size={16} color={P} style={{marginRight:5}} /><Text style={{fontSize:12,color:'#6B7280'}}>Total Payroll Cost</Text></View>
+            <View style={{flexDirection:'row',alignItems:'center',marginBottom:4}}><MaterialIcons name="payments" size={16} color={P} style={{marginRight:5}} /><Text style={{fontSize:12,color:'#6B7280'}}>{t('owner.finance.totalPayrollCost','Total Payroll Cost')}</Text></View>
             <Text style={{fontSize:22,fontWeight:'800',color:'#111827'}}>{money(f.totPay)}</Text>
           </View>
 
@@ -1124,28 +1134,34 @@ export default function OwnerFinance() {
           ))}
 
           <View style={[s.taxR,{marginTop:12,borderTopWidth:1,borderTopColor:'#E5E7EB',paddingTop:10}]}>
-            <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="pie-chart" size={14} color={P} style={{marginRight:5}} /><Text style={{fontSize:13,color:'#6B7280'}}>Payroll as % of Revenue</Text></View>
+            <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="pie-chart" size={14} color={P} style={{marginRight:5}} /><Text style={{fontSize:13,color:'#6B7280'}}>{t('owner.finance.payrollAsRevPct','Payroll as % of Revenue')}</Text></View>
             <Text style={{fontSize:14,fontWeight:'700',color:P}}>{f.payPct}%</Text>
           </View>
 
           <View style={{flexDirection:'row',alignItems:'center',marginTop:12}}>
             <MaterialIcons name="info-outline" size={14} color="#9CA3AF" style={{marginRight:5}} />
-            <Text style={{fontSize:12,color:'#9CA3AF',fontStyle:'italic',flex:1}}>Manage individual payments in the Staff tab.</Text>
+            <Text style={{fontSize:12,color:'#9CA3AF',fontStyle:'italic',flex:1}}>{t('owner.finance.manageInStaffTab','Manage individual payments in the Staff tab.')}</Text>
           </View>
         </Sec>
 
         {/* ─── SECTION 9: BUSINESS INSIGHTS ─────────────────────────── */}
-        <Sec title="Business Insights" icon="lightbulb">
-          {[
-            {ic:'calendar-today',l:'Best Day of Week',v:f.bestDow.day+' (avg '+money(Math.round(f.bestDow.avg))+')'},
-            {ic:'schedule',l:'Best Time of Day',v:f.bestTime.k},
-            {ic:'trending-up',l:'Avg Daily Revenue',v:money(f.avgDaily)},
-            {ic:'shopping-bag',l:'Avg Order Value',v:money(f.avgOrd)},
-            {ic:f.trend==='Declining'?'trending-down':'trending-up',l:'Revenue Trend',v:f.trend+' ('+f.revChg+'%)'},
-            {ic:'track-changes',l:'Break-even Tracker',v:f.beD<=new Date(_now.getFullYear(),_now.getMonth()+1,0).getDate()?f.beD+' days to break-even':'Already break-even'},
-            {ic:'flash-on',l:'Busiest Day',v:f.busiest.date?(f.busiest.date+' ('+money(f.busiest.total)+')'):'N/A'},
-            {ic:'star',l:'Top Payment Method',v:f.topPayName},
-          ].map(item=>(
+        <Sec title={t('owner.finance.businessInsights','Business Insights')} icon="lightbulb">
+          {(()=>{
+            const trendLbl = f.trend==='Declining'?t('owner.finance.declining','Declining'):f.trend==='Growing'?t('owner.finance.growing','Growing'):t('owner.finance.stable','Stable');
+            const beD_label = f.beD<=new Date(_now.getFullYear(),_now.getMonth()+1,0).getDate()
+              ? f.beD+' '+t('owner.finance.daysToBreakEven','days to break-even')
+              : t('owner.finance.alreadyBreakEven','Already break-even');
+            return [
+              {ic:'calendar-today',l:t('owner.finance.bestDayOfWeek','Best Day of Week'),v:f.bestDow.day+' (avg '+money(Math.round(f.bestDow.avg))+')'},
+              {ic:'schedule',l:t('owner.finance.bestTimeOfDay','Best Time of Day'),v:f.bestTime.k},
+              {ic:'trending-up',l:t('owner.finance.avgDailyRevenue','Avg Daily Revenue'),v:money(f.avgDaily)},
+              {ic:'shopping-bag',l:t('owner.finance.avgOrderValue','Avg Order Value'),v:money(f.avgOrd)},
+              {ic:f.trend==='Declining'?'trending-down':'trending-up',l:t('owner.finance.revenueTrend','Revenue Trend'),v:trendLbl+' ('+f.revChg+'%)'},
+              {ic:'track-changes',l:t('owner.finance.breakEvenTracker','Break-even Tracker'),v:beD_label},
+              {ic:'flash-on',l:t('owner.finance.busiestDay','Busiest Day'),v:f.busiest.date?(f.busiest.date+' ('+money(f.busiest.total)+')'):t('owner.finance.notAvailable','N/A')},
+              {ic:'star',l:t('owner.finance.topPaymentMethod','Top Payment Method'),v:f.topPayName},
+            ];
+          })().map(item=>(
             <View key={item.l} style={s.insCard}>
               <View style={s.insIcWrap}><MaterialIcons name={item.ic} size={18} color={P} /></View>
               <View style={{flex:1}}>
@@ -1158,7 +1174,7 @@ export default function OwnerFinance() {
 
         {/* ─── EXPORT FULL REPORT ───────────────────────────────────── */}
         <Pressable style={s.exportBtn} onPress={exportFullPdf} disabled={exporting}>
-          <MaterialIcons name="share" size={20} color="#fff" /><Text style={s.exportBtnTx}>{exporting ? 'Preparing…' : 'Share Full Report'}</Text>
+          <MaterialIcons name="share" size={20} color="#fff" /><Text style={s.exportBtnTx}>{exporting ? t('owner.finance.preparing','Preparing...') : t('owner.finance.shareFullReport','Share Full Report')}</Text>
         </Pressable>
 
       </ScrollView>
@@ -1169,69 +1185,77 @@ export default function OwnerFinance() {
       </Pressable>
 
       {/* ─── FAB SHEET ───────────────────────────────────────────────── */}
-      <BottomSheet visible={sheetFab} onClose={()=>setSheetFab(false)} title="Quick Actions">
+      <BottomSheet visible={sheetFab} onClose={()=>setSheetFab(false)} title={t('owner.finance.quickActions','Quick Actions')}>
         <Pressable style={s.fabOpt} onPress={()=>{setSheetFab(false);setTimeout(()=>openExpForm(null),300);}}>
           <View style={[s.fabOptIc,{backgroundColor:'#FEF2F2'}]}><MaterialIcons name="receipt" size={20} color={RD} /></View>
-          <Text style={s.fabOptTx}>Add Expense</Text>
+          <Text style={s.fabOptTx}>{t('owner.finance.addExpense','Add Expense')}</Text>
         </Pressable>
         <Pressable style={s.fabOpt} onPress={()=>{setSheetFab(false);setTimeout(openLoanForm,300);}}>
           <View style={[s.fabOptIc,{backgroundColor:'#EFF6FF'}]}><MaterialIcons name="account-balance" size={20} color={BL} /></View>
-          <Text style={s.fabOptTx}>Add Loan</Text>
+          <Text style={s.fabOptTx}>{t('owner.finance.addLoan','Add Loan')}</Text>
         </Pressable>
         <Pressable style={s.fabOpt} onPress={()=>{setSheetFab(false);setTimeout(openIncForm,300);}}>
           <View style={[s.fabOptIc,{backgroundColor:'#F0FDF4'}]}><MaterialIcons name="add-circle" size={20} color={GN} /></View>
-          <Text style={s.fabOptTx}>Add Manual Income Entry</Text>
+          <Text style={s.fabOptTx}>{t('owner.finance.addManualIncomeEntry','Add Manual Income Entry')}</Text>
         </Pressable>
       </BottomSheet>
 
       {/* ─── EXPENSE FORM ────────────────────────────────────────────── */}
-      <BottomSheet visible={sheetExp} onClose={()=>setSheetExp(false)} title={editExp?'Edit Expense':'Add Expense'}>
-        <LabelInput icon="category" label="Category"><Pills opts={CATS} val={fCat} onPick={setFCat} icons={CAT_IC} /></LabelInput>
-        <LabelInput icon="attach-money" label="Amount (so'm)"><TextInput style={s.inp} keyboardType="numeric" value={fAmt} onChangeText={setFAmt} placeholder="Enter amount" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="event" label="Date"><DatePickerField value={fDate} onChange={setFDate} placeholder="Select expense date" /></LabelInput>
-        <LabelInput icon="notes" label="Description"><TextInput style={s.inp} value={fDesc} onChangeText={setFDesc} placeholder="Enter description" placeholderTextColor="#9CA3AF" /></LabelInput>
+      <BottomSheet visible={sheetExp} onClose={()=>setSheetExp(false)} title={editExp?t('owner.finance.editExpense','Edit Expense'):t('owner.finance.addExpense','Add Expense')}>
+        <LabelInput icon="category" label={t('common.category','Category')}><Pills opts={CATS} val={fCat} onPick={setFCat} icons={CAT_IC} /></LabelInput>
+        <LabelInput icon="attach-money" label={t('labels.amountSom',"Amount (so'm)")}><TextInput style={s.inp} keyboardType="numeric" value={fAmt} onChangeText={setFAmt} placeholder={t('placeholders.enterAmount','Enter amount')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="event" label={t('labels.date','Date')}><DatePickerField value={fDate} onChange={setFDate} placeholder={t('placeholders.selectExpenseDate','Select expense date')} /></LabelInput>
+        <LabelInput icon="notes" label={t('labels.description','Description')}><TextInput style={s.inp} value={fDesc} onChangeText={setFDesc} placeholder={t('placeholders.enterDescription','Enter description')} placeholderTextColor="#9CA3AF" /></LabelInput>
         <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-          <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="repeat" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.formLbl}>Recurring</Text></View>
+          <View style={{flexDirection:'row',alignItems:'center'}}><MaterialIcons name="repeat" size={14} color="#6B7280" style={{marginRight:5}} /><Text style={s.formLbl}>{t('owner.finance.recurring','Recurring')}</Text></View>
           <Switch value={fRec} onValueChange={setFRec} trackColor={{true:P}} thumbColor="#fff" />
         </View>
-        {fRec&&<View style={{marginBottom:14}}><Pills opts={['Daily','Weekly','Monthly']} val={fFreq} onPick={setFFreq} /></View>}
-        <Pressable style={s.saveBtn} onPress={saveExp}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>Save</Text></Pressable>
+        {fRec&&(()=>{
+          const freqOpts = ['Daily','Weekly','Monthly'];
+          const freqLbls = {
+            Daily: t('owner.finance.freqDaily','Daily'),
+            Weekly: t('owner.finance.freqWeekly','Weekly'),
+            Monthly: t('owner.finance.freqMonthly','Monthly'),
+          };
+          return <View style={{marginBottom:14}}><Pills opts={freqOpts} labels={freqLbls} val={fFreq} onPick={setFFreq} /></View>;
+        })()}
+        <Pressable style={s.saveBtn} onPress={saveExp}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>{t('common.save','Save')}</Text></Pressable>
       </BottomSheet>
 
       {/* ─── LOAN FORM ───────────────────────────────────────────────── */}
-      <BottomSheet visible={sheetLoan} onClose={()=>setSheetLoan(false)} title="Add Loan">
-        <LabelInput icon="person" label="Lender Name"><TextInput style={s.inp} value={lName} onChangeText={setLName} placeholder="Enter lender name" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="attach-money" label="Total Loan Amount"><TextInput style={s.inp} keyboardType="numeric" value={lTotal} onChangeText={setLTotal} placeholder="Enter total" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="check-circle" label="Amount Already Paid"><TextInput style={s.inp} keyboardType="numeric" value={lPaid} onChangeText={setLPaid} placeholder="0" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="percent" label="Interest Rate % (optional)"><TextInput style={s.inp} keyboardType="numeric" value={lRate} onChangeText={setLRate} placeholder="0" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="event" label="Due Date"><DatePickerField value={lDue} onChange={setLDue} placeholder="Select due date" /></LabelInput>
-        <LabelInput icon="notes" label="Notes"><TextInput style={s.inp} value={lNotes} onChangeText={setLNotes} placeholder="Add notes" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <Pressable style={s.saveBtn} onPress={saveLoan}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>Save</Text></Pressable>
+      <BottomSheet visible={sheetLoan} onClose={()=>setSheetLoan(false)} title={t('owner.finance.addLoanTitle','Add Loan')}>
+        <LabelInput icon="person" label={t('labels.lenderName','Lender Name')}><TextInput style={s.inp} value={lName} onChangeText={setLName} placeholder={t('placeholders.enterLenderName','Enter lender name')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="attach-money" label={t('labels.totalLoanAmount','Total Loan Amount')}><TextInput style={s.inp} keyboardType="numeric" value={lTotal} onChangeText={setLTotal} placeholder={t('placeholders.enterTotal','Enter total')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="check-circle" label={t('owner.finance.amountAlreadyPaid','Amount Already Paid')}><TextInput style={s.inp} keyboardType="numeric" value={lPaid} onChangeText={setLPaid} placeholder="0" placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="percent" label={t('owner.finance.interestRate','Interest Rate % (optional)')}><TextInput style={s.inp} keyboardType="numeric" value={lRate} onChangeText={setLRate} placeholder="0" placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="event" label={t('labels.dueDate','Due Date')}><DatePickerField value={lDue} onChange={setLDue} placeholder={t('placeholders.selectDueDate','Select due date')} /></LabelInput>
+        <LabelInput icon="notes" label={t('labels.notes','Notes')}><TextInput style={s.inp} value={lNotes} onChangeText={setLNotes} placeholder={t('placeholders.addNotes','Add notes')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <Pressable style={s.saveBtn} onPress={saveLoan}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>{t('common.save','Save')}</Text></Pressable>
       </BottomSheet>
 
       {/* ─── PAYMENT FORM ────────────────────────────────────────────── */}
-      <BottomSheet visible={sheetPay} onClose={()=>setSheetPay(false)} title="Make Payment">
-        <LabelInput icon="attach-money" label="Payment Amount"><TextInput style={s.inp} keyboardType="numeric" value={pAmt} onChangeText={setPAmt} placeholder="Enter amount" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="event" label="Date"><DatePickerField value={pDate} onChange={setPDate} placeholder="Select payment date" /></LabelInput>
-        <LabelInput icon="payment" label="Method"><Pills opts={['Cash','Bank Transfer','Card']} val={pMethod} onPick={setPMethod} icons={{Cash:'payments','Bank Transfer':'account-balance',Card:'credit-card'}} /></LabelInput>
-        <Pressable style={s.saveBtn} onPress={savePay}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>Save Payment</Text></Pressable>
+      <BottomSheet visible={sheetPay} onClose={()=>setSheetPay(false)} title={t('owner.finance.makePaymentTitle','Make Payment')}>
+        <LabelInput icon="attach-money" label={t('labels.paymentAmount','Payment Amount')}><TextInput style={s.inp} keyboardType="numeric" value={pAmt} onChangeText={setPAmt} placeholder={t('placeholders.enterAmount','Enter amount')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="event" label={t('labels.date','Date')}><DatePickerField value={pDate} onChange={setPDate} placeholder={t('placeholders.selectPaymentDate','Select payment date')} /></LabelInput>
+        <LabelInput icon="payment" label={t('owner.finance.method','Method')}><Pills opts={['Cash','Bank Transfer','Card']} val={pMethod} onPick={setPMethod} icons={{Cash:'payments','Bank Transfer':'account-balance',Card:'credit-card'}} labels={{Cash:t('owner.finance.payCash','Cash'),'Bank Transfer':t('owner.finance.payBankTransfer','Bank Transfer'),Card:t('owner.finance.payCard','Card')}} /></LabelInput>
+        <Pressable style={s.saveBtn} onPress={savePay}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>{t('owner.finance.savePayment','Save Payment')}</Text></Pressable>
       </BottomSheet>
 
       {/* ─── BUDGET FORM ─────────────────────────────────────────────── */}
-      <BottomSheet visible={sheetBgt} onClose={()=>setSheetBgt(false)} title="Set Monthly Budget">
+      <BottomSheet visible={sheetBgt} onClose={()=>setSheetBgt(false)} title={t('owner.finance.setMonthlyBudget','Set Monthly Budget')}>
         {CATS.map(c=>(
           <LabelInput key={c} icon={CAT_IC[c]} label={c}><TextInput style={s.inp} keyboardType="numeric" value={String(bgtEdits[c]||'')} onChangeText={v=>setBgtEdits(p=>({...p,[c]:v}))} placeholder="0" placeholderTextColor="#9CA3AF" /></LabelInput>
         ))}
-        <Pressable style={s.saveBtn} onPress={saveBgt}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>Save Budget</Text></Pressable>
+        <Pressable style={s.saveBtn} onPress={saveBgt}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>{t('owner.finance.saveBudget','Save Budget')}</Text></Pressable>
       </BottomSheet>
 
       {/* ─── INCOME FORM ─────────────────────────────────────────────── */}
-      <BottomSheet visible={sheetInc} onClose={()=>setSheetInc(false)} title="Add Manual Income">
-        <LabelInput icon="attach-money" label="Amount (so'm)"><TextInput style={s.inp} keyboardType="numeric" value={iAmt} onChangeText={setIAmt} placeholder="Enter amount" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <LabelInput icon="category" label="Category"><Pills opts={INC_CATS} val={iCat} onPick={setICat} icons={INC_IC} /></LabelInput>
-        <LabelInput icon="event" label="Date"><DatePickerField value={iDate} onChange={setIDate} placeholder="Select income date" /></LabelInput>
-        <LabelInput icon="notes" label="Note"><TextInput style={s.inp} value={iNote} onChangeText={setINote} placeholder="Optional note" placeholderTextColor="#9CA3AF" /></LabelInput>
-        <Pressable style={s.saveBtn} onPress={saveInc}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>Save</Text></Pressable>
+      <BottomSheet visible={sheetInc} onClose={()=>setSheetInc(false)} title={t('owner.finance.addManualIncomeTitle','Add Manual Income')}>
+        <LabelInput icon="attach-money" label={t('labels.amountSom',"Amount (so'm)")}><TextInput style={s.inp} keyboardType="numeric" value={iAmt} onChangeText={setIAmt} placeholder={t('placeholders.enterAmount','Enter amount')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <LabelInput icon="category" label={t('common.category','Category')}><Pills opts={INC_CATS} val={iCat} onPick={setICat} icons={INC_IC} /></LabelInput>
+        <LabelInput icon="event" label={t('labels.date','Date')}><DatePickerField value={iDate} onChange={setIDate} placeholder={t('placeholders.selectIncomeDate','Select income date')} /></LabelInput>
+        <LabelInput icon="notes" label={t('labels.note','Note')}><TextInput style={s.inp} value={iNote} onChangeText={setINote} placeholder={t('placeholders.optionalNote','Optional note')} placeholderTextColor="#9CA3AF" /></LabelInput>
+        <Pressable style={s.saveBtn} onPress={saveInc}><MaterialIcons name="check" size={18} color="#fff" style={{marginRight:6}} /><Text style={s.saveTx}>{t('common.save','Save')}</Text></Pressable>
       </BottomSheet>
       <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
     </View>

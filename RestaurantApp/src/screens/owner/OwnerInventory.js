@@ -6,6 +6,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { warehouseAPI, suppliersAPI } from '../../api/client';
 import OwnerPageHeader from '../../components/OwnerPageHeader';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ─── constants ───────────────────────────────────────────────────────────────
 const P   = '#7C3AED';
@@ -229,6 +230,7 @@ function SupplierDetail({ supplier, items, movements, onClose }) {
 
 // ─── main screen ──────────────────────────────────────────────────────────────
 export default function OwnerInventory() {
+  const { t } = useTranslation();
   const [activeTab,  setActiveTab]  = useState('Warehouse');
 
   // warehouse
@@ -339,26 +341,26 @@ export default function OwnerInventory() {
         <View style={[s.heroCard, { backgroundColor: PL, borderTopColor: P }]}>
           <MaterialIcons name="account-balance-wallet" size={22} color={P} />
           <Text style={[s.heroVal, { color: P }]}>{money(totalValue)}</Text>
-          <Text style={s.heroLbl}>Total Stock Value</Text>
+          <Text style={s.heroLbl}>{t('owner.inventory.totalStockValue')}</Text>
         </View>
       </View>
 
       <View style={s.miniRow}>
         <View style={[s.miniCard, { borderTopColor: '#10B981' }]}>
           <Text style={[s.miniVal, { color: '#10B981' }]}>{items.length}</Text>
-          <Text style={s.miniLbl}>Total Items</Text>
+          <Text style={s.miniLbl}>{t('owner.inventory.totalItems')}</Text>
         </View>
         <View style={[s.miniCard, { borderTopColor: lowItems.length > 0 ? '#DC2626' : '#10B981' }]}>
           <Text style={[s.miniVal, { color: lowItems.length > 0 ? '#DC2626' : '#10B981' }]}>{lowItems.length}</Text>
-          <Text style={s.miniLbl}>Low Stock</Text>
+          <Text style={s.miniLbl}>{t('owner.inventory.lowStock')}</Text>
         </View>
         <View style={[s.miniCard, { borderTopColor: '#F59E0B' }]}>
           <Text style={[s.miniVal, { color: '#374151' }]}>{byCategory.length}</Text>
-          <Text style={s.miniLbl}>Categories</Text>
+          <Text style={s.miniLbl}>{t('owner.inventory.categories')}</Text>
         </View>
         <View style={[s.miniCard, { borderTopColor: P }]}>
           <Text style={[s.miniVal, { color: '#374151' }]}>{movements.length}</Text>
-          <Text style={s.miniLbl}>Movements</Text>
+          <Text style={s.miniLbl}>{t('owner.inventory.movements')}</Text>
         </View>
       </View>
 

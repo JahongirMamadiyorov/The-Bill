@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { warehouseAPI } from '../../api/client';
 import { spacing, radius, shadow, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { useTranslation } from '../../context/LanguageContext';
 
 export default function InventoryAuditScreen() {
     const [items, setItems] = useState([]);
@@ -16,13 +17,14 @@ export default function InventoryAuditScreen() {
     const [submitting, setSubmitting] = useState(false);
     const [dialog, setDialog] = useState(null);
     const navigation = useNavigation();
+    const { t } = useTranslation();
 
     const load = useCallback(async () => {
         try {
             const res = await warehouseAPI.getAll();
             setItems(res.data);
         } catch (e) {
-            setDialog({ title: 'Error', message: e.message, type: 'error' });
+            setDialog({ title: t('common.error'), message: e.message, type: 'error' });
         }
         setLoading(false);
     }, []);
@@ -47,27 +49,27 @@ export default function InventoryAuditScreen() {
             }));
 
         if (auditItems.length === 0) {
-            setDialog({ title: 'Nothing to audit', message: 'Enter actual counts for at least one item.', type: 'warning' });
+            setDialog({ title: t('adminExtra.nothingToAudit'), message: t('adminExtra.enterActualCounts'), type: 'warning' });
             return;
         }
 
         setDialog({
-            title: 'Submit Audit?',
-            message: `You have entered counts for ${auditItems.length} items. Variances will be processed automatically.`,
+            title: t('adminExtra.submitAuditQ'),
+            message: `${auditItems.length} ${t('adminExtra.submitAuditMsg')}`,
             type: 'info',
-            confirmLabel: 'Submit',
+            confirmLabel: t('adminExtra.submitBtn'),
             onConfirm: async () => {
                 setDialog(null);
                 setSubmitting(true);
                 try {
                     await warehouseAPI.audit({ items: auditItems });
-                    setDialog({ title: 'Audit Complete', message: 'All variances have been processed.', type: 'success' });
+                    setDialog({ title: t('adminExtra.auditComplete'), message: t('adminExtra.auditProcessed'), type: 'success' });
                     setTimeout(() => {
                         setDialog(null);
                         navigation.goBack();
                     }, 1000);
                 } catch (e) {
-                    setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+                    setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
                 }
                 setSubmitting(false);
             }
@@ -84,17 +86,17 @@ export default function InventoryAuditScreen() {
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <Text style={styles.backBtnText}>‹ Back</Text>
+                    <Text style={styles.backBtnText}>{'‹ '}{t('adminExtra.backLabel')}</Text>
                 </TouchableOpacity>
-                <Text style={styles.title}>Inventory Audit</Text>
+                <Text style={styles.title}>{t('adminExtra.inventoryAudit')}</Text>
                 <View style={styles.backBtn} />
             </View>
 
             {/* Info Banner */}
             <View style={styles.infoBanner}>
-                <Text style={styles.infoBannerTitle}>Scan {"&"} Count Mode</Text>
+                <Text style={styles.infoBannerTitle}>{t('adminExtra.scanCountMode')}</Text>
                 <Text style={styles.infoBannerSub}>
-                    Walk through the warehouse, enter actual physical counts. The system will automatically calculate and process all variances.
+                    {t('adminExtra.scanCountDesc')}
                 </Text>
             </View>
 
@@ -102,25 +104,25 @@ export default function InventoryAuditScreen() {
             <View style={styles.statsRow}>
                 <View style={styles.statCard}>
                     <Text style={styles.statVal}>{totalVariances}</Text>
-                    <Text style={styles.statLabel}>Counted</Text>
+                    <Text style={styles.statLabel}>{t('adminExtra.counted')}</Text>
                 </View>
                 <View style={styles.statCard}>
                     <Text style={[styles.statVal, { color: '#ef4444' }]}>
                         {items.filter(i => { const v = getVariance(i); return v !== null && v < 0; }).length}
                     </Text>
-                    <Text style={styles.statLabel}>Shrinkage</Text>
+                    <Text style={styles.statLabel}>{t('adminExtra.shrinkage')}</Text>
                 </View>
                 <View style={styles.statCard}>
                     <Text style={[styles.statVal, { color: '#22c55e' }]}>
                         {items.filter(i => { const v = getVariance(i); return v !== null && v > 0; }).length}
                     </Text>
-                    <Text style={styles.statLabel}>Surplus</Text>
+                    <Text style={styles.statLabel}>{t('adminExtra.surplus')}</Text>
                 </View>
                 <View style={styles.statCard}>
                     <Text style={[styles.statVal, { color: '#6366f1' }]}>
                         {items.filter(i => { const v = getVariance(i); return v === 0; }).length}
                     </Text>
-                    <Text style={styles.statLabel}>Perfect</Text>
+                    <Text style={styles.statLabel}>{t('adminExtra.perfect')}</Text>
                 </View>
             </View>
 
@@ -140,17 +142,17 @@ export default function InventoryAuditScreen() {
                             <View style={styles.auditItemInfo}>
                                 <Text style={styles.auditItemName}>{item.name}</Text>
                                 <Text style={styles.auditItemSub}>
-                                    {item.category} • System: {parseFloat(item.quantity_in_stock).toFixed(2)} {item.purchase_unit || item.unit}
+                                    {item.category} {' \u2022 '}{t('adminExtra.systemLabel')}: {parseFloat(item.quantity_in_stock).toFixed(2)} {item.purchase_unit || item.unit}
                                 </Text>
                             </View>
 
                             <View style={styles.auditInputArea}>
-                                <Text style={styles.auditInputLabel}>Actual</Text>
+                                <Text style={styles.auditInputLabel}>{t('adminExtra.actual')}</Text>
                                 <TextInput
                                     style={styles.auditInput}
                                     value={enteredCount || ''}
                                     onChangeText={text => setCounts(prev => ({ ...prev, [item.id]: text }))}
-                                    placeholder="--"
+                                    placeholder={t('placeholders.dashes','--')}
                                     keyboardType="numeric"
                                     placeholderTextColor="#d1d5db"
                                 />
@@ -162,7 +164,7 @@ export default function InventoryAuditScreen() {
                                         {variance > 0 ? '+' : ''}{variance.toFixed(2)}
                                     </Text>
                                     <Text style={[styles.varianceLabel, { color: varianceColor }]}>
-                                        {variance < 0 ? 'SHRINK' : variance > 0 ? 'EXTRA' : 'OK'}
+                                        {variance < 0 ? t('adminExtra.shrinkLabel') : variance > 0 ? t('adminExtra.extraLabel') : t('adminExtra.okLabel')}
                                     </Text>
                                 </View>
                             )}
@@ -171,10 +173,10 @@ export default function InventoryAuditScreen() {
                 }}
                 ListFooterComponent={
                     <View style={{ padding: spacing.lg }}>
-                        <Text style={styles.sectionLabel}>Reason for variance (optional, applies to all)</Text>
+                        <Text style={styles.sectionLabel}>{t('adminExtra.reasonForVariance')}</Text>
                         <TextInput
                             style={styles.reasonInput}
-                            placeholder="e.g. Broken packaging, Spillage..."
+                            placeholder={t('adminExtra.reasonPlaceholder')}
                             onChangeText={text => {
                                 // Set same reason for all entered items
                                 const newReasons = {};
@@ -189,7 +191,7 @@ export default function InventoryAuditScreen() {
                         >
                             {submitting
                                 ? <ActivityIndicator color="white" />
-                                : <Text style={styles.submitBtnText}>Submit Audit Report</Text>
+                                : <Text style={styles.submitBtnText}>{t('adminExtra.submitAuditReport')}</Text>
                             }
                         </TouchableOpacity>
                     </View>

@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { ClipboardList, Clock, Check, AlertCircle, FileText, RefreshCw } from 'lucide-react';
 import { ordersAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 
 const WaitressOrders = () => {
+  const { t } = useTranslation();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -80,7 +82,7 @@ const WaitressOrders = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          <p className="mt-4 text-gray-600">Loading orders...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -93,16 +95,16 @@ const WaitressOrders = () => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
               <ClipboardList className="w-8 h-8" style={{ color: '#16A34A' }} />
-              My Active Orders
+              {t('waitress.orders.title')}
             </h1>
-            <p className="text-gray-600 mt-1">{orders.length} order{orders.length !== 1 ? 's' : ''} active</p>
+            <p className="text-gray-600 mt-1">{orders.length} {t('common.active').toLowerCase()}</p>
           </div>
           <button
             onClick={fetchOrders}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            {t('common.refresh')}
           </button>
         </div>
 
@@ -117,7 +119,7 @@ const WaitressOrders = () => {
           {orders.length === 0 ? (
             <div className="col-span-full text-center py-12 bg-white rounded-lg">
               <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">No active orders</p>
+              <p className="text-gray-500 text-lg">{t('waitress.orders.noActiveOrders')}</p>
             </div>
           ) : (
             orders.map(order => (
@@ -143,7 +145,7 @@ const WaitressOrders = () => {
                   </div>
 
                   <div className="border-t pt-3">
-                    <p className="text-sm font-semibold text-gray-700 mb-2">Items ({order.items?.length || 0})</p>
+                    <p className="text-sm font-semibold text-gray-700 mb-2">{t('common.items')} ({order.items?.length || 0})</p>
                     <div className="space-y-2">
                       {order.items?.slice(0, 3).map((item, i) => (
                         <div key={i} className="text-xs text-gray-600">
@@ -152,7 +154,7 @@ const WaitressOrders = () => {
                             {item.status === 'ready' ? (
                               <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
                             ) : (
-                              <span className="text-amber-600 text-xs font-medium">pending</span>
+                              <span className="text-amber-600 text-xs font-medium">{t('statuses.pending').toLowerCase()}</span>
                             )}
                           </div>
                         </div>
@@ -164,7 +166,7 @@ const WaitressOrders = () => {
                   </div>
 
                   <div className="border-t pt-3">
-                    <p className="text-sm text-gray-600">Total: <span className="font-bold text-lg" style={{ color: '#16A34A' }}>{money(order.totalAmount)}</span></p>
+                    <p className="text-sm text-gray-600">{t('common.total')}: <span className="font-bold text-lg" style={{ color: '#16A34A' }}>{money(order.totalAmount)}</span></p>
                   </div>
                 </div>
               </div>
@@ -184,19 +186,19 @@ const WaitressOrders = () => {
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-gray-600 text-sm">Status</p>
+                  <p className="text-gray-600 text-sm">{t('common.status')}</p>
                   <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedOrder.status)}`}>
                     {selectedOrder.status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                   </span>
                 </div>
                 <div>
-                  <p className="text-gray-600 text-sm">Elapsed Time</p>
+                  <p className="text-gray-600 text-sm">{t('waitress.orders.elapsedTime')}</p>
                   <p className="text-sm font-semibold text-gray-900">{getElapsedTime(selectedOrder.createdAt)}</p>
                 </div>
               </div>
 
               <div className="border-t pt-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Order Items</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">{t('waitress.orders.orderItems')}</h3>
                 <div className="space-y-2">
                   {selectedOrder.items && Array.isArray(selectedOrder.items) && selectedOrder.items.map((item, i) => (
                     <div key={i} className="p-3 bg-gray-50 rounded-lg">
@@ -209,7 +211,7 @@ const WaitressOrders = () => {
                         <span className="text-xs text-gray-500">{money(item.unitPrice)}</span>
                         {item.status === 'ready' ? (
                           <span className="text-xs font-semibold text-green-600 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Served
+                            <Check className="w-3 h-3" /> {t('statuses.served')}
                           </span>
                         ) : selectedOrder.status === 'ready' || selectedOrder.status === 'served' ? (
                           <button
@@ -217,10 +219,10 @@ const WaitressOrders = () => {
                             disabled={markingServed === `${selectedOrder.id}-${item.id}`}
                             className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50 transition font-medium"
                           >
-                            {markingServed === `${selectedOrder.id}-${item.id}` ? 'Marking...' : 'Mark Served'}
+                            {markingServed === `${selectedOrder.id}-${item.id}` ? t('waitress.tables.marking') : t('admin.orders.markServed')}
                           </button>
                         ) : (
-                          <span className="text-xs text-amber-600 font-medium">Preparing</span>
+                          <span className="text-xs text-amber-600 font-medium">{t('statuses.preparing')}</span>
                         )}
                       </div>
                     </div>
@@ -230,7 +232,7 @@ const WaitressOrders = () => {
 
               <div className="border-t pt-4 flex justify-between items-center">
                 <div>
-                  <p className="text-gray-600 text-sm">Total</p>
+                  <p className="text-gray-600 text-sm">{t('common.total')}</p>
                   <p className="text-2xl font-bold" style={{ color: '#16A34A' }}>{money(selectedOrder.totalAmount)}</p>
                 </div>
                 <div className="flex gap-2">
@@ -238,7 +240,7 @@ const WaitressOrders = () => {
                     onClick={() => setSelectedOrder(null)}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
                   >
-                    Close
+                    {t('common.close')}
                   </button>
                   {selectedOrder.status !== 'bill_requested' && (
                     <button
@@ -250,7 +252,7 @@ const WaitressOrders = () => {
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition font-medium flex items-center gap-2"
                     >
                       <FileText className="w-4 h-4" />
-                      {requestingBill === selectedOrder.id ? 'Requesting...' : 'Request Bill'}
+                      {requestingBill === selectedOrder.id ? t('waitress.orders.requesting') : t('admin.orders.requestBill')}
                     </button>
                   )}
                 </div>

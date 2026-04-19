@@ -12,6 +12,8 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
 import { topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 
 // ─── Design tokens (matches light theme) ─────────────────────────────────────
 const C = {
@@ -48,13 +50,10 @@ function getStationStyle(station) {
   return STATION_STYLES[key] || { ...STATION_STYLES.default, label: station };
 }
 
-function ROLE_LABEL(role) {
-  switch (role) {
-    case 'kitchen':  return 'Kitchen Staff';
-    case 'admin':    return 'Administrator';
-    case 'owner':    return 'Owner';
-    default:         return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Staff';
-  }
+function ROLE_LABEL(role, t) {
+  if (!role) return t ? t('common.staff', 'Staff') : 'Staff';
+  const fallback = role.charAt(0).toUpperCase() + role.slice(1);
+  return t ? t(`roles.${role.toLowerCase()}`, fallback) : fallback;
 }
 
 // Avatar with initials
@@ -93,6 +92,7 @@ function InfoRow({ icon, iconBg, label, value }) {
 
 export default function KitchenProfile({ navigation }) {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
   const stationSt = getStationStyle(user?.kitchen_station);
 
   return (
@@ -104,7 +104,7 @@ export default function KitchenProfile({ navigation }) {
         <TouchableOpacity style={st.backBtn} onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={20} color={C.textDark} />
         </TouchableOpacity>
-        <Text style={st.headerTitle}>My Profile</Text>
+        <Text style={st.headerTitle}>{t('kitchen.profile.myProfile')}</Text>
         <View style={{ width: 38 }} />
       </View>
 
@@ -113,8 +113,8 @@ export default function KitchenProfile({ navigation }) {
         {/* Avatar + name card */}
         <View style={st.avatarCard}>
           <Avatar name={user?.name} size={80} />
-          <Text style={st.userName}>{user?.name || 'Kitchen Staff'}</Text>
-          <Text style={st.userRole}>{ROLE_LABEL(user?.role)}</Text>
+          <Text style={st.userName}>{user?.name || t('kitchen.profile.title')}</Text>
+          <Text style={st.userRole}>{ROLE_LABEL(user?.role, t)}</Text>
 
           {/* Station badge */}
           {user?.kitchen_station ? (
@@ -125,32 +125,32 @@ export default function KitchenProfile({ navigation }) {
                 color={stationSt?.text || C.textMuted}
               />
               <Text style={[st.stationBadgeTxt, { color: stationSt?.text || C.textMuted }]}>
-                {stationSt?.label || user.kitchen_station} Station
+                {stationSt?.label || user.kitchen_station} {t('kitchen.profile.stationBadge')}
               </Text>
             </View>
           ) : (
             <View style={[st.stationBadge, { backgroundColor: C.primaryLight }]}>
               <MaterialIcons name="restaurant" size={16} color={C.primary} />
-              <Text style={[st.stationBadgeTxt, { color: C.primary }]}>All Stations</Text>
+              <Text style={[st.stationBadgeTxt, { color: C.primary }]}>{t('kitchen.profile.allStations')}</Text>
             </View>
           )}
         </View>
 
         {/* Account details */}
         <View style={st.section}>
-          <Text style={st.sectionTitle}>ACCOUNT DETAILS</Text>
+          <Text style={st.sectionTitle}>{t('kitchen.profile.accountDetails')}</Text>
           <View style={st.card}>
             <InfoRow
               icon="person"
               iconBg={null}
-              label="Full name"
+              label={t('kitchen.profile.fullName')}
               value={user?.name}
             />
             <View style={st.rowDivider} />
             <InfoRow
               icon="email"
               iconBg={null}
-              label="Email"
+              label={t('kitchen.profile.email')}
               value={user?.email}
             />
             {user?.phone ? (
@@ -159,7 +159,7 @@ export default function KitchenProfile({ navigation }) {
                 <InfoRow
                   icon="phone"
                   iconBg={null}
-                  label="Phone"
+                  label={t('kitchen.profile.phone')}
                   value={user.phone}
                 />
               </>
@@ -169,7 +169,7 @@ export default function KitchenProfile({ navigation }) {
 
         {/* Station info */}
         <View style={st.section}>
-          <Text style={st.sectionTitle}>KITCHEN STATION</Text>
+          <Text style={st.sectionTitle}>{t('kitchen.profile.kitchenStation')}</Text>
           <View style={st.card}>
             {user?.kitchen_station ? (
               <View style={st.stationDetailRow}>
@@ -185,8 +185,7 @@ export default function KitchenProfile({ navigation }) {
                     {stationSt?.label || user.kitchen_station}
                   </Text>
                   <Text style={st.stationDesc}>
-                    You only see orders relevant to your station.
-                    Items assigned to other stations are hidden.
+                    {t('kitchen.profile.stationAssignedDesc')}
                   </Text>
                 </View>
               </View>
@@ -196,10 +195,9 @@ export default function KitchenProfile({ navigation }) {
                   <MaterialIcons name="restaurant" size={28} color={C.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={st.stationName}>All Stations</Text>
+                  <Text style={st.stationName}>{t('kitchen.profile.allStations')}</Text>
                   <Text style={st.stationDesc}>
-                    You see all incoming orders regardless of station.
-                    Contact your admin to assign a specific station.
+                    {t('kitchen.profile.allStationsDesc')}
                   </Text>
                 </View>
               </View>
@@ -207,11 +205,16 @@ export default function KitchenProfile({ navigation }) {
           </View>
         </View>
 
+        {/* Language */}
+        <View style={{ marginTop: 12 }}>
+          <LanguageSwitcher accentColor={C.primary} />
+        </View>
+
         {/* Logout */}
         <View style={st.section}>
           <TouchableOpacity style={st.logoutBtn} onPress={logout} activeOpacity={0.8}>
             <MaterialIcons name="logout" size={20} color={C.danger} />
-            <Text style={st.logoutTxt}>Log Out</Text>
+            <Text style={st.logoutTxt}>{t('kitchen.profile.logOut')}</Text>
           </TouchableOpacity>
         </View>
 

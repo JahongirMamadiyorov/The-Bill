@@ -6,11 +6,12 @@ import {
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { ordersAPI, menuAPI, notificationsAPI, accountingAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const DISC_REASONS = ['Manager Approved', 'Loyalty Customer', 'Complaint Resolution', 'Other'];
+const getDiscReasons = (t) => t('cashier.orders.discountReasons');
 
 const fmt = (n) =>
   Number(n || 0).toLocaleString('uz-UZ') + " so'm";
@@ -147,10 +148,9 @@ function BillToast({ message, visible }) {
 }
 
 // ── Loan Due-Date Picker (single-date, bottom sheet) ──────────────────────────
-const LOAN_MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const LOAN_DAY_HDRS    = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+// Moved to use t('datePicker.monthsShort') and t('datePicker.days') inside components
 
-function LoanDatePickerSheet({ current, onSelect, onClose }) {
+function LoanDatePickerSheet({ current, onSelect, onClose, t }) {
   const todayObj = new Date();
   const [viewYear,  setViewYear]  = useState(todayObj.getFullYear());
   const [viewMonth, setViewMonth] = useState(todayObj.getMonth());
@@ -184,18 +184,18 @@ function LoanDatePickerSheet({ current, onSelect, onClose }) {
     <View style={LD.sheet}>
       <View style={LD.header}>
         <MaterialIcons name="calendar-today" size={18} color="#0891B2" />
-        <Text style={LD.title}>Select Due Date</Text>
+        <Text style={LD.title}>{t('cashier.orders.selectDueDate')}</Text>
         <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
           <MaterialIcons name="close" size={20} color={colors.neutralMid} />
         </TouchableOpacity>
       </View>
       <View style={LD.navRow}>
         <TouchableOpacity onPress={prevMonth} style={LD.arrow}><Text style={LD.arrowTxt}>‹</Text></TouchableOpacity>
-        <Text style={LD.monthTitle}>{LOAN_MONTH_NAMES[viewMonth]} {viewYear}</Text>
+        <Text style={LD.monthTitle}>{t('datePicker.monthsShort')[viewMonth]} {viewYear}</Text>
         <TouchableOpacity onPress={nextMonth} style={LD.arrow}><Text style={LD.arrowTxt}>›</Text></TouchableOpacity>
       </View>
       <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-        {LOAN_DAY_HDRS.map(d => (
+        {t('datePicker.days').map(d => (
           <View key={d} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
             <Text style={LD.dayHdr}>{d}</Text>
           </View>
@@ -245,7 +245,8 @@ const LD = StyleSheet.create({
 });
 
 // ── Order Details & Payment Screen ─────────────────────────────────────────────
-function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettings, restSettings, setDialog }) {
+function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettings, restSettings, setDialog, t }) {
+  const DISC_REASONS = getDiscReasons(t);
   const [fullOrder, setFullOrder]       = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
 
@@ -273,7 +274,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
         const res = await ordersAPI.getById(order.id);
         setFullOrder(res.data);
       } catch {
-        setDialog({ title: 'Error', message: 'Could not load order details', type: 'error' });
+        setDialog({ title: t('common.error'), message: t('cashier.orders.couldNotLoadOrder'), type: 'error' });
         setTimeout(() => onBack(), 500);
       } finally {
         setLoadingOrder(false);
@@ -310,11 +311,11 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
 
   // Tax/service label helpers
   const taxLabel = taxRate > 0
-    ? `Tax (${Math.round(taxRate * 100)}%)`
-    : 'Tax';
+    ? `${t('cashier.orders.tax')} (${Math.round(taxRate * 100)}%)`
+    : t('cashier.orders.tax');
   const svcLabel = svcRate > 0
-    ? `Service (${Math.round(svcRate * 100)}%)`
-    : 'Service';
+    ? `${t('cashier.orders.service')} (${Math.round(svcRate * 100)}%)`
+    : t('cashier.orders.service');
 
   // Split initialization when count or total changes
   useEffect(() => {
@@ -395,17 +396,17 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
         },
       });
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Payment failed', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('cashier.orders.paymentFailed'), type: 'error' });
     } finally {
       setLoadingPay(false);
     }
   };
 
   const METHODS = [
-    { id: 'Cash',    icon: 'payments'                  },
-    { id: 'Card',    icon: 'credit-card'               },
-    { id: 'QR Code', icon: 'qr-code'                   },
-    { id: 'Loan',    icon: 'account-balance-wallet'    },
+    { id: 'Cash',    label: t('paymentMethods.cash'),    icon: 'payments'                  },
+    { id: 'Card',    label: t('paymentMethods.card'),    icon: 'credit-card'               },
+    { id: 'QR Code', label: t('paymentMethods.qrCode'),  icon: 'qr-code'                   },
+    { id: 'Loan',    label: t('paymentMethods.loan'),    icon: 'account-balance-wallet'    },
   ];
 
   return (
@@ -416,8 +417,8 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
           <MaterialIcons name="arrow-back" size={22} color={colors.textDark} />
         </TouchableOpacity>
         <View style={S.flex}>
-          <Text style={S.pHeaderSub}>{isPaying ? 'Process Payment' : 'Order Details'}</Text>
-          <Text style={S.pHeaderTitle}>{order.table_name || order.customer_name || 'Walk-in'}</Text>
+          <Text style={S.pHeaderSub}>{isPaying ? t('cashier.orders.processPayment') : t('cashier.orders.orderDetails')}</Text>
+          <Text style={S.pHeaderTitle}>{order.table_name || order.customer_name || t('cashier.orders.walkIn')}</Text>
         </View>
       </View>
 
@@ -426,7 +427,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
         {/* Items Card — order details view */}
         {!isPaying && (
           <View style={S.card}>
-            <SectionHeader title="Order Items" />
+            <SectionHeader title={t('cashier.orders.orderItems')} />
             {/* Partial-ready banner */}
             {(() => {
               const rCount = items.filter(i => i.item_ready).length;
@@ -436,7 +437,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF7ED', borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#F97316' }}>
                     <MaterialIcons name="local-fire-department" size={16} color="#C2410C" />
                     <Text style={{ fontSize: 13, fontWeight: '600', color: '#C2410C' }}>
-                      Prep in progress — {rCount}/{tCount} items kitchen-ready
+                      {t('cashier.orders.prepInProgress')} — {rCount}/{tCount} {t('cashier.orders.itemsKitchenReady')}
                     </Text>
                   </View>
                 );
@@ -457,21 +458,21 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
               );
             })}
             {items.length === 0 && (
-              <Text style={{ color: colors.neutralMid, fontSize: 13, paddingVertical: 10 }}>No items in this order.</Text>
+              <Text style={{ color: colors.neutralMid, fontSize: 13, paddingVertical: 10 }}>{t('cashier.orders.noItemsInOrder')}</Text>
             )}
 
             <View style={S.divider} />
-            <View style={S.totRow}><Text style={S.totLbl}>Subtotal</Text><Text style={S.totVal}>{fmt(rawSub)}</Text></View>
+            <View style={S.totRow}><Text style={S.totLbl}>{t('common.subtotal')}</Text><Text style={S.totVal}>{fmt(rawSub)}</Text></View>
             {taxRate > 0
               ? <View style={S.totRow}><Text style={S.totLbl}>{taxLabel}</Text><Text style={S.totVal}>{fmt(tax)}</Text></View>
-              : <View style={S.totRow}><Text style={S.totLbl}>{taxLabel}</Text><Text style={[S.totVal, { color: colors.neutralMid }]}>0 so'm</Text></View>
+              : <View style={S.totRow}><Text style={S.totLbl}>{taxLabel}</Text><Text style={[S.totVal, { color: colors.neutralMid }]}>0 {t('common.currency')}</Text></View>
             }
             {svcRate > 0
               ? <View style={S.totRow}><Text style={S.totLbl}>{svcLabel}</Text><Text style={S.totVal}>{fmt(svc)}</Text></View>
-              : <View style={S.totRow}><Text style={S.totLbl}>{svcLabel}</Text><Text style={[S.totVal, { color: colors.neutralMid }]}>0 so'm</Text></View>
+              : <View style={S.totRow}><Text style={S.totLbl}>{svcLabel}</Text><Text style={[S.totVal, { color: colors.neutralMid }]}>0 {t('common.currency')}</Text></View>
             }
             <View style={[S.totRow, S.totRowBold]}>
-              <Text style={S.grandLbl}>Total</Text>
+              <Text style={S.grandLbl}>{t('common.total')}</Text>
               <Text style={S.grandAmt}>{fmt(total)}</Text>
             </View>
           </View>
@@ -480,37 +481,37 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
         {isPaying && (
           <>
             <View style={S.card}>
-              <View style={S.totRow}><Text style={S.totLbl}>Subtotal</Text><Text style={S.totVal}>{fmt(rawSub)}</Text></View>
+              <View style={S.totRow}><Text style={S.totLbl}>{t('common.subtotal')}</Text><Text style={S.totVal}>{fmt(rawSub)}</Text></View>
               {tax > 0 && <View style={S.totRow}><Text style={S.totLbl}>{taxLabel}</Text><Text style={S.totVal}>{fmt(tax)}</Text></View>}
               {svc > 0 && <View style={S.totRow}><Text style={S.totLbl}>{svcLabel}</Text><Text style={S.totVal}>{fmt(svc)}</Text></View>}
               {discAmt > 0 && (
-                <View style={S.totRow}><Text style={[S.totLbl, { color: colors.success }]}>Discount</Text><Text style={[S.totVal, { color: colors.success }]}>−{fmt(discAmt)}</Text></View>
+                <View style={S.totRow}><Text style={[S.totLbl, { color: colors.success }]}>{t('common.discount')}</Text><Text style={[S.totVal, { color: colors.success }]}>−{fmt(discAmt)}</Text></View>
               )}
               <View style={[S.totRow, S.totRowBold]}>
-                <Text style={S.grandLbl}>Total to Pay</Text>
+                <Text style={S.grandLbl}>{t('cashier.orders.totalToPay')}</Text>
                 <Text style={S.grandAmt}>{fmt(total)}</Text>
               </View>
             </View>
 
             {/* Payment Method */}
             <View style={[S.card, { marginTop: spacing.md }]}>
-              <SectionHeader title="Payment Method" />
+              <SectionHeader title={t('cashier.orders.paymentMethod')} />
               <View style={S.methodRow}>
-                {METHODS.map(({ id, icon }) => (
+                {METHODS.map((m) => (
                   <TouchableOpacity
-                    key={id}
-                    style={[S.methodBtn, method === id && S.methodBtnActive]}
-                    onPress={() => { setMethod(id); setCardOk(false); setQrOk(false); setSplitCount(null); setLoanName(''); setLoanPhone(''); setLoanDueDate(''); }}
+                    key={m.id}
+                    style={[S.methodBtn, method === m.id && S.methodBtnActive]}
+                    onPress={() => { setMethod(m.id); setCardOk(false); setQrOk(false); setSplitCount(null); setLoanName(''); setLoanPhone(''); setLoanDueDate(''); }}
                   >
-                    <MaterialIcons name={icon} size={24} color={method === id ? '#0891B2' : colors.neutralMid} />
-                    <Text style={[S.methodLbl, method === id && S.methodLblActive]}>{id}</Text>
+                    <MaterialIcons name={m.icon} size={24} color={method === m.id ? '#0891B2' : colors.neutralMid} />
+                    <Text style={[S.methodLbl, method === m.id && S.methodLblActive]}>{m.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
               {method === 'Cash' && (
                 <View style={{ marginTop: spacing.md }}>
-                  <Text style={S.inputLabel}>Amount received</Text>
+                  <Text style={S.inputLabel}>{t('cashier.orders.amountReceived')}</Text>
                   <TextInput
                     style={S.input}
                     keyboardType="numeric"
@@ -521,7 +522,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                   />
                   {cashRcv >= total && cashRcv > 0 && (
                     <View style={S.changeBox}>
-                      <Text style={S.changeLbl}>Change to give back</Text>
+                      <Text style={S.changeLbl}>{t('cashier.orders.changeToGive')}</Text>
                       <Text style={S.changeAmt}>{fmt(change)}</Text>
                     </View>
                   )}
@@ -533,7 +534,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                   <View style={[S.checkbox, cardOk && S.checkboxOk]}>
                     {cardOk && <MaterialIcons name="check" size={13} color="#fff" />}
                   </View>
-                  <Text style={S.checkLbl}>Card payment confirmed on terminal</Text>
+                  <Text style={S.checkLbl}>{t('cashier.orders.cardConfirmed')}</Text>
                 </TouchableOpacity>
               )}
 
@@ -541,13 +542,13 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                 <View style={{ marginTop: spacing.md }}>
                   <View style={S.qrBox}>
                     <MaterialIcons name="qr-code" size={48} color={colors.border} />
-                    <Text style={S.qrLbl}>Customer scans to pay</Text>
+                    <Text style={S.qrLbl}>{t('cashier.orders.qrScanToPay')}</Text>
                   </View>
                   <TouchableOpacity style={[S.checkRow, qrOk && S.checkRowOk]} onPress={() => setQrOk(!qrOk)}>
                     <View style={[S.checkbox, qrOk && S.checkboxOk]}>
                       {qrOk && <MaterialIcons name="check" size={13} color="#fff" />}
                     </View>
-                    <Text style={S.checkLbl}>QR payment confirmed</Text>
+                    <Text style={S.checkLbl}>{t('cashier.orders.qrConfirmed')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -556,25 +557,25 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                 <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
                   <View style={S.loanNotice}>
                     <MaterialIcons name="info-outline" size={15} color="#D97706" />
-                    <Text style={S.loanNoticeTxt}>Order will be marked paid. Debt tracked until customer returns.</Text>
+                    <Text style={S.loanNoticeTxt}>{t('cashier.orders.loanNotice')}</Text>
                   </View>
-                  <Text style={S.inputLabel}>Customer Name</Text>
+                  <Text style={S.inputLabel}>{t('cashier.orders.customerName')}</Text>
                   <TextInput
                     style={S.input}
-                    placeholder="Full name"
+                    placeholder={t('cashier.orders.fullName')}
                     placeholderTextColor={colors.neutralMid}
                     value={loanName}
                     onChangeText={setLoanName}
                   />
-                  <PhoneField label="Phone Number" value={loanPhone} onChange={setLoanPhone} />
-                  <Text style={S.inputLabel}>Expected Return Date</Text>
+                  <PhoneField label={t('cashier.orders.phoneNumber')} value={loanPhone} onChange={setLoanPhone} />
+                  <Text style={S.inputLabel}>{t('cashier.orders.expectedReturn')}</Text>
                   <TouchableOpacity
                     style={[S.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
                     onPress={() => setShowLoanCal(true)}
                     activeOpacity={0.8}
                   >
                     <Text style={{ fontSize: 14, color: loanDueDate ? colors.textDark : colors.neutralMid }}>
-                      {loanDueDate || 'Select date'}
+                      {loanDueDate || t('cashier.orders.selectDate')}
                     </Text>
                     <MaterialIcons name="calendar-today" size={18} color={colors.neutralMid} />
                   </TouchableOpacity>
@@ -589,16 +590,17 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                 current={loanDueDate}
                 onSelect={(ds) => { setLoanDueDate(ds); setShowLoanCal(false); }}
                 onClose={() => setShowLoanCal(false)}
+                t={t}
               />
             </Modal>
 
             {/* Discount */}
             <View style={[S.card, { marginTop: spacing.md }]}>
-              <SectionHeader title="Apply Discount (Optional)" />
+              <SectionHeader title={t('cashier.orders.applyDiscount')} />
               <View style={S.toggleRow}>
-                {['Percentage', 'Fixed Amount'].map(t => (
-                  <TouchableOpacity key={t} style={[S.toggleBtn, discType === t && S.toggleBtnActive]} onPress={() => { setDiscType(t); setDiscVal(''); }}>
-                    <Text style={[S.toggleLbl, discType === t && S.toggleLblActive]}>{t}</Text>
+                {[{ id: 'Percentage', label: t('cashier.orders.percentage') }, { id: 'Fixed Amount', label: t('cashier.orders.fixedAmount') }].map(dt => (
+                  <TouchableOpacity key={dt.id} style={[S.toggleBtn, discType === dt.id && S.toggleBtnActive]} onPress={() => { setDiscType(dt.id); setDiscVal(''); }}>
+                    <Text style={[S.toggleLbl, discType === dt.id && S.toggleLblActive]}>{dt.label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -620,7 +622,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
 
             {/* Split Bill */}
             <View style={[S.card, { marginTop: spacing.md }]}>
-              <SectionHeader title="Split Bill (Optional)" />
+              <SectionHeader title={t('cashier.orders.splitBill')} />
               <View style={S.splitRow}>
                 {[2, 3, 4].map(n => (
                   <TouchableOpacity
@@ -628,7 +630,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                     style={[S.splitBtn, splitCount === n && S.splitBtnActive]}
                     onPress={() => setSplitCount(n)}
                   >
-                    <Text style={[S.splitLbl, splitCount === n && S.splitLblActive]}>{n} ways</Text>
+                    <Text style={[S.splitLbl, splitCount === n && S.splitLblActive]}>{n} {t('cashier.orders.ways')}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -637,7 +639,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                   {splitParts.map((sp, i) => (
                     <View key={i} style={S.splitPartContainer}>
                       <View style={S.splitPartHeader}>
-                        <Text style={S.splitPartLbl}>Part {i + 1}</Text>
+                        <Text style={S.splitPartLbl}>{t('cashier.orders.part')} {i + 1}</Text>
                         <View style={S.splitInputWrap}>
                           <TextInput
                             style={S.splitInput}
@@ -663,7 +665,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                               setSplitParts(c);
                             }}
                           >
-                            <Text style={[S.splitMethodTxt, sp.method === m.id && S.splitMethodTxtActive]}>{m.id}</Text>
+                            <Text style={[S.splitMethodTxt, sp.method === m.id && S.splitMethodTxtActive]}>{m.label}</Text>
                           </TouchableOpacity>
                         ))}
                         <View style={{ flex: 1 }} />
@@ -678,13 +680,13 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
                           <View style={[S.splitCheckbox, sp.confirmed && S.checkboxOk]}>
                             {sp.confirmed && <MaterialIcons name="check" size={12} color="#fff" />}
                           </View>
-                          <Text style={S.splitCheckLbl}>Paid</Text>
+                          <Text style={S.splitCheckLbl}>{t('common.paid')}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   ))}
                   <View style={S.splitSumRow}>
-                    <Text style={S.splitSumLbl}>Split Validation</Text>
+                    <Text style={S.splitSumLbl}>{t('cashier.orders.splitValidation')}</Text>
                     <Text style={[S.splitSumAmt, splitTotal === total ? { color: colors.success } : { color: colors.error }]}>
                       {fmt(splitTotal)} / {fmt(total)}
                     </Text>
@@ -705,10 +707,10 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
               onPress={() => { onBack(); navigation.navigate('CashierWalkin', { order: fullOrder }); }}
             >
               <MaterialIcons name="add" size={20} color={colors.textDark} />
-              <Text style={[S.kitchenBtnTxt, { fontSize: 14 }]}>Add Items</Text>
+              <Text style={[S.kitchenBtnTxt, { fontSize: 14 }]}>{t('cashier.orders.addItems')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[S.payBtn, { flex: 1.5 }]} onPress={() => setIsPaying(true)}>
-              <Text style={S.payBtnTxt}>Proceed to Payment</Text>
+              <Text style={S.payBtnTxt}>{t('cashier.orders.proceedToPayment')}</Text>
               <MaterialIcons name="chevron-right" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -716,7 +718,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <TouchableOpacity
               style={[S.kitchenBtn, { paddingHorizontal: 20, paddingVertical: 15 }]}
-              onPress={() => setDialog({ title: 'Printing', message: 'Check sent to printer', type: 'info' })}
+              onPress={() => setDialog({ title: t('cashier.orders.printing'), message: t('cashier.orders.checkSentToPrinter'), type: 'info' })}
             >
               <MaterialIcons name="print" size={22} color={colors.textDark} />
             </TouchableOpacity>
@@ -727,7 +729,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
             >
               {loadingPay
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={S.payBtnTxt}>Confirm Payment — {fmt(total)}</Text>
+                : <Text style={S.payBtnTxt}>{t('cashier.orders.confirmPayment')} — {fmt(total)}</Text>
               }
             </TouchableOpacity>
           </View>
@@ -738,7 +740,7 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
       <Modal visible={showReasons} transparent animationType="slide" onRequestClose={() => setShowReasons(false)}>
         <TouchableOpacity style={S.modalMask} onPress={() => setShowReasons(false)} />
         <View style={S.bottomSheet}>
-          <Text style={S.sheetTitle}>Select Reason</Text>
+          <Text style={S.sheetTitle}>{t('cashier.orders.selectReason')}</Text>
           {DISC_REASONS.map(r => (
             <TouchableOpacity key={r} style={S.reasonOption} onPress={() => { setDiscReason(r); setShowReasons(false); }}>
               <Text style={[S.reasonOptionTxt, discReason === r && { color: '#0891B2', fontWeight: '700' }]}>{r}</Text>
@@ -753,7 +755,8 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
 
 // ── Orders Tab ─────────────────────────────────────────────────────────────────
 export default function CashierOrders({ navigation, route }) {
-  const { user } = useAuth();
+  const { user, restaurant } = useAuth();
+  const { t } = useTranslation();
   const [orders, setOrders]               = useState([]);
   const [loading, setLoading]             = useState(true);
   const [refreshing, setRefreshing]       = useState(false);
@@ -777,9 +780,9 @@ export default function CashierOrders({ navigation, route }) {
       // Show toast for the first newly arrived bill request
       const o = newOnes[0];
       const label = o.table_name || o.customer_name || `Order ${fmtOrderNum(o)}`;
-      const extra = newOnes.length > 1 ? ` (+${newOnes.length - 1} more)` : '';
+      const extra = newOnes.length > 1 ? ` (+${newOnes.length - 1} ${t('cashier.orders.more')})` : '';
       if (toastTimer.current) clearTimeout(toastTimer.current);
-      setBillToast(`${label} requested the bill!${extra}`);
+      setBillToast(`${label} ${t('cashier.orders.requestedBill')}${extra}`);
       toastTimer.current = setTimeout(() => setBillToast(null), 4500);
     }
 
@@ -789,7 +792,7 @@ export default function CashierOrders({ navigation, route }) {
   // ── Fetch admin settings (tax + restaurant) ──────────────────────────────
   const [taxSettings,  setTaxSettings]  = useState({ tax_rate: 0, tax_enabled: false });
   const [restSettings, setRestSettings] = useState({
-    restaurant_name: 'The Bill Restaurant',
+    restaurant_name: restaurant?.name || 'The Bill Restaurant',
     receipt_header: 'Thank you for dining with us!',
     service_charge_rate: 0,
     service_charge_enabled: false,
@@ -880,6 +883,7 @@ export default function CashierOrders({ navigation, route }) {
         taxSettings={taxSettings}
         restSettings={restSettings}
         setDialog={setDialog}
+        t={t}
       />
     );
   }
@@ -899,13 +903,13 @@ export default function CashierOrders({ navigation, route }) {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'bill_requested':
-        return <Badge label="Bill Requested 🔔" bg="#FDF4FF" text="#7C3AED" />;
+        return <Badge label={t('cashier.orders.billRequested')} bg="#FDF4FF" text="#7C3AED" />;
       case 'ready': case 'served':
-        return <Badge label="Awaiting Payment" bg="#FFFBEB" text="#D97706" />;
+        return <Badge label={t('cashier.orders.awaitingPayment')} bg="#FFFBEB" text="#D97706" />;
       case 'preparing': case 'sent_to_kitchen':
-        return <Badge label="Preparing" bg="#EFF6FF" text="#2563EB" />;
+        return <Badge label={t('statuses.preparing')} bg="#EFF6FF" text="#2563EB" />;
       default:
-        return <Badge label="Pending" bg="#F3F4F6" text="#4B5563" />;
+        return <Badge label={t('statuses.pending')} bg="#F3F4F6" text="#4B5563" />;
     }
   };
 
@@ -914,7 +918,7 @@ export default function CashierOrders({ navigation, route }) {
     const count      = parseInt(order.item_count) || 0;
     const isToGo     = order.order_type === 'to_go' || order.order_type === 'takeaway';
     const isDelivery = order.order_type === 'delivery';
-    const typeLabel  = isDelivery ? 'Delivery' : isToGo ? 'To Go' : 'Dine-In';
+    const typeLabel  = isDelivery ? t('orderTypes.delivery') : isToGo ? t('orderTypes.toGo') : t('orderTypes.dineIn');
     const typeColor  = isDelivery ? '#8B5CF6'  : isToGo  ? '#10B981' : colors.neutralMid;
 
     // Partial-ready detection
@@ -937,27 +941,27 @@ export default function CashierOrders({ navigation, route }) {
                   </View>
                 )}
               </View>
-              <Text style={S.orderTable}>{isDelivery || isToGo ? (order.customer_name || 'Walk-in') : (order.table_name || 'Walk-in')}</Text>
+              <Text style={S.orderTable}>{isDelivery || isToGo ? (order.customer_name || t('cashier.orders.walkIn')) : (order.table_name || t('cashier.orders.walkIn'))}</Text>
             </View>
             <View>{getStatusBadge(order.status)}</View>
           </View>
           <View style={S.orderMetaGroup}>
-            <View style={S.metaPill}><MaterialIcons name="shopping-bag" size={14} color={colors.neutralMid} /><Text style={S.metaPillTxt}>{count} items</Text></View>
-            <View style={S.metaPill}><MaterialIcons name={isDelivery || isToGo ? 'phone' : 'person-outline'} size={14} color={colors.neutralMid} /><Text style={S.metaPillTxt}>{isDelivery || isToGo ? (order.customer_phone || 'No phone') : (order.waitress_name || 'Counter')}</Text></View>
+            <View style={S.metaPill}><MaterialIcons name="shopping-bag" size={14} color={colors.neutralMid} /><Text style={S.metaPillTxt}>{count} {t('common.items')}</Text></View>
+            <View style={S.metaPill}><MaterialIcons name={isDelivery || isToGo ? 'phone' : 'person-outline'} size={14} color={colors.neutralMid} /><Text style={S.metaPillTxt}>{isDelivery || isToGo ? (order.customer_phone || t('cashier.orders.noPhone')) : (order.waitress_name || t('cashier.orders.counter'))}</Text></View>
             <View style={S.metaPill}><MaterialIcons name="schedule" size={14} color={colors.neutralMid} /><Text style={S.metaPillTxt}>{elapsed(order.created_at)}</Text></View>
           </View>
           {isDelivery && order.delivery_address && (
             <Text style={S.deliveryAddress}>{order.delivery_address}</Text>
           )}
           <View style={S.pricingRow}>
-            <Text style={S.pricingLbl}>Total</Text>
+            <Text style={S.pricingLbl}>{t('common.total')}</Text>
             <Text style={S.pricingVal}>{fmt(grand)}</Text>
           </View>
         </TouchableOpacity>
 
         <TouchableOpacity style={S.addItemsFooterBtn} onPress={() => navigation.navigate('CashierWalkin', { order })}>
           <MaterialIcons name="add" size={18} color="#0891B2" />
-          <Text style={S.addItemsFooterTxt}>Add Items</Text>
+          <Text style={S.addItemsFooterTxt}>{t('cashier.orders.addItems')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -968,9 +972,9 @@ export default function CashierOrders({ navigation, route }) {
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       {/* Stat row */}
       <View style={S.statsRow}>
-        <StatCard label="Pending"    value={orders.length}         color={colors.warning} icon="pending-actions" />
-        <StatCard label="Done Today" value={todayStats.count}      color={colors.success} icon="check-circle" />
-        <StatCard label="Revenue"    value={`${Math.round(todayStats.revenue / 1000)}K`} sub="so'm" color="#0891B2" icon="trending-up" />
+        <StatCard label={t('cashier.orders.pendingCount')} value={orders.length}         color={colors.warning} icon="pending-actions" />
+        <StatCard label={t('cashier.orders.doneToday')}  value={todayStats.count}      color={colors.success} icon="check-circle" />
+        <StatCard label={t('cashier.orders.revenue')}    value={`${Math.round(todayStats.revenue / 1000)}K`} sub={t('common.currency')} color="#0891B2" icon="trending-up" />
       </View>
 
       {/* Tabs Filter — horizontal scrollable */}
@@ -980,12 +984,18 @@ export default function CashierOrders({ navigation, route }) {
         contentContainerStyle={S.tabsRow}
         style={{ flexGrow: 0 }}
       >
-        {['All Active', 'Restaurant Orders', 'Requested', 'To Go', 'Delivery'].map(tab => (
-          <TouchableOpacity key={tab} style={[S.tabChip, activeTab === tab && S.tabChipActive]} onPress={() => setActiveTab(tab)}>
+        {[
+          { id: 'All Active', label: t('cashier.orders.allActive') },
+          { id: 'Restaurant Orders', label: t('cashier.orders.restaurantOrders') },
+          { id: 'Requested', label: t('cashier.orders.requested') },
+          { id: 'To Go', label: t('cashier.orders.toGo') },
+          { id: 'Delivery', label: t('cashier.orders.delivery') },
+        ].map(tab => (
+          <TouchableOpacity key={tab.id} style={[S.tabChip, activeTab === tab.id && S.tabChipActive]} onPress={() => setActiveTab(tab.id)}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={[S.tabTxt, activeTab === tab && S.tabTxtActive]}>{tab}</Text>
-              {tab === 'Requested' && requestedCount > 0 && (
-                <View style={[S.tabDot, activeTab === tab && S.tabDotActive]}>
+              <Text style={[S.tabTxt, activeTab === tab.id && S.tabTxtActive]}>{tab.label}</Text>
+              {tab.id === 'Requested' && requestedCount > 0 && (
+                <View style={[S.tabDot, activeTab === tab.id && S.tabDotActive]}>
                   <Text style={S.tabDotTxt}>{requestedCount}</Text>
                 </View>
               )}
@@ -998,7 +1008,7 @@ export default function CashierOrders({ navigation, route }) {
       <View style={S.walkinRow}>
         <TouchableOpacity style={S.walkinBtn} onPress={() => navigation.navigate('CashierWalkin')}>
           <MaterialIcons name="add-circle-outline" size={18} color="#fff" />
-          <Text style={S.walkinTxt}>New Order</Text>
+          <Text style={S.walkinTxt}>{t('cashier.orders.newOrder')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -1016,11 +1026,11 @@ export default function CashierOrders({ navigation, route }) {
               <View style={S.empty}>
                 <MaterialIcons name={activeTab === 'Requested' ? 'receipt-long' : 'inbox'} size={44} color={colors.border} />
                 <Text style={S.emptyTxt}>
-                  {activeTab === 'Restaurant Orders' ? 'No dine-in orders'            :
-                   activeTab === 'Requested'        ? 'No bill requests yet'         :
-                   activeTab === 'Delivery'         ? 'No active delivery orders'    :
-                   activeTab === 'To Go'            ? 'No to-go orders'              :
-                   'No active orders'}
+                  {activeTab === 'Restaurant Orders' ? t('cashier.orders.noDineInOrders')   :
+                   activeTab === 'Requested'        ? t('cashier.orders.noBillRequests')   :
+                   activeTab === 'Delivery'         ? t('cashier.orders.noDeliveryOrders') :
+                   activeTab === 'To Go'            ? t('cashier.orders.noToGoOrders')     :
+                   t('cashier.orders.noActiveOrders')}
                 </Text>
               </View>
             }
@@ -1036,13 +1046,13 @@ export default function CashierOrders({ navigation, route }) {
         <TouchableOpacity style={S.modalMask} onPress={() => setShowReceipt(false)} />
         {receiptOrder && receiptPayment && (
           <View style={[S.bottomSheet, { maxHeight: '90%' }]}>
-            <Text style={S.sheetTitle}>Receipt Preview</Text>
+            <Text style={S.sheetTitle}>{t('cashier.orders.receiptPreview')}</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* Restaurant header */}
               <View style={S.receiptHeader}>
                 <Text style={S.receiptRest}>{restSettings.restaurant_name || 'The Bill Restaurant'}</Text>
                 <Text style={S.receiptSub}>
-                  Order {fmtOrderNum(receiptOrder)} • {receiptOrder.table_name || receiptOrder.customer_name || 'Walk-in'}
+                  {t('common.order')} {fmtOrderNum(receiptOrder)} • {receiptOrder.table_name || receiptOrder.customer_name || t('cashier.orders.walkIn')}
                 </Text>
                 <Text style={S.receiptDate}>{dateTimeStr(new Date().toISOString())}</Text>
               </View>
@@ -1063,44 +1073,44 @@ export default function CashierOrders({ navigation, route }) {
               <View style={S.divider} />
 
               {/* Totals */}
-              <View style={S.totRow}><Text style={S.totLbl}>Subtotal</Text><Text style={S.totVal}>{fmt(receiptPayment.subtotal)}</Text></View>
+              <View style={S.totRow}><Text style={S.totLbl}>{t('common.subtotal')}</Text><Text style={S.totVal}>{fmt(receiptPayment.subtotal)}</Text></View>
               {receiptPayment.tax > 0 && (
-                <View style={S.totRow}><Text style={S.totLbl}>Tax ({taxSettings.tax_enabled ? `${taxSettings.tax_rate}%` : '0%'})</Text><Text style={S.totVal}>{fmt(receiptPayment.tax)}</Text></View>
+                <View style={S.totRow}><Text style={S.totLbl}>{t('cashier.orders.tax')} ({taxSettings.tax_enabled ? `${taxSettings.tax_rate}%` : '0%'})</Text><Text style={S.totVal}>{fmt(receiptPayment.tax)}</Text></View>
               )}
               {receiptPayment.svc > 0 && (
-                <View style={S.totRow}><Text style={S.totLbl}>Service ({Math.round((restSettings.service_charge_rate || 0) * 100) / 100}%)</Text><Text style={S.totVal}>{fmt(receiptPayment.svc)}</Text></View>
+                <View style={S.totRow}><Text style={S.totLbl}>{t('cashier.orders.service')} ({Math.round((restSettings.service_charge_rate || 0) * 100) / 100}%)</Text><Text style={S.totVal}>{fmt(receiptPayment.svc)}</Text></View>
               )}
               {receiptPayment.discount > 0 && (
                 <View style={S.totRow}>
-                  <Text style={[S.totLbl, { color: colors.success }]}>Discount{receiptPayment.discReason ? ` (${receiptPayment.discReason})` : ''}</Text>
+                  <Text style={[S.totLbl, { color: colors.success }]}>{t('common.discount')}{receiptPayment.discReason ? ` (${receiptPayment.discReason})` : ''}</Text>
                   <Text style={[S.totVal, { color: colors.success }]}>−{fmt(receiptPayment.discount)}</Text>
                 </View>
               )}
               <View style={[S.totRow, { paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4 }]}>
-                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.textDark }}>Total</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.textDark }}>{t('common.total')}</Text>
                 <Text style={{ fontSize: 15, fontWeight: '800', color: '#0891B2' }}>{fmt(receiptPayment.total)}</Text>
               </View>
 
               <View style={S.divider} />
 
               {receiptPayment.change > 0 && (
-                <View style={S.totRow}><Text style={[S.totLbl, { color: '#0891B2' }]}>Change</Text><Text style={[S.totVal, { color: '#0891B2' }]}>{fmt(receiptPayment.change)}</Text></View>
+                <View style={S.totRow}><Text style={[S.totLbl, { color: '#0891B2' }]}>{t('cashier.orders.change')}</Text><Text style={[S.totVal, { color: '#0891B2' }]}>{fmt(receiptPayment.change)}</Text></View>
               )}
-              <View style={S.totRow}><Text style={S.totLbl}>Method</Text><Text style={S.totVal}>{receiptPayment.method}</Text></View>
-              <View style={S.totRow}><Text style={S.totLbl}>Cashier</Text><Text style={S.totVal}>{user?.name || 'Cashier'}</Text></View>
+              <View style={S.totRow}><Text style={S.totLbl}>{t('cashier.orders.method')}</Text><Text style={S.totVal}>{receiptPayment.method}</Text></View>
+              <View style={S.totRow}><Text style={S.totLbl}>{t('cashier.orders.cashier')}</Text><Text style={S.totVal}>{user?.name || t('roles.cashier')}</Text></View>
 
               <Text style={S.receiptThank}>{restSettings.receipt_header || 'Thank you for dining with us!'}</Text>
             </ScrollView>
             <View style={S.receiptBtns}>
               <TouchableOpacity style={S.receiptSkip} onPress={() => setShowReceipt(false)}>
-                <Text style={S.receiptSkipTxt}>Skip</Text>
+                <Text style={S.receiptSkipTxt}>{t('cashier.orders.skip')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={S.receiptPrint}
-                onPress={() => { setShowReceipt(false); setDialog({ title: 'Printed', message: 'Receipt sent to printer', type: 'info' }); }}
+                onPress={() => { setShowReceipt(false); setDialog({ title: t('cashier.orders.printed'), message: t('cashier.orders.receiptSentToPrinter'), type: 'info' }); }}
               >
                 <MaterialIcons name="print" size={16} color="#fff" />
-                <Text style={S.receiptPrintTxt}>Print Receipt</Text>
+                <Text style={S.receiptPrintTxt}>{t('cashier.orders.printReceipt')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1160,7 +1170,7 @@ const S = StyleSheet.create({
   totRowBold:      { paddingTop: spacing.sm, borderTopWidth: 1, borderColor: colors.border, marginTop: spacing.xs },
   grandLbl:        { fontSize: 16, fontWeight: '800', color: colors.textDark },
   grandAmt:        { fontSize: 20, fontWeight: '800', color: '#0891B2' },
-  pHeader:         { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  pHeader:         { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: topInset + spacing.sm, paddingBottom: spacing.md, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
   backBtn:         { padding: spacing.xs },
   pHeaderSub:      { fontSize: 11, color: colors.neutralMid },
   pHeaderTitle:    { fontSize: 16, fontWeight: '800', color: colors.textDark },

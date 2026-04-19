@@ -2,6 +2,7 @@ import React from 'react';
 import { StatusBar, View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
+import { LanguageProvider } from './src/context/LanguageContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 // ─── Error Boundary ──────────────────────────────────────────────────────────
@@ -66,7 +67,9 @@ export default function App() {
           {/* Translucent so every screen's header can draw behind the status bar.
               Each screen overrides barStyle (light-content / dark-content) as needed. */}
           <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-          <AppNavigator />
+          <LanguageProvider>
+            <AppNavigator />
+          </LanguageProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

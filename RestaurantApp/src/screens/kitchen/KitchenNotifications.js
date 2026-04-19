@@ -6,6 +6,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { notificationsAPI } from '../../api/client';
 import { topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
 
 // Light theme matching admin/cashier
 const C = {
@@ -26,11 +27,11 @@ const C = {
   white:       '#FFFFFF',
 };
 
-const TYPE_CFG = {
-  new_order: { color: C.danger,   bg: C.dangerLight,  icon: 'receipt-long',   label: 'New Order' },
-  alert:     { color: C.warning,  bg: C.warningLight, icon: 'warning',         label: 'Alert'     },
-  order_ready:{ color: C.success, bg: C.successLight, icon: 'check-circle',    label: 'Ready'     },
-  default:   { color: C.primary,  bg: C.primaryLight, icon: 'notifications',   label: 'Notice'    },
+const TYPE_CFG_BASE = {
+  new_order: { color: C.danger,   bg: C.dangerLight,  icon: 'receipt-long',   labelKey: 'kitchen.notifications.typeNewOrder' },
+  alert:     { color: C.warning,  bg: C.warningLight, icon: 'warning',         labelKey: 'kitchen.notifications.typeAlert'     },
+  order_ready:{ color: C.success, bg: C.successLight, icon: 'check-circle',    labelKey: 'kitchen.notifications.typeReady'     },
+  default:   { color: C.primary,  bg: C.primaryLight, icon: 'notifications',   labelKey: 'kitchen.notifications.typeNotice'    },
 };
 
 function timeAgo(iso) {
@@ -42,6 +43,7 @@ function timeAgo(iso) {
 }
 
 export default function KitchenNotifications({ navigation }) {
+  const { t } = useTranslation();
   const [notifications, setNotifications] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -84,15 +86,15 @@ export default function KitchenNotifications({ navigation }) {
           <MaterialIcons name="arrow-back" size={20} color={C.textDark} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={s.headerTitle}>Kitchen Alerts</Text>
+          <Text style={s.headerTitle}>{t('kitchen.notifications.kitchenAlerts')}</Text>
           {unread > 0 && (
-            <Text style={s.headerSub}>{unread} unread</Text>
+            <Text style={s.headerSub}>{unread} {t('kitchen.notifications.unread')}</Text>
           )}
         </View>
         {unread > 0 && (
           <TouchableOpacity style={s.markAllBtn} onPress={markAllRead}>
             <MaterialIcons name="done-all" size={14} color={C.primary} />
-            <Text style={s.markAllTxt}>Mark all read</Text>
+            <Text style={s.markAllTxt}>{t('kitchen.notifications.markAllRead')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -110,7 +112,7 @@ export default function KitchenNotifications({ navigation }) {
           />
         }
         renderItem={({ item }) => {
-          const cfg = TYPE_CFG[item.type] || TYPE_CFG.default;
+          const cfg = TYPE_CFG_BASE[item.type] || TYPE_CFG_BASE.default;
           return (
             <TouchableOpacity
               style={[s.card, !item.is_read && s.cardUnread]}
@@ -137,8 +139,8 @@ export default function KitchenNotifications({ navigation }) {
             <View style={s.emptyIcon}>
               <MaterialIcons name="notifications-none" size={44} color={C.textMuted} />
             </View>
-            <Text style={s.emptyTitle}>All quiet</Text>
-            <Text style={s.emptyTxt}>No kitchen alerts yet</Text>
+            <Text style={s.emptyTitle}>{t('kitchen.notifications.allQuiet')}</Text>
+            <Text style={s.emptyTxt}>{t('kitchen.notifications.noKitchenAlertsYet')}</Text>
           </View>
         }
       />

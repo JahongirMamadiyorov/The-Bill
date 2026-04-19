@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius } from '../utils/theme';
 import { notificationsAPI } from '../api/client';
+import { useTranslation } from '../context/LanguageContext';
+import { playDingDing } from '../utils/sounds';
 
 import WaitressTables       from '../screens/waitress/WaitressTables';
 import WaitressActiveOrders from '../screens/waitress/WaitressActiveOrders';
@@ -27,13 +29,37 @@ const TAB_ICONS = {
 // ── Bottom tab navigator ──────────────────────────────────────────────────────
 function WaitressTabs() {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Track the highest notification ID we've ever seen so we can tell whether a
+  // poll surfaced a genuinely new notification (→ play ding) vs. just the same
+  // unread set we already had. `null` = first-ever load (silent baseline).
+  const lastSeenIdRef = useRef(null);
 
   const loadUnread = useCallback(async () => {
     try {
       const res   = await notificationsAPI.getAll();
-      const count = (res.data || []).filter(n => !n.is_read).length;
+      const list  = res.data || [];
+      const count = list.filter(n => !n.is_read).length;
       setUnreadCount(count);
+
+      // Highest id in the returned set (works whether ids are numeric or string)
+      let maxId = 0;
+      for (const n of list) {
+        const id = Number(n.id);
+        if (Number.isFinite(id) && id > maxId) maxId = id;
+      }
+
+      if (lastSeenIdRef.current === null) {
+        // First load after mount — establish baseline, don't play.
+        lastSeenIdRef.current = maxId;
+      } else if (maxId > lastSeenIdRef.current) {
+        // A notification with a higher id than anything we've seen appeared
+        // → new event. Play the ding-ding chime.
+        lastSeenIdRef.current = maxId;
+        playDingDing();
+      }
     } catch {
       // silent fail
     }
@@ -41,7 +67,8 @@ function WaitressTabs() {
 
   useEffect(() => {
     loadUnread();
-    const iv = setInterval(loadUnread, 30000);
+    // 10s keeps the chime feeling responsive without hammering the backend.
+    const iv = setInterval(loadUnread, 10000);
     return () => clearInterval(iv);
   }, [loadUnread]);
 
@@ -70,19 +97,19 @@ function WaitressTabs() {
       })}
       screenListeners={{ focus: () => loadUnread() }}
     >
-      <Tab.Screen name="Tables"        component={WaitressTables}        options={{ title: 'Tables' }} />
-      <Tab.Screen name="Orders"        component={WaitressActiveOrders}  options={{ title: 'My Orders' }} />
-      <Tab.Screen name="Menu"          component={WaitressMenu}          options={{ title: 'Menu' }} />
+      <Tab.Screen name="Tables"        component={WaitressTables}        options={{ title: t('nav.tables', 'Tables') }} />
+      <Tab.Screen name="Orders"        component={WaitressActiveOrders}  options={{ title: t('nav.orders', 'My Orders') }} />
+      <Tab.Screen name="Menu"          component={WaitressMenu}          options={{ title: t('nav.menu', 'Menu') }} />
       <Tab.Screen
         name="Notifications"
         component={WaitressNotifications}
         options={{
-          title: 'Alerts',
+          title: t('nav.notifications', 'Alerts'),
           tabBarBadge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : undefined,
           tabBarBadgeStyle: { fontSize: 10, minWidth: 16, height: 16, lineHeight: 16 },
         }}
       />
-      <Tab.Screen name="Profile"       component={WaitressProfile}       options={{ title: 'Profile' }} />
+      <Tab.Screen name="Profile"       component={WaitressProfile}       options={{ title: t('nav.profile', 'Profile') }} />
     </Tab.Navigator>
   );
 }

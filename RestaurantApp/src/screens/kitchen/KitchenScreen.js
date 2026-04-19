@@ -26,6 +26,8 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import api, { notificationsAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
+import { playKitchenAlarm } from '../../utils/sounds';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -93,15 +95,15 @@ function deriveDisplayStatus(order) {
   return 'partial';
 }
 
-function statusLabel(s) {
+function statusLabel(s, t) {
   switch (s) {
-    case 'pending':         return 'New Order';
-    case 'sent_to_kitchen': return 'New Order';
-    case 'preparing':       return 'Cooking';
-    case 'partial':         return 'Prep in Progress';
-    case 'ready':           return 'Ready';
-    case 'served':          return 'Served';
-    case 'paid':            return 'Done';
+    case 'pending':         return t ? t('kitchen.dashboard.statusNewOrder') : 'New Order';
+    case 'sent_to_kitchen': return t ? t('kitchen.dashboard.statusNewOrder') : 'New Order';
+    case 'preparing':       return t ? t('kitchen.dashboard.statusCooking') : 'Cooking';
+    case 'partial':         return t ? t('kitchen.dashboard.statusPrepInProgress') : 'Prep in Progress';
+    case 'ready':           return t ? t('kitchen.dashboard.statusReady') : 'Ready';
+    case 'served':          return t ? t('kitchen.dashboard.statusServed') : 'Served';
+    case 'paid':            return t ? t('kitchen.dashboard.statusDone') : 'Done';
     default:                return s;
   }
 }
@@ -117,8 +119,8 @@ function nextStatus(s) {
   if (s === 'pending' || s === 'sent_to_kitchen') return 'preparing';
   return null; // "Mark Ready" is now done per-item
 }
-function nextStatusLabel(s) {
-  if (s === 'pending' || s === 'sent_to_kitchen') return 'Start Cooking';
+function nextStatusLabel(s, t) {
+  if (s === 'pending' || s === 'sent_to_kitchen') return t ? t('kitchen.dashboard.startCooking') : 'Start Cooking';
   return null;
 }
 
@@ -159,7 +161,7 @@ function UrgentPulse({ active }) {
 }
 
 // ─── New-order flash banner ───────────────────────────────────────────────────
-function NewOrderBanner({ visible, onDismiss }) {
+function NewOrderBanner({ visible, onDismiss, t }) {
   const slide = useRef(new Animated.Value(-80)).current;
   useEffect(() => {
     if (visible) {
@@ -172,7 +174,7 @@ function NewOrderBanner({ visible, onDismiss }) {
   return (
     <Animated.View style={[st.newOrderBanner, { transform: [{ translateY: slide }] }]}>
       <MaterialIcons name="notifications-active" size={22} color={C.white} />
-      <Text style={st.newOrderBannerTxt}>New order arrived!</Text>
+      <Text style={st.newOrderBannerTxt}>{t('kitchen.dashboard.newOrderArrived')}</Text>
       <TouchableOpacity onPress={onDismiss} style={st.bannerDismiss}>
         <MaterialIcons name="close" size={18} color={C.white} />
       </TouchableOpacity>
@@ -181,7 +183,7 @@ function NewOrderBanner({ visible, onDismiss }) {
 }
 
 // ─── Order card with per-item ready ticks ─────────────────────────────────────
-function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing }) {
+function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing, t }) {
   const secs    = useTimer(order.created_at);
   const mins    = Math.floor(secs / 60);
   const urgent  = mins >= 20;
@@ -189,7 +191,7 @@ function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing }) 
   const dispSt  = deriveDisplayStatus(order);
   const ss      = statusStyle(dispSt);
   const next    = nextStatus(order.status);
-  const nextLbl = nextStatusLabel(order.status);
+  const nextLbl = nextStatusLabel(order.status, t);
 
   const items = order.items || [];
   const readyCount = items.filter(i => i.item_ready).length;
@@ -206,13 +208,13 @@ function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing }) 
           <View style={[st.tableBadge, { backgroundColor: ss.bg, borderColor: ss.text + '40' }]}>
             <MaterialIcons name="table-restaurant" size={14} color={ss.text} />
             <Text style={[st.tableTxt, { color: ss.text }]}>
-              {order.table_number ? `Table ${order.table_number}` : 'Walk-in'}
+              {order.table_number ? `${t('kitchen.dashboard.table')} ${order.table_number}` : t('kitchen.dashboard.walkIn')}
             </Text>
           </View>
           {urgent && (
             <View style={st.urgentBadge}>
               <MaterialIcons name="priority-high" size={11} color={C.white} />
-              <Text style={st.urgentBadgeTxt}>URGENT</Text>
+              <Text style={st.urgentBadgeTxt}>{t('kitchen.dashboard.urgent')}</Text>
             </View>
           )}
         </View>
@@ -227,7 +229,7 @@ function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing }) 
       {/* Meta row */}
       <View style={st.metaRow}>
         <MaterialIcons name="person-outline" size={13} color={C.textMuted} />
-        <Text style={st.metaTxt}>{order.waitress_name || 'Walk-in'}</Text>
+        <Text style={st.metaTxt}>{order.waitress_name || t('kitchen.dashboard.walkIn')}</Text>
         {order.daily_number && (
           <>
             <Text style={[st.metaTxt, { marginHorizontal: 4, color: C.border }]}>·</Text>
@@ -242,13 +244,13 @@ function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing }) 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <View style={[st.statusPill, { backgroundColor: ss.bg, marginBottom: 0 }]}>
           <View style={[st.statusDot, { backgroundColor: ss.text }]} />
-          <Text style={[st.statusTxt, { color: ss.text }]}>{statusLabel(dispSt)}</Text>
+          <Text style={[st.statusTxt, { color: ss.text }]}>{statusLabel(dispSt, t)}</Text>
         </View>
         {totalCount > 0 && (
           <View style={st.progressPill}>
             <MaterialIcons name="check-circle" size={12} color={allReady ? C.success : C.textMuted} />
             <Text style={[st.progressTxt, allReady && { color: C.success }]}>
-              {readyCount}/{totalCount} ready
+              {readyCount}/{totalCount} {t('kitchen.dashboard.ready')}
             </Text>
           </View>
         )}
@@ -341,7 +343,7 @@ function OrderCard({ order, onAdvance, advancing, onItemReady, itemAdvancing }) 
 }
 
 // ─── History card ─────────────────────────────────────────────────────────────
-function HistoryCard({ order }) {
+function HistoryCard({ order, t }) {
   const ss = statusStyle(order.status);
   const completedAt = order.updated_at ? new Date(order.updated_at) : null;
   const timeStr = completedAt
@@ -353,12 +355,12 @@ function HistoryCard({ order }) {
       <View style={{ flex: 1, paddingVertical: 12, paddingRight: 12 }}>
         <View style={st.histTop}>
           <Text style={st.histTable}>
-            {order.table_number ? `Table ${order.table_number}` : 'Walk-in'}
+            {order.table_number ? `${t('kitchen.dashboard.table')} ${order.table_number}` : t('kitchen.dashboard.walkIn')}
           </Text>
           <View style={[st.statusPill, { backgroundColor: ss.bg, paddingVertical: 3, marginBottom: 0 }]}>
             <View style={[st.statusDot, { backgroundColor: ss.text }]} />
             <Text style={[st.statusTxt, { color: ss.text, fontSize: 10 }]}>
-              {statusLabel(order.status)}
+              {statusLabel(order.status, t)}
             </Text>
           </View>
           <Text style={st.histTime}>{timeStr}</Text>
@@ -372,11 +374,11 @@ function HistoryCard({ order }) {
 }
 
 // ─── Stats bar ────────────────────────────────────────────────────────────────
-function StatsBar({ stats, loading }) {
+function StatsBar({ stats, loading, t }) {
   const items = [
-    { icon: 'receipt-long',  label: 'ACTIVE',     value: loading ? '–' : String(stats?.active    ?? '–'), color: C.warning  },
-    { icon: 'check-circle',  label: 'DONE TODAY', value: loading ? '–' : String(stats?.completed ?? '–'), color: C.success  },
-    { icon: 'timer',         label: 'AVG COOK',   value: loading ? '–' : (stats?.avg_cook_minutes != null ? `${stats.avg_cook_minutes}m` : '–'), color: C.primary },
+    { icon: 'receipt-long',  label: t('kitchen.dashboard.active'),    value: loading ? '–' : String(stats?.active    ?? '–'), color: C.warning  },
+    { icon: 'check-circle',  label: t('kitchen.dashboard.doneToday'), value: loading ? '–' : String(stats?.completed ?? '–'), color: C.success  },
+    { icon: 'timer',         label: t('kitchen.dashboard.avgCook'),   value: loading ? '–' : (stats?.avg_cook_minutes != null ? `${stats.avg_cook_minutes}m` : '–'), color: C.primary },
   ];
   return (
     <View style={st.statsBar}>
@@ -393,10 +395,10 @@ function StatsBar({ stats, loading }) {
 
 // ─── Date period picker ───────────────────────────────────────────────────────
 const PERIOD_OPTS = [
-  { id: 'today',     label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: 'week',      label: 'This Week' },
-  { id: 'month',     label: 'This Month' },
+  { id: 'today',     labelKey: 'periods.today' },
+  { id: 'yesterday', labelKey: 'periods.yesterday' },
+  { id: 'week',      labelKey: 'periods.thisWeek' },
+  { id: 'month',     labelKey: 'periods.thisMonth' },
 ];
 
 function periodToRange(id) {
@@ -418,6 +420,7 @@ function periodToRange(id) {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function KitchenScreen({ navigation }) {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
   const station = user?.kitchen_station || null;
   const ss      = stationStyle(station);
 
@@ -451,6 +454,8 @@ export default function KitchenScreen({ navigation }) {
       if (prevQueueLen.current >= 0 && data.length > prevQueueLen.current) {
         setNewOrderAlert(true);
         Vibration.vibrate([0, 300, 100, 300, 100, 500]);
+        // Audible alarm — synced with the vibration pattern.
+        playKitchenAlarm();
         setTimeout(() => setNewOrderAlert(false), 5000);
       }
       prevQueueLen.current = data.length;
@@ -515,7 +520,8 @@ export default function KitchenScreen({ navigation }) {
       setQueue(prev => prev.map(o => o.id === orderId ? { ...o, status: newSt } : o));
       await loadAll(true);
     } catch (e) {
-      console.error('KDS advance error', e);
+      console.warn('KDS advance failed:', e?.message || e);
+      try { await loadAll(true); } catch (_) {}
     } finally {
       setAdvancing(p => { const n = { ...p }; delete n[orderId]; return n; });
     }
@@ -528,7 +534,7 @@ export default function KitchenScreen({ navigation }) {
       const res = await api.put(`/orders/${orderId}/items/${itemId}/ready`, { ready: true });
       const { all_ready, order_status } = res.data;
 
-      // Optimistically mark item as done in queue
+      // Update item as done in queue
       setQueue(prev => prev.map(order => {
         if (order.id !== orderId) return order;
         const updatedItems = order.items.map(i =>
@@ -547,18 +553,21 @@ export default function KitchenScreen({ navigation }) {
         }, 600);
       }
     } catch (e) {
-      console.error('KDS item ready error', e);
+      // Use console.warn (not console.error) to avoid red overlay in dev mode
+      console.warn('KDS item ready failed, retrying via refresh:', e?.message || e);
+      // Refresh the queue to get the actual server state
+      try { await fetchQueue(true); } catch (_) {}
     } finally {
       setItemAdvancing(p => { const n = { ...p }; delete n[itemId]; return n; });
     }
-  }, [fetchHistory, fetchStats, histPeriod, histMine]);
+  }, [fetchHistory, fetchStats, fetchQueue, histPeriod, histMine]);
 
   if (loading && !refreshing) {
     return (
       <View style={st.loadWrap}>
         <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
         <ActivityIndicator size="large" color={C.primary} />
-        <Text style={st.loadTxt}>Loading Kitchen Display…</Text>
+        <Text style={st.loadTxt}>{t('kitchen.dashboard.loadingKitchenDisplay')}</Text>
       </View>
     );
   }
@@ -574,6 +583,7 @@ export default function KitchenScreen({ navigation }) {
       <NewOrderBanner
         visible={newOrderAlert}
         onDismiss={() => setNewOrderAlert(false)}
+        t={t}
       />
 
       {/* ══ HEADER ══ */}
@@ -583,16 +593,16 @@ export default function KitchenScreen({ navigation }) {
             <MaterialIcons name="restaurant" size={20} color={C.primary} />
           </View>
           <View>
-            <Text style={st.headerTitle}>Kitchen Display</Text>
+            <Text style={st.headerTitle}>{t('kitchen.dashboard.kitchenDisplay')}</Text>
             {station ? (
               <View style={[st.stationBadge, { backgroundColor: ss?.bg || '#F3F4F6' }]}>
                 <MaterialIcons name={ss?.icon || 'restaurant'} size={10} color={ss?.text || C.textMuted} />
                 <Text style={[st.stationBadgeTxt, { color: ss?.text || C.textMuted }]}>
-                  {station.charAt(0).toUpperCase() + station.slice(1)} Station
+                  {station.charAt(0).toUpperCase() + station.slice(1)} {t('kitchen.dashboard.stationSuffix')}
                 </Text>
               </View>
             ) : (
-              <Text style={st.headerSub}>All Stations</Text>
+              <Text style={st.headerSub}>{t('kitchen.dashboard.allStations')}</Text>
             )}
           </View>
         </View>
@@ -619,36 +629,36 @@ export default function KitchenScreen({ navigation }) {
 
           <TouchableOpacity style={st.logoutBtn} onPress={logout}>
             <MaterialIcons name="logout" size={16} color={C.danger} />
-            <Text style={st.logoutTxt}>Logout</Text>
+            <Text style={st.logoutTxt}>{t('kitchen.dashboard.logout')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* ══ STATS BAR ══ */}
-      <StatsBar stats={stats} loading={statsLoad} />
+      <StatsBar stats={stats} loading={statsLoad} t={t} />
 
       {/* ══ TAB BAR ══ */}
       <View style={st.tabBar}>
         {[
-          { id: 'queue',   label: 'Queue',   icon: 'restaurant',  count: queueCount   },
-          { id: 'history', label: 'History', icon: 'history',     count: historyCount },
-        ].map(t => (
+          { id: 'queue',   label: t('kitchen.dashboard.queue'),   icon: 'restaurant',  count: queueCount   },
+          { id: 'history', label: t('kitchen.dashboard.history'), icon: 'history',     count: historyCount },
+        ].map(tb => (
           <TouchableOpacity
-            key={t.id}
-            style={[st.tabBtn, tab === t.id && st.tabBtnActive]}
-            onPress={() => setTab(t.id)}
+            key={tb.id}
+            style={[st.tabBtn, tab === tb.id && st.tabBtnActive]}
+            onPress={() => setTab(tb.id)}
             activeOpacity={0.8}
           >
             <MaterialIcons
-              name={t.icon}
+              name={tb.icon}
               size={16}
-              color={tab === t.id ? C.primary : C.textMuted}
+              color={tab === tb.id ? C.primary : C.textMuted}
             />
-            <Text style={[st.tabTxt, tab === t.id && st.tabTxtActive]}>{t.label}</Text>
-            {t.count > 0 && (
-              <View style={[st.tabCount, tab === t.id && st.tabCountActive]}>
-                <Text style={[st.tabCountTxt, tab === t.id && st.tabCountTxtActive]}>
-                  {t.count}
+            <Text style={[st.tabTxt, tab === tb.id && st.tabTxtActive]}>{tb.label}</Text>
+            {tb.count > 0 && (
+              <View style={[st.tabCount, tab === tb.id && st.tabCountActive]}>
+                <Text style={[st.tabCountTxt, tab === tb.id && st.tabCountTxtActive]}>
+                  {tb.count}
                 </Text>
               </View>
             )}
@@ -675,7 +685,7 @@ export default function KitchenScreen({ navigation }) {
               <View style={st.listHeader}>
                 <MaterialIcons name="receipt-long" size={14} color={C.textMuted} />
                 <Text style={st.listHeaderTxt}>
-                  {queueCount} order{queueCount !== 1 ? 's' : ''} in queue
+                  {queueCount} {t('kitchen.dashboard.ordersInQueue')}
                   {station ? ` · ${station}` : ''}
                 </Text>
               </View>
@@ -686,9 +696,9 @@ export default function KitchenScreen({ navigation }) {
               <View style={st.emptyIconWrap}>
                 <MaterialIcons name="check-circle-outline" size={52} color={C.success} />
               </View>
-              <Text style={st.emptyTitle}>All clear!</Text>
+              <Text style={st.emptyTitle}>{t('kitchen.dashboard.allClear')}</Text>
               <Text style={st.emptyTxt}>
-                {station ? `No active orders for ${station} station` : 'No active orders in the queue'}
+                {station ? t('kitchen.dashboard.noActiveOrdersForStation', { station }) : t('kitchen.dashboard.noActiveOrdersGeneral')}
               </Text>
             </View>
           }
@@ -699,6 +709,7 @@ export default function KitchenScreen({ navigation }) {
               advancing={!!advancing[item.id]}
               onItemReady={handleItemReady}
               itemAdvancing={itemAdvancing}
+              t={t}
             />
           )}
         />
@@ -717,14 +728,14 @@ export default function KitchenScreen({ navigation }) {
                   onPress={() => setHistMine(false)}
                 >
                   <MaterialIcons name="restaurant" size={13} color={!histMine ? C.primary : C.textMuted} />
-                  <Text style={[st.mineToggleTxt, !histMine && st.mineToggleTxtActive]}>All</Text>
+                  <Text style={[st.mineToggleTxt, !histMine && st.mineToggleTxtActive]}>{t('kitchen.dashboard.allOrders')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[st.mineToggleBtn, histMine && st.mineToggleBtnActive]}
                   onPress={() => setHistMine(true)}
                 >
                   <MaterialIcons name="person" size={13} color={histMine ? C.primary : C.textMuted} />
-                  <Text style={[st.mineToggleTxt, histMine && st.mineToggleTxtActive]}>Mine</Text>
+                  <Text style={[st.mineToggleTxt, histMine && st.mineToggleTxtActive]}>{t('kitchen.dashboard.mine')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -740,7 +751,7 @@ export default function KitchenScreen({ navigation }) {
                     activeOpacity={0.75}
                   >
                     <Text style={[st.periodChipTxt, histPeriod === p.id && st.periodChipTxtActive]}>
-                      {p.label}
+                      {t(p.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -770,9 +781,9 @@ export default function KitchenScreen({ navigation }) {
                   <View style={st.listHeader}>
                     <MaterialIcons name="history" size={14} color={C.textMuted} />
                     <Text style={st.listHeaderTxt}>
-                      {historyCount} order{historyCount !== 1 ? 's' : ''}
-                      {histMine && station ? ` · ${station} station` : ''}
-                      {' · '}{PERIOD_OPTS.find(p => p.id === histPeriod)?.label}
+                      {historyCount} {t('kitchen.dashboard.ordersInQueue')}
+                      {histMine && station ? ` · ${station} ${t('kitchen.dashboard.stationSuffix').toLowerCase()}` : ''}
+                      {' · '}{t(PERIOD_OPTS.find(p => p.id === histPeriod)?.labelKey)}
                     </Text>
                   </View>
                 ) : null
@@ -782,15 +793,15 @@ export default function KitchenScreen({ navigation }) {
                   <View style={st.emptyIconWrap}>
                     <MaterialIcons name="history" size={52} color={C.textMuted} />
                   </View>
-                  <Text style={st.emptyTitle}>No history yet</Text>
+                  <Text style={st.emptyTitle}>{t('kitchen.dashboard.noHistoryYet')}</Text>
                   <Text style={st.emptyTxt}>
                     {histMine && station
-                      ? `No orders completed by ${station} station`
-                      : 'Completed orders will appear here'}
+                      ? t('kitchen.dashboard.noOrdersCompletedByStation', { station })
+                      : t('kitchen.dashboard.completedOrdersWillAppear')}
                   </Text>
                 </View>
               }
-              renderItem={({ item }) => <HistoryCard order={item} />}
+              renderItem={({ item }) => <HistoryCard order={item} t={t} />}
             />
           )}
         </View>

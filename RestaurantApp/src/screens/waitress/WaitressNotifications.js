@@ -9,39 +9,57 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { notificationsAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+
+// ── Types this waitress should see (hide cashier/admin-only types) ───────────
+const WAITRESS_ALLOWED_TYPES = new Set([
+  'order_ready',
+  'low_stock',
+  'alert',
+  'default',
+  'table_status',
+]);
 
 // ── Type config (icon + accent colour) ───────────────────────────────────────
 const TYPE_CONFIG = {
-  order_ready: { icon: 'check-circle',           color: '#16A34A', bg: '#DCFCE7', label: 'Order Ready' },
-  low_stock:   { icon: 'warning-amber',          color: '#D97706', bg: '#FEF3C7', label: 'Low Stock'   },
-  alert:       { icon: 'notification-important', color: '#DC2626', bg: '#FEE2E2', label: 'Alert'       },
-  default:     { icon: 'notifications',          color: '#2563EB', bg: '#DBEAFE', label: 'Notice'      },
+  order_ready: { icon: 'check-circle',           color: '#16A34A', bg: '#DCFCE7', labelKey: 'waitress.notifications.typeOrderReady', labelFallback: 'Order Ready' },
+  low_stock:   { icon: 'warning-amber',          color: '#D97706', bg: '#FEF3C7', labelKey: 'waitress.notifications.typeLowStock',   labelFallback: 'Low Stock'   },
+  alert:       { icon: 'notification-important', color: '#DC2626', bg: '#FEE2E2', labelKey: 'waitress.notifications.typeAlert',      labelFallback: 'Alert'       },
+  default:     { icon: 'notifications',          color: '#2563EB', bg: '#DBEAFE', labelKey: 'waitress.notifications.typeNotice',     labelFallback: 'Notice'      },
 };
 
 // ── Smart timestamp ───────────────────────────────────────────────────────────
 const fmtTime = (d) =>
   `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
-const smartTimestamp = (isoStr) => {
+const smartTimestamp = (isoStr, tFn) => {
   if (!isoStr) return '';
   const date     = new Date(isoStr);
   const now      = new Date();
   const diffMins = Math.floor((now - date) / 60000);
 
-  if (diffMins < 1)  return 'Just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffMins < 1)  return tFn ? tFn('waitress.notifications.justNow', 'Just now') : 'Just now';
+  if (diffMins < 60) return tFn
+    ? tFn('waitress.notifications.minAgo', '{count} min ago').replace('{count}', String(diffMins))
+    : `${diffMins} min ago`;
 
   const todayStart     = new Date(now); todayStart.setHours(0, 0, 0, 0);
   const yesterdayStart = new Date(todayStart); yesterdayStart.setDate(todayStart.getDate() - 1);
 
-  if (date >= todayStart)     return `Today ${fmtTime(date)}`;
-  if (date >= yesterdayStart) return `Yesterday ${fmtTime(date)}`;
+  if (date >= todayStart)     return tFn
+    ? tFn('waitress.notifications.todayAt', 'Today {time}').replace('{time}', fmtTime(date))
+    : `Today ${fmtTime(date)}`;
+  if (date >= yesterdayStart) return tFn
+    ? tFn('waitress.notifications.yesterdayAt', 'Yesterday {time}').replace('{time}', fmtTime(date))
+    : `Yesterday ${fmtTime(date)}`;
 
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' + fmtTime(date);
 };
 
 // ── Single notification card ──────────────────────────────────────────────────
 function NotifCard({ item, onPress, isNew }) {
+  const { t } = useTranslation();
   const cfg = TYPE_CONFIG[item.type] || TYPE_CONFIG.default;
 
   return (
@@ -69,7 +87,7 @@ function NotifCard({ item, onPress, isNew }) {
         {item.body ? (
           <Text style={styles.cardBody} numberOfLines={2}>{item.body}</Text>
         ) : null}
-        <Text style={styles.cardTime}>{smartTimestamp(item.created_at)}</Text>
+        <Text style={styles.cardTime}>{smartTimestamp(item.created_at, t)}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -99,6 +117,7 @@ function TabPill({ label, count, active, onPress }) {
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 function EmptyState({ tab }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.empty}>
       <View style={styles.emptyIconWrap}>
@@ -109,12 +128,12 @@ function EmptyState({ tab }) {
         />
       </View>
       <Text style={styles.emptyTitle}>
-        {tab === 'new' ? 'No new notifications' : 'No read notifications'}
+        {tab === 'new' ? t('waitress.notifications.emptyNewTitle','No new notifications') : t('waitress.notifications.emptyReadTitle','No read notifications')}
       </Text>
       <Text style={styles.emptySubTitle}>
         {tab === 'new'
-          ? "You're all caught up! We'll notify you when something needs attention."
-          : 'Messages you open will appear here.'}
+          ? t('waitress.notifications.emptyNewSubtitle',"You're all caught up! We'll notify you when something needs attention.")
+          : t('waitress.notifications.emptyReadSubtitle',"Notifications you've read will appear here")}
       </Text>
     </View>
   );
@@ -124,6 +143,8 @@ function EmptyState({ tab }) {
 // MAIN SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 export default function WaitressNotifications() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [refreshing,    setRefreshing]    = useState(false);
   const [activeTab,     setActiveTab]     = useState('new'); // 'new' | 'read'
@@ -133,14 +154,25 @@ export default function WaitressNotifications() {
       // Purge notifications older than 5 days first (fire-and-forget)
       notificationsAPI.deleteOld().catch(() => {});
 
-      const res = await notificationsAPI.getAll();
-      setNotifications(res.data || []);
+      const res  = await notificationsAPI.getAll();
+      const list = Array.isArray(res.data) ? res.data : [];
+      // Defensive scoping: only keep notifications that are explicitly addressed
+      // to THIS waitress AND of a type that is relevant to a waitress role.
+      // Backend already filters by user_id but this guarantees no other waitress's
+      // notifications (or cashier-only types) ever leak through.
+      const myId = user?.id;
+      const scoped = list.filter(n => {
+        if (myId && n.user_id && String(n.user_id) !== String(myId)) return false;
+        const tp = (n.type || 'default').toLowerCase();
+        return WAITRESS_ALLOWED_TYPES.has(tp);
+      });
+      setNotifications(scoped);
     } catch {
       // Silently fail — notifications are not critical
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     load();
@@ -174,11 +206,11 @@ export default function WaitressNotifications() {
       {/* ── Header ── */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Notifications</Text>
+          <Text style={styles.headerTitle}>{t('waitress.notifications.title','Notifications')}</Text>
           {newItems.length > 0 && activeTab === 'new' && (
             <TouchableOpacity style={styles.markAllBtn} onPress={markAllRead}>
               <MaterialIcons name="done-all" size={15} color={colors.white} style={{ marginRight: 4 }} />
-              <Text style={styles.markAllText}>Mark all read</Text>
+              <Text style={styles.markAllText}>{t('waitress.notifications.markAllRead','Mark all read')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -186,13 +218,13 @@ export default function WaitressNotifications() {
         {/* ── Tab row ── */}
         <View style={styles.tabRow}>
           <TabPill
-            label="New"
+            label={t('waitress.notifications.newTab','New')}
             count={newItems.length}
             active={activeTab === 'new'}
             onPress={() => setActiveTab('new')}
           />
           <TabPill
-            label="Read"
+            label={t('waitress.notifications.readTab','Read')}
             count={readItems.length}
             active={activeTab === 'read'}
             onPress={() => setActiveTab('read')}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { usersAPI } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -22,6 +23,7 @@ function Toast({ message, visible }) {
 
 export default function AdminProfile() {
   const { user: authUser, updateUser } = useAuth();
+  const { t } = useTranslation();
 
   // ── Fetch fresh profile from backend on mount ────────────────────────────
   useEffect(() => {
@@ -81,10 +83,10 @@ export default function AdminProfile() {
       const updated = await usersAPI.update(authUser.id, { name: profileForm.name, phone: profileForm.phone });
       // Update auth context + localStorage in one call
       updateUser({ name: updated.name || profileForm.name, phone: updated.phone || profileForm.phone });
-      showToast('Profile updated');
+      showToast(t('admin.profile.profileUpdated'));
       setModal(null);
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.error || e?.response?.data?.error || 'Failed to update profile.', type: 'error' });
+      setDialog({ title: t('common.error', 'Error'), message: e?.error || e?.response?.data?.error || t('alerts.failedUpdateProfile', 'Failed to update profile.'), type: 'error' });
     } finally { setSaving(false); }
   };
 
@@ -102,19 +104,19 @@ export default function AdminProfile() {
       await usersAPI.updateCredentials(authUser.id, {
         password: pwForm.next, confirm_password: pwForm.confirm,
       });
-      showToast('Password changed');
+      showToast(t('admin.profile.passwordChanged'));
       setModal(null);
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.error || e?.response?.data?.error || 'Failed to change password.', type: 'error' });
+      setDialog({ title: t('common.error', 'Error'), message: e?.error || e?.response?.data?.error || t('alerts.failedChangePassword', 'Failed to change password.'), type: 'error' });
     } finally { setSaving(false); }
   };
 
   const handleLogout = () => {
     setDialog({
-      title: 'Sign Out',
-      message: 'Are you sure you want to sign out?',
+      title: t('admin.profile.signOut'),
+      message: t('admin.profile.signOutConfirm'),
       type: 'danger',
-      confirmLabel: 'Sign Out',
+      confirmLabel: t('admin.profile.signOut'),
       onConfirm: () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -123,7 +125,7 @@ export default function AdminProfile() {
     });
   };
 
-  if (!authUser) return <div className="p-8 text-center text-gray-500">Loading profile...</div>;
+  if (!authUser) return <div className="p-8 text-center text-gray-500">{t("common.loading")}</div>;
 
   return (
     <div className="h-full overflow-auto bg-gray-50">
@@ -159,19 +161,19 @@ export default function AdminProfile() {
           {/* Profile Info Card */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-bold text-gray-900 flex items-center gap-2"><User size={18} className="text-blue-600" /> Profile Information</h2>
+              <h2 className="font-bold text-gray-900 flex items-center gap-2"><User size={18} className="text-blue-600" /> {t("admin.profile.profileInformation")}</h2>
               <button onClick={openEditProfile} className="text-blue-600 hover:text-blue-700 text-sm font-semibold flex items-center gap-1">
-                <Edit2 size={14} /> Edit
+                <Edit2 size={14} /> {t("common.edit")}
               </button>
             </div>
             <div className="p-6 space-y-5">
               {[
-                ['Full Name', authUser.name, <User key="u" size={16} className="text-gray-400" />],
-                ['Phone Number', formatPhoneDisplay(authUser.phone), <Phone key="p" size={16} className="text-gray-400" />],
-                ['Email', authUser.email, <Mail key="e" size={16} className="text-gray-400" />],
-                ['Role', (authUser.role || '').charAt(0).toUpperCase() + (authUser.role || '').slice(1), <Shield key="s" size={16} className="text-gray-400" />],
-                ['Member Since', formatDate(authUser.createdAt || authUser.created_at), <Calendar key="c" size={16} className="text-gray-400" />],
-                ['Last Login', formatDateTime(authUser.lastLogin || authUser.last_login || new Date()), <Clock key="l" size={16} className="text-gray-400" />],
+                [t('admin.profile.fullName'), authUser.name, <User key="u" size={16} className="text-gray-400" />],
+                [t('admin.profile.phoneNumber'), formatPhoneDisplay(authUser.phone), <Phone key="p" size={16} className="text-gray-400" />],
+                [t('common.email'), authUser.email, <Mail key="e" size={16} className="text-gray-400" />],
+                [t('common.role'), (authUser.role || '').charAt(0).toUpperCase() + (authUser.role || '').slice(1), <Shield key="s" size={16} className="text-gray-400" />],
+                [t('admin.profile.memberSince'), formatDate(authUser.createdAt || authUser.created_at), <Calendar key="c" size={16} className="text-gray-400" />],
+                [t('admin.profile.lastLogin'), formatDateTime(authUser.lastLogin || authUser.last_login || new Date()), <Clock key="l" size={16} className="text-gray-400" />],
               ].map(([label, value, icon]) => (
                 <div key={label} className="flex items-center gap-3">
                   {icon}
@@ -189,7 +191,7 @@ export default function AdminProfile() {
             {/* Change Password */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100">
-                <h2 className="font-bold text-gray-900 flex items-center gap-2"><Lock size={18} className="text-blue-600" /> Security</h2>
+                <h2 className="font-bold text-gray-900 flex items-center gap-2"><Lock size={18} className="text-blue-600" /> {t("admin.profile.security")}</h2>
               </div>
               <div className="p-6">
                 <button
@@ -201,8 +203,8 @@ export default function AdminProfile() {
                       <Lock size={18} className="text-amber-600" />
                     </div>
                     <div className="text-left">
-                      <p className="text-sm font-semibold text-gray-900">Change Password</p>
-                      <p className="text-xs text-gray-500">Update your login password</p>
+                      <p className="text-sm font-semibold text-gray-900">{t("admin.profile.changePassword")}</p>
+                      <p className="text-xs text-gray-500">{t("admin.profile.updateLoginPassword")}</p>
                     </div>
                   </div>
                   <ChevronRight size={18} className="text-gray-400 group-hover:text-gray-600" />
@@ -216,7 +218,7 @@ export default function AdminProfile() {
               className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-red-50 text-red-600 font-semibold rounded-xl border border-red-200 hover:bg-red-100 transition-colors"
             >
               <LogOut size={18} />
-              Sign Out
+              {t('admin.profile.signOut')}
             </button>
           </div>
         </div>
@@ -227,26 +229,26 @@ export default function AdminProfile() {
 
       {/* Edit Profile Modal */}
       {modal === 'editProfile' && (
-        <ModalWrapper title="Edit Profile" onClose={() => setModal(null)}>
+        <ModalWrapper title={t('admin.profile.editProfile')} onClose={() => setModal(null)}>
           <div className="space-y-4">
-            <FormField label="Full Name" value={profileForm.name} onChange={v => setProfileForm({ ...profileForm, name: v })} placeholder="Your name" />
-            <PhoneInput label="Phone Number" value={profileForm.phone} onChange={v => setProfileForm({ ...profileForm, phone: v })} />
-            <FormField label="Email" value={profileForm.email} disabled note="Email cannot be changed here" />
+            <FormField label={t('admin.profile.fullName')} value={profileForm.name} onChange={v => setProfileForm({ ...profileForm, name: v })} placeholder={t('placeholders.yourName', 'Your name')} />
+            <PhoneInput label={t('admin.profile.phoneNumber')} value={profileForm.phone} onChange={v => setProfileForm({ ...profileForm, phone: v })} />
+            <FormField label={t('common.email')} value={profileForm.email} disabled note="Email cannot be changed here" />
           </div>
-          <ModalActions onSave={saveProfile} onCancel={() => setModal(null)} saving={saving} />
+          <ModalActions onSave={saveProfile} onCancel={() => setModal(null)} saving={saving} saveLabel={t('common.saveChanges')} savingLabel={t('common.saving')} cancelLabel={t('common.cancel')} />
         </ModalWrapper>
       )}
 
       {/* Change Password Modal */}
       {modal === 'changePassword' && (
-        <ModalWrapper title="Change Password" onClose={() => setModal(null)}>
+        <ModalWrapper title={t('admin.profile.changePassword')} onClose={() => setModal(null)}>
           <div className="space-y-4">
-            <PasswordField label="New Password" value={pwForm.next} onChange={v => setPwForm({ ...pwForm, next: v })} show={showPw.next} onToggle={() => setShowPw({ ...showPw, next: !showPw.next })} />
-            <PasswordField label="Confirm Password" value={pwForm.confirm} onChange={v => setPwForm({ ...pwForm, confirm: v })} show={showPw.confirm} onToggle={() => setShowPw({ ...showPw, confirm: !showPw.confirm })} />
-            {pwForm.next && pwForm.next.length < 6 && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertCircle size={12} /> Minimum 6 characters</p>}
-            {pwForm.confirm && pwForm.next !== pwForm.confirm && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle size={12} /> Passwords do not match</p>}
+            <PasswordField label={t('admin.profile.newPassword')} value={pwForm.next} onChange={v => setPwForm({ ...pwForm, next: v })} show={showPw.next} onToggle={() => setShowPw({ ...showPw, next: !showPw.next })} />
+            <PasswordField label={t('admin.profile.confirmPassword')} value={pwForm.confirm} onChange={v => setPwForm({ ...pwForm, confirm: v })} show={showPw.confirm} onToggle={() => setShowPw({ ...showPw, confirm: !showPw.confirm })} />
+            {pwForm.next && pwForm.next.length < 6 && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertCircle size={12} /> {t('admin.profile.min6Characters')}</p>}
+            {pwForm.confirm && pwForm.next !== pwForm.confirm && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle size={12} /> {t('admin.profile.passwordsDoNotMatch')}</p>}
           </div>
-          <ModalActions onSave={savePassword} onCancel={() => setModal(null)} saving={saving} saveLabel="Change Password" />
+          <ModalActions onSave={savePassword} onCancel={() => setModal(null)} saving={saving} saveLabel={t('admin.profile.changePassword')} savingLabel={t('common.saving')} cancelLabel={t('common.cancel')} />
         </ModalWrapper>
       )}
 
@@ -272,15 +274,15 @@ function ModalWrapper({ title, onClose, children }) {
   );
 }
 
-function ModalActions({ onSave, onCancel, saving, saveLabel = 'Save Changes' }) {
+function ModalActions({ onSave, onCancel, saving, saveLabel = 'Save Changes', savingLabel = 'Saving...', cancelLabel = 'Cancel' }) {
   return (
     <div className="flex gap-3 pt-5">
       <button onClick={onSave} disabled={saving}
         className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-blue-400 transition-colors">
-        <Save size={16} /> {saving ? 'Saving...' : saveLabel}
+        <Save size={16} /> {saving ? savingLabel : saveLabel}
       </button>
       <button onClick={onCancel} className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors">
-        Cancel
+        {cancelLabel}
       </button>
     </div>
   );

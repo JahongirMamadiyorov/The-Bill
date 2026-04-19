@@ -14,6 +14,7 @@ import { tablesAPI, menuAPI, ordersAPI, notificationsAPI } from '../../api/clien
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { useTranslation } from '../../context/LanguageContext';
 
 const { width: SW } = Dimensions.get('window');
 const CARD_W = (SW - spacing.md * 4) / 3;
@@ -26,10 +27,10 @@ const isStaleOrder = (openedAt) => {
   return (Date.now() - new Date(openedAt).getTime()) >= 24 * 60 * 60 * 1000;
 };
 
-const fmtElapsed = (openedAt) => {
+const fmtElapsed = (openedAt, tFn) => {
   if (!openedAt) return '';
   const mins = Math.floor((Date.now() - new Date(openedAt).getTime()) / 60000);
-  if (mins < 1)  return 'Just opened';
+  if (mins < 1)  return tFn ? tFn('waitress.tables.justOpened', 'Just opened') : 'Just opened';
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -76,9 +77,10 @@ function Btn({ label, icon, onPress, color = colors.primary, outline = false, di
 // ── Table card ───────────────────────────────────────────────────────────────
 // NOTE: No ownership checks here — all waitresses can access all tables freely.
 function TableCard({ table, onPress }) {
+  const { t } = useTranslation();
   const st        = ST[table.status] || ST.free;
   const isBillReq = table.status === 'occupied' && table.bill_requested;
-  const elapsed   = fmtElapsed(table.opened_at);
+  const elapsed   = fmtElapsed(table.opened_at, t);
   const stale     = table.status === 'occupied' && isStaleOrder(table.opened_at);
 
   const cardBg = {
@@ -122,7 +124,7 @@ function TableCard({ table, onPress }) {
       {/* Status-specific detail */}
       {table.status === 'free' && (
         <Text style={[styles.tableDetail, { color: '#16A34A' }]}>
-          {table.capacity ? `${table.capacity} seats` : 'Open'}
+          {table.capacity ? `${table.capacity} ${t('waitress.tables.seatsShort','seats')}` : t('waitress.tables.openLabel','Open')}
         </Text>
       )}
       {table.status === 'occupied' && (
@@ -138,10 +140,10 @@ function TableCard({ table, onPress }) {
         </>
       )}
       {table.status === 'reserved' && (
-        <Text style={[styles.tableDetail, { color: '#2563EB' }]}>Reserved</Text>
+        <Text style={[styles.tableDetail, { color: '#2563EB' }]}>{t('waitress.tables.reservedStatus','Reserved')}</Text>
       )}
       {table.status === 'cleaning' && (
-        <Text style={[styles.tableDetail, { color: '#D97706' }]}>Cleaning</Text>
+        <Text style={[styles.tableDetail, { color: '#D97706' }]}>{t('waitress.tables.cleaningStatus','Cleaning')}</Text>
       )}
     </TouchableOpacity>
   );
@@ -149,6 +151,7 @@ function TableCard({ table, onPress }) {
 
 // ── Guest count picker ───────────────────────────────────────────────────────
 function GuestCountModal({ visible, table, onConfirm, onClose }) {
+  const { t } = useTranslation();
   const [count, setCount] = useState(2);
   useEffect(() => { if (visible) setCount(2); }, [visible]);
   return (
@@ -156,8 +159,8 @@ function GuestCountModal({ visible, table, onConfirm, onClose }) {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Table {table?.table_number || table?.name}</Text>
-        <Text style={styles.sheetSub}>How many guests?</Text>
+        <Text style={styles.sheetTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
+        <Text style={styles.sheetSub}>{t('waitress.tables.howManyGuests','How many guests?')}</Text>
         <View style={styles.guestRow}>
           <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))} style={styles.guestBtn}>
             <MaterialIcons name="remove" size={24} color={colors.primary} />
@@ -168,9 +171,9 @@ function GuestCountModal({ visible, table, onConfirm, onClose }) {
           </TouchableOpacity>
         </View>
         <Text style={{ color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl, fontSize: 13 }}>
-          Select number of guests (1–20)
+          {t('waitress.tables.selectGuestsHint','Select number of guests (1-20)')}
         </Text>
-        <Btn label="Continue to Order" icon="arrow-forward" onPress={() => onConfirm(count)} />
+        <Btn label={t('waitress.tables.continueToOrder','Continue to Order')} icon="arrow-forward" onPress={() => onConfirm(count)} />
       </View>
     </Modal>
   );
@@ -178,6 +181,7 @@ function GuestCountModal({ visible, table, onConfirm, onClose }) {
 
 // ── Menu order modal (create new OR add items) ───────────────────────────────
 function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categories, menuItems, onSend, onClose }) {
+  const { t } = useTranslation();
   const [selCat,      setSelCat]      = useState(null);
   const [cart,        setCart]        = useState([]);
   const [sending,     setSending]     = useState(false);
@@ -229,7 +233,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
 
   const handleSend = async () => {
     if (cart.length === 0) {
-      setDialog({ title: 'Empty Cart', message: 'Add at least one item.', type: 'warning' });
+      setDialog({ title: t('waitress.tables.emptyCart','Empty Cart'), message: t('waitress.tables.emptyCartMsg','Add at least one item.'), type: 'warning' });
       return;
     }
     setSending(true);
@@ -237,7 +241,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
       await onSend(cart);
       onClose();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message || 'Failed to send order', type: 'error' });
+      setDialog({ title: t('common.error','Error'), message: e.response?.data?.error || e.message || t('waitress.tables.failedSendOrder','Failed to send order'), type: 'error' });
     } finally { setSending(false); }
   };
 
@@ -251,9 +255,9 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
           </TouchableOpacity>
           <View>
             <Text style={styles.modalTitle}>
-              {mode === 'add' ? 'Add More Items' : `Table ${table?.table_number || table?.name}`}
+              {mode === 'add' ? t('waitress.tables.addMoreItems','Add More Items') : `${t('waitress.tables.seatTablePrefix','Table')} ${table?.table_number || table?.name}`}
             </Text>
-            {mode === 'new' && <Text style={styles.modalSub}>{guestCount} guest{guestCount !== 1 ? 's' : ''}</Text>}
+            {mode === 'new' && <Text style={styles.modalSub}>{guestCount} {guestCount !== 1 ? t('waitress.tables.guestPlural','guests') : t('waitress.tables.guestSingular','guest')}</Text>}
           </View>
           <View style={{ width: 36 }} />
         </View>
@@ -265,7 +269,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
             <TextInput
               ref={searchRef}
               style={styles.searchInput}
-              placeholder="Search menu items…"
+              placeholder={t('placeholders.searchMenuItems','Search menu items…')}
               placeholderTextColor={colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -293,7 +297,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
               onPress={() => setSelCat(null)}
               style={[styles.catChip, !selCat && styles.catChipActive]}
             >
-              <Text style={[styles.catChipTxt, !selCat && styles.catChipTxtActive]}>All</Text>
+              <Text style={[styles.catChipTxt, !selCat && styles.catChipTxtActive]}>{t('common.all','All')}</Text>
             </TouchableOpacity>
             {categories.map(cat => (
               <TouchableOpacity
@@ -350,7 +354,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
             <View style={{ paddingTop: 60, alignItems: 'center' }}>
               <MaterialIcons name={searchQuery ? 'search-off' : 'restaurant-menu'} size={36} color={colors.border} />
               <Text style={{ color: colors.textMuted, marginTop: 10, fontSize: 14 }}>
-                {searchQuery ? `No results for "${searchQuery}"` : 'No items in this category'}
+                {searchQuery ? t('waitress.tables.noResultsFor','No results for "{query}"').replace('{query}', searchQuery) : t('waitress.tables.noItemsInCategory','No items in this category')}
               </Text>
             </View>
           }
@@ -360,7 +364,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
         {cartCount > 0 && (
           <View style={styles.cartFooter}>
             <View>
-              <Text style={styles.cartItems}>{cartCount} item{cartCount !== 1 ? 's' : ''}</Text>
+              <Text style={styles.cartItems}>{cartCount} {cartCount !== 1 ? t('waitress.tables.itemPlural','items') : t('waitress.tables.itemSingular','item')}</Text>
               <Text style={styles.cartTotal}>{fmtMoney(cartTotal)}</Text>
             </View>
             <TouchableOpacity
@@ -373,7 +377,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
                 ? <ActivityIndicator size="small" color="#fff" />
                 : <>
                     <MaterialIcons name="send" size={18} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.sendBtnTxt}>{mode === 'add' ? 'Add Items' : 'Send Order'}</Text>
+                    <Text style={styles.sendBtnTxt}>{mode === 'add' ? t('waitress.tables.addItems','Add Items') : t('waitress.tables.sendOrder','Send Order')}</Text>
                   </>}
             </TouchableOpacity>
           </View>
@@ -387,19 +391,26 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
 
 // ── Active order modal ───────────────────────────────────────────────────────
 function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onRequestBill, onMarkServed, reloading }) {
-  if (!order) return null;
-  const isBillReq = order.status === 'bill_requested';
-  const isPaid    = order.status === 'paid';
-  const isLocked  = isBillReq || isPaid;
+  // ⚠️ All hooks MUST be called before any conditional return — Rules of Hooks.
+  const { t } = useTranslation();
   const [requestingBill, setRequestingBill] = useState(false);
   const [dialog, setDialog] = useState(null);
 
+  // Safe to early-return now that all hooks above have been called unconditionally.
+  if (!order) return null;
+
+  const isBillReq = order.status === 'bill_requested';
+  const isPaid    = order.status === 'paid';
+  const isLocked  = isBillReq || isPaid;
+
   const handleRequestBill = () => {
     setDialog({
-      title: 'Request Bill?',
-      message: `Table ${table?.table_number || table?.name}\nTotal: ${fmtMoney(order.total_amount)}\n\nSend bill request to cashier?`,
+      title: t('waitress.tables.requestBillConfirm','Request Bill?'),
+      message: t('waitress.tables.requestBillMessage','Table {name}\nTotal: {amount}\n\nSend bill request to cashier?')
+        .replace('{name}', String(table?.table_number || table?.name || ''))
+        .replace('{amount}', fmtMoney(order.total_amount)),
       type: 'info',
-      confirmLabel: 'Request Bill',
+      confirmLabel: t('waitress.tables.requestBill','Request Bill'),
       onConfirm: async () => {
         setDialog(null);
         setRequestingBill(true);
@@ -410,11 +421,11 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
   };
 
   const itemStatus = (item) => {
-    if (item.served_at)            return { label: 'Served',    color: '#7C3AED', bg: '#F5F3FF' };
-    if (order.status === 'ready')  return { label: 'Ready',     color: '#16A34A', bg: '#DCFCE7' };
+    if (item.served_at)            return { label: t('waitress.tables.itemStatusServed','Served'),    color: '#7C3AED', bg: '#F5F3FF' };
+    if (order.status === 'ready')  return { label: t('waitress.tables.itemStatusReady','Ready'),     color: '#16A34A', bg: '#DCFCE7' };
     if (order.status === 'preparing' || order.status === 'sent_to_kitchen')
-                                   return { label: 'Preparing', color: '#2563EB', bg: '#DBEAFE' };
-    return                                { label: 'Pending',   color: '#D97706', bg: '#FEF3C7' };
+                                   return { label: t('waitress.tables.itemStatusPreparing','Preparing'), color: '#2563EB', bg: '#DBEAFE' };
+    return                                { label: t('waitress.tables.itemStatusPending','Pending'),   color: '#D97706', bg: '#FEF3C7' };
   };
 
   return (
@@ -426,10 +437,10 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
             <MaterialIcons name="arrow-back" size={22} color={colors.textDark} />
           </TouchableOpacity>
           <View>
-            <Text style={styles.modalTitle}>Table {table?.table_number || table?.name}</Text>
+            <Text style={styles.modalTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
             <Text style={styles.modalSub}>
-              {order.guest_count ? `${order.guest_count} guests · ` : ''}
-              {fmtElapsed(table?.opened_at) || fmtElapsed(order.created_at)}
+              {order.guest_count ? `${order.guest_count} ${t('waitress.tables.guestsSuffix','guests')} · ` : ''}
+              {fmtElapsed(table?.opened_at, t) || fmtElapsed(order.created_at, t)}
             </Text>
           </View>
           <View style={{ width: 36 }} />
@@ -439,13 +450,13 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
         {isBillReq && (
           <View style={styles.billBanner}>
             <MaterialIcons name="receipt-long" size={18} color="#7C3AED" />
-            <Text style={styles.billBannerTxt}>Bill requested — awaiting admin</Text>
+            <Text style={styles.billBannerTxt}>{t('waitress.tables.billRequestedBanner','Bill requested - awaiting admin')}</Text>
           </View>
         )}
         {order.status === 'ready' && !isBillReq && (
           <View style={[styles.billBanner, { backgroundColor: '#DCFCE7', borderColor: '#16A34A' }]}>
             <MaterialIcons name="check-circle" size={18} color="#16A34A" />
-            <Text style={[styles.billBannerTxt, { color: '#16A34A' }]}>Order is ready to serve!</Text>
+            <Text style={[styles.billBannerTxt, { color: '#16A34A' }]}>{t('waitress.tables.orderReadyBanner','Order is ready to serve!')}</Text>
           </View>
         )}
 
@@ -454,9 +465,9 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
           ? <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />
           : (
             <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}>
-              <Text style={styles.sectionLabel}>ORDER ITEMS</Text>
+              <Text style={styles.sectionLabel}>{t('waitress.tables.orderItems','ORDER ITEMS')}</Text>
               {(order.items || []).length === 0 && (
-                <Text style={{ color: colors.textMuted, textAlign: 'center', paddingVertical: 40 }}>No items</Text>
+                <Text style={{ color: colors.textMuted, textAlign: 'center', paddingVertical: 40 }}>{t('waitress.tables.noItemsLabel','No items')}</Text>
               )}
               {(order.items || []).map(item => {
                 const ist = itemStatus(item);
@@ -471,11 +482,12 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
                       {!item.served_at && !isLocked && (
                         <TouchableOpacity
                           onPress={() => onMarkServed(item.id)}
-                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          activeOpacity={0.75}
                           style={styles.serveBtn}
                         >
-                          <MaterialIcons name="check" size={13} color="#16A34A" />
-                          <Text style={{ fontSize: 11, color: '#16A34A', fontWeight: '600' }}>Served</Text>
+                          <MaterialIcons name="check-circle" size={18} color="#16A34A" />
+                          <Text style={{ fontSize: 14, color: '#16A34A', fontWeight: '700' }}>{t('waitress.tables.itemStatusServed','Served')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -485,7 +497,7 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
 
               {/* Total */}
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalLabel}>{t('waitress.tables.totalLabel','Total')}</Text>
                 <Text style={styles.totalAmt}>{fmtMoney(order.total_amount)}</Text>
               </View>
 
@@ -504,10 +516,10 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
         {!isLocked && !isPaid && (
           <View style={styles.modalFooter}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
-              <Btn label="Add Items" icon="add" onPress={onAddItems} outline color={colors.primary} />
+              <Btn label={t('waitress.tables.addItems','Add Items')} icon="add" onPress={onAddItems} outline color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Btn label="Request Bill" icon="receipt-long" onPress={handleRequestBill} disabled={requestingBill} color="#7C3AED" />
+              <Btn label={t('waitress.tables.requestBill','Request Bill')} icon="receipt-long" onPress={handleRequestBill} disabled={requestingBill} color="#7C3AED" />
             </View>
           </View>
         )}
@@ -520,19 +532,20 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
 
 // ── Reservation info modal ───────────────────────────────────────────────────
 function ReservationModal({ visible, table, onSeatGuests, onClose }) {
+  const { t } = useTranslation();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Table {table?.table_number || table?.name}</Text>
+        <Text style={styles.sheetTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
         <View style={{ backgroundColor: '#DBEAFE', borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.xl }}>
-          <Text style={{ color: '#1D4ED8', fontWeight: '700', fontSize: 15 }}>Reserved</Text>
-          <Text style={{ color: '#1D4ED8', fontSize: 13, marginTop: 4 }}>{table?.capacity} seat table</Text>
+          <Text style={{ color: '#1D4ED8', fontWeight: '700', fontSize: 15 }}>{t('waitress.tables.reservedStatus','Reserved')}</Text>
+          <Text style={{ color: '#1D4ED8', fontSize: 13, marginTop: 4 }}>{table?.capacity} {t('waitress.tables.seatTableSuffix','seat table')}</Text>
         </View>
-        <Btn label="Seat Guests" icon="people" onPress={() => { onSeatGuests(table); onClose(); }} />
+        <Btn label={t('waitress.tables.seatGuests','Seat Guests')} icon="people" onPress={() => { onSeatGuests(table); onClose(); }} />
         <View style={{ height: spacing.sm }} />
-        <Btn label="Cancel" icon="close" onPress={onClose} outline color={colors.textMuted} />
+        <Btn label={t('waitress.tables.cancelLabel','Cancel')} icon="close" onPress={onClose} outline color={colors.textMuted} />
       </View>
     </Modal>
   );
@@ -540,6 +553,7 @@ function ReservationModal({ visible, table, onSeatGuests, onClose }) {
 
 // ── Cleaning modal ────────────────────────────────────────────────────────────
 function CleaningModal({ visible, table, onMarkClean, onClose }) {
+  const { t } = useTranslation();
   const [marking, setMarking] = useState(false);
   const handleMarkClean = async () => {
     setMarking(true);
@@ -551,24 +565,24 @@ function CleaningModal({ visible, table, onMarkClean, onClose }) {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Table {table?.table_number || table?.name}</Text>
+        <Text style={styles.sheetTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
         {/* Status info */}
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.xl, flexDirection: 'row', alignItems: 'center' }}>
           <MaterialIcons name="cleaning-services" size={22} color="#D97706" style={{ marginRight: spacing.md }} />
           <View>
-            <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 15 }}>Being Cleaned</Text>
-            <Text style={{ color: '#92400E', fontSize: 13, marginTop: 3 }}>Mark as clean to make it available</Text>
+            <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 15 }}>{t('waitress.tables.beingCleaned','Being Cleaned')}</Text>
+            <Text style={{ color: '#92400E', fontSize: 13, marginTop: 3 }}>{t('waitress.tables.markAsCleanHint','Mark as clean to make it available')}</Text>
           </View>
         </View>
         <Btn
-          label={marking ? 'Marking clean…' : 'Mark as Clean'}
+          label={marking ? t('waitress.tables.markingClean','Marking clean...') : t('waitress.tables.markAsClean','Mark as Clean')}
           icon="check-circle"
           onPress={handleMarkClean}
           disabled={marking}
           color="#16A34A"
         />
         <View style={{ height: spacing.sm }} />
-        <Btn label="Close" icon="close" onPress={onClose} outline color={colors.textMuted} />
+        <Btn label={t('waitress.tables.closeLabel','Close')} icon="close" onPress={onClose} outline color={colors.textMuted} />
       </View>
     </Modal>
   );
@@ -579,6 +593,7 @@ function CleaningModal({ visible, table, onMarkClean, onClose }) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function WaitressTables() {
   const { user }       = useAuth();
+  const { t }          = useTranslation();
   const navigation     = useNavigation();
 
   // Tables data
@@ -649,9 +664,9 @@ export default function WaitressTables() {
       setMenuItems((iRes.data || []).filter(i => i.is_available !== false));
       setMenuLoaded(true);
     } catch {
-      setDialog({ title: 'Error', message: 'Failed to load menu. Check your connection.', type: 'error' });
+      setDialog({ title: t('common.error','Error'), message: t('waitress.tables.failedLoadMenu','Failed to load menu. Check your connection.'), type: 'error' });
     }
-  }, [menuLoaded]);
+  }, [menuLoaded, t]);
 
   // ── Table tap handler ────────────────────────────────────────────────────
   const handleTablePress = useCallback(async (table) => {
@@ -672,10 +687,10 @@ export default function WaitressTables() {
           // No order found — open new order flow instead
           setPhase('idle');
           setDialog({
-            title: `Table ${table.table_number || table.name}`,
-            message: 'No active order found. Start a new order?',
+            title: `${t('waitress.tables.seatTablePrefix','Table')} ${table.table_number || table.name}`,
+            message: t('waitress.tables.noActiveOrderFound','No active order found. Start a new order?'),
             type: 'info',
-            confirmLabel: 'New Order',
+            confirmLabel: t('waitress.tables.newOrder','New Order'),
             onConfirm: () => {
               setDialog(null);
               setFlowTable(table);
@@ -689,7 +704,7 @@ export default function WaitressTables() {
         setFlowOrder(orderRes.data);
       } catch (e) {
         setPhase('idle');
-        setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to load order.', type: 'error' });
+        setDialog({ title: t('common.error','Error'), message: e?.response?.data?.error || t('waitress.tables.failedLoadOrder','Failed to load order.'), type: 'error' });
       } finally {
         setOrderReload(false);
       }
@@ -700,7 +715,7 @@ export default function WaitressTables() {
       setFlowTable(table);
       setPhase('cleaning');
     }
-  }, [user?.id]);
+  }, [user?.id, t]);
 
   // ── Confirm guest count → open menu ─────────────────────────────────────
   const handleGuestConfirm = useCallback(async (count) => {
@@ -750,9 +765,9 @@ export default function WaitressTables() {
       setFlowOrder(res.data);
       loadTables();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to request bill. Please try again.', type: 'error' });
+      setDialog({ title: t('common.error','Error'), message: e?.response?.data?.error || t('waitress.tables.failedRequestBill','Failed to request bill. Please try again.'), type: 'error' });
     }
-  }, [flowOrder, loadTables]);
+  }, [flowOrder, loadTables, t]);
 
   // ── Mark item served ─────────────────────────────────────────────────────
   const handleMarkServed = useCallback(async (itemId) => {
@@ -765,9 +780,9 @@ export default function WaitressTables() {
         items: (prev.items || []).map(it => it.id === itemId ? { ...it, served_at: new Date().toISOString() } : it),
       }));
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to mark item as served.', type: 'error' });
+      setDialog({ title: t('common.error','Error'), message: e?.response?.data?.error || t('waitress.tables.failedMarkServed','Failed to mark item as served.'), type: 'error' });
     }
-  }, [flowOrder]);
+  }, [flowOrder, t]);
 
   // ── Seat guests from reservation ─────────────────────────────────────────
   const handleSeatGuests = useCallback((table) => {
@@ -785,7 +800,7 @@ export default function WaitressTables() {
   }, [flowTable, loadTables]);
 
   // ── Filtered tables ──────────────────────────────────────────────────────
-  const filtered = filter === 'all' ? tables : tables.filter(t => t.status === filter);
+  const filtered = filter === 'all' ? tables : tables.filter(tb => tb.status === filter);
 
   // Pad to multiple of 3 so last row always has equal-width cards
   const gridData = useMemo(() => {
@@ -796,15 +811,15 @@ export default function WaitressTables() {
   }, [filtered]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
-  const freeCount     = tables.filter(t => t.status === 'free').length;
-  const occupiedCount = tables.filter(t => t.status === 'occupied').length;
-  const reservedCount = tables.filter(t => t.status === 'reserved').length;
+  const freeCount     = tables.filter(tb => tb.status === 'free').length;
+  const occupiedCount = tables.filter(tb => tb.status === 'occupied').length;
+  const reservedCount = tables.filter(tb => tb.status === 'reserved').length;
 
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.textMuted, marginTop: 12 }}>Loading tables…</Text>
+        <Text style={{ color: colors.textMuted, marginTop: 12 }}>{t('waitress.tables.loadingTables','Loading tables...')}</Text>
       </View>
     );
   }
@@ -817,9 +832,14 @@ export default function WaitressTables() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View>
             <Text style={styles.headerGreeting}>
-              Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {(user?.name || '').split(' ')[0]}
+              {(() => {
+                const hour = new Date().getHours();
+                const greetKey = hour < 12 ? 'goodMorning' : hour < 18 ? 'goodAfternoon' : 'goodEvening';
+                const greet = t(`waitress.tables.${greetKey}`, 'Good morning');
+                return `${greet}, ${(user?.name || '').split(' ')[0]}`;
+              })()}
             </Text>
-            <Text style={styles.headerTitle}>Tables</Text>
+            <Text style={styles.headerTitle}>{t('waitress.tables.title','Tables')}</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             {/* Notification bell */}
@@ -842,9 +862,9 @@ export default function WaitressTables() {
         </View>
         {/* Summary chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.md }}>
-          <View style={styles.chip}><View style={[styles.chipDot, { backgroundColor: '#16A34A' }]} /><Text style={styles.chipTxt}>{freeCount} Free</Text></View>
-          <View style={styles.chip}><View style={[styles.chipDot, { backgroundColor: '#DC2626' }]} /><Text style={styles.chipTxt}>{occupiedCount} Occupied</Text></View>
-          {reservedCount > 0 && <View style={styles.chip}><View style={[styles.chipDot, { backgroundColor: '#2563EB' }]} /><Text style={styles.chipTxt}>{reservedCount} Reserved</Text></View>}
+          <View style={styles.chip}><View style={[styles.chipDot, { backgroundColor: '#16A34A' }]} /><Text style={styles.chipTxt}>{t('waitress.tables.freeCount','{count} Free').replace('{count}', String(freeCount))}</Text></View>
+          <View style={styles.chip}><View style={[styles.chipDot, { backgroundColor: '#DC2626' }]} /><Text style={styles.chipTxt}>{t('waitress.tables.occupiedCount','{count} Occupied').replace('{count}', String(occupiedCount))}</Text></View>
+          {reservedCount > 0 && <View style={styles.chip}><View style={[styles.chipDot, { backgroundColor: '#2563EB' }]} /><Text style={styles.chipTxt}>{reservedCount} {t('waitress.tables.reservedCountLabel','Reserved')}</Text></View>}
         </ScrollView>
       </View>
 
@@ -855,24 +875,33 @@ export default function WaitressTables() {
         contentContainerStyle={styles.filterBar}
         style={{ flexGrow: 0 }}
       >
-        {['all', 'free', 'occupied', 'reserved', 'cleaning'].map(f => (
-          <TouchableOpacity
-            key={f}
-            onPress={() => setFilter(f)}
-            style={[styles.filterChip, filter === f && styles.filterChipActive]}
-          >
-            <Text style={[styles.filterChipTxt, filter === f && styles.filterChipTxtActive]}>
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {['all', 'free', 'occupied', 'reserved', 'cleaning'].map(f => {
+          const filterLabels = {
+            all: t('waitress.tables.filterAll','All'),
+            free: t('waitress.tables.filterFree','Free'),
+            occupied: t('waitress.tables.filterOccupied','Occupied'),
+            reserved: t('waitress.tables.filterReserved','Reserved'),
+            cleaning: t('waitress.tables.filterCleaning','Cleaning'),
+          };
+          return (
+            <TouchableOpacity
+              key={f}
+              onPress={() => setFilter(f)}
+              style={[styles.filterChip, filter === f && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipTxt, filter === f && styles.filterChipTxtActive]}>
+                {filterLabels[f]}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       {/* ── Table grid ── */}
       <FlatList
         style={{ flex: 1 }}
         data={gridData}
-        keyExtractor={t => String(t.id)}
+        keyExtractor={tb => String(tb.id)}
         numColumns={3}
         contentContainerStyle={styles.grid}
         columnWrapperStyle={{ gap: 8, paddingHorizontal: spacing.sm, marginBottom: 8 }}
@@ -884,9 +913,9 @@ export default function WaitressTables() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <MaterialIcons name="table-restaurant" size={48} color={colors.border} />
-            <Text style={styles.emptyTxt}>No tables found</Text>
+            <Text style={styles.emptyTxt}>{t('waitress.tables.noTablesFound','No tables found')}</Text>
             <Text style={styles.emptySubTxt}>
-              {filter !== 'all' ? `No ${filter} tables right now` : 'Tables will appear once added by admin'}
+              {filter !== 'all' ? t('waitress.tables.noTablesInFilter','No {filter} tables right now').replace('{filter}', filter) : t('waitress.tables.noTablesSubtitle','Tables will appear once added by admin')}
             </Text>
           </View>
         }
@@ -1055,7 +1084,7 @@ const styles = StyleSheet.create({
   orderItemRow:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm, ...shadow.card },
   orderItemName: { fontSize: 14, fontWeight: '700', color: colors.textDark, marginBottom: 3 },
   orderItemPrice:{ fontSize: 12, color: colors.textMuted },
-  serveBtn:      { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#DCFCE7', paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.full },
+  serveBtn:      { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#DCFCE7', paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full, borderWidth: 1, borderColor: '#16A34A', minWidth: 92, justifyContent: 'center' },
   totalRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.lg, borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm },
   totalLabel:    { fontSize: 16, fontWeight: '700', color: colors.textDark },
   totalAmt:      { fontSize: 20, fontWeight: '800', color: colors.primary },

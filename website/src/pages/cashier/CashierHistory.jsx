@@ -8,10 +8,10 @@ import {
 import { ordersAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { money } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAY_HDRS = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+// MONTH_NAMES and DAY_HDRS loaded from i18n
 
 const todayStr = () => {
   const d = new Date();
@@ -47,18 +47,19 @@ const METHOD_ICONS = {
   qr: <QrCode className="w-4 h-4" />,
 };
 
-const REFUND_REASONS = ['Customer Complaint', 'Wrong Order', 'Duplicate Payment', 'Other'];
+// REFUND_REASONS loaded from i18n: t('cashier.history.refundReasons')
 
 const TODAY = todayStr();
-const presets = [
-  { label: 'Today',      from: TODAY, to: TODAY },
-  { label: 'This Week',  from: fmtDateStr(getMonday(new Date())), to: TODAY },
-  { label: 'This Month', from: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: TODAY },
-  { label: 'Last Month', from: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth()-1, 1)), to: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 0)) },
+const getPresets = (t) => [
+  { label: t('periods.today'),      from: TODAY, to: TODAY },
+  { label: t('periods.thisWeek'),  from: fmtDateStr(getMonday(new Date())), to: TODAY },
+  { label: t('periods.thisMonth'), from: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: TODAY },
+  { label: t('periods.lastMonth'), from: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth()-1, 1)), to: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 0)) },
 ];
 
 // ── Calendar Date Range Picker ────────────────────────────────────────────────
 function CalendarPicker({ visible, onClose, period, onChange }) {
+  const { t } = useTranslation();
   const [viewYear, setViewYear] = useState(new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
   const [tempFrom, setTempFrom] = useState(period.from);
@@ -114,7 +115,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5" style={{ color: '#0891B2' }} />
-            <span className="font-bold text-gray-900">Select Period</span>
+            <span className="font-bold text-gray-900">{t('datePicker.pickADate')}</span>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400">
             <X className="w-5 h-5" />
@@ -129,7 +130,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
               className="flex-1 rounded-xl border-2 p-2.5 text-center transition"
               style={step==='from' ? { borderColor:'#0891B2',backgroundColor:'#F0F9FF' } : { borderColor:'#E5E7EB' }}
             >
-              <p className="text-xs text-gray-500 uppercase tracking-wide">From</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('common.from')}</p>
               <p className="font-bold text-sm" style={{ color: step==='from' ? '#0891B2' : '#111827' }}>{tempFrom}</p>
             </button>
             <ChevronDown className="w-4 h-4 text-gray-400 rotate-[-90deg] flex-shrink-0" />
@@ -138,7 +139,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
               className="flex-1 rounded-xl border-2 p-2.5 text-center transition"
               style={step==='to' ? { borderColor:'#0891B2',backgroundColor:'#F0F9FF' } : { borderColor:'#E5E7EB' }}
             >
-              <p className="text-xs text-gray-500 uppercase tracking-wide">To</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('common.to')}</p>
               <p className="font-bold text-sm" style={{ color: step==='to' ? '#0891B2' : '#111827' }}>{tempTo}</p>
             </button>
           </div>
@@ -147,13 +148,13 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
           {/* Month nav */}
           <div className="flex items-center justify-between">
             <button onClick={prevMonth} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 font-bold text-lg">‹</button>
-            <span className="text-sm font-semibold text-gray-800">{MONTH_NAMES[viewMonth]} {viewYear}</span>
+            <span className="text-sm font-semibold text-gray-800">{t('datePicker.months')[viewMonth]} {viewYear}</span>
             <button onClick={nextMonth} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 font-bold text-lg">›</button>
           </div>
 
           {/* Day headers */}
           <div className="grid grid-cols-7">
-            {DAY_HDRS.map(d => (
+            {t('datePicker.days').map(d => (
               <div key={d} className="text-center text-xs text-gray-400 font-medium py-1">{d}</div>
             ))}
           </div>
@@ -187,7 +188,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
 
           {/* Presets */}
           <div className="flex flex-wrap gap-2">
-            {presets.map(p => (
+            {getPresets(t).map(p => (
               <button
                 key={p.label}
                 onClick={() => setPreset(p.from, p.to)}
@@ -207,7 +208,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
             className="w-full py-3 rounded-xl text-white font-bold text-sm transition"
             style={{ backgroundColor: '#0891B2' }}
           >
-            Apply: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
+            {t('common.apply')}: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
           </button>
         </div>
       </div>
@@ -217,6 +218,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
 
 // ── Filter Panel ──────────────────────────────────────────────────────────────
 function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tableOptions }) {
+  const { t } = useTranslation();
   const [local, setLocal] = useState(filters);
 
   useEffect(() => {
@@ -240,11 +242,11 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
     <div className="fixed inset-0 z-50" onClick={onClose}>
       <div className="absolute right-6 top-[72px] bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-sm max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-          <span className="font-bold text-gray-900">Filters</span>
+          <span className="font-bold text-gray-900">{t('common.search')}</span>
           <div className="flex items-center gap-3">
             {activeCount > 0 && (
               <button onClick={clearAll} className="text-sm font-medium" style={{ color: '#0891B2' }}>
-                Clear all
+                {t('common.clear')}
               </button>
             )}
             <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400">
@@ -256,7 +258,7 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Payment Method */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('cashier.orders.paymentMethod')}</p>
             <div className="flex flex-wrap gap-2">
               {METHODS.map(m => (
                 <button
@@ -276,18 +278,18 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
 
           {/* Status */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Status</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('common.status')}</p>
             <div className="flex flex-wrap gap-2">
               {['paid', 'refunded'].map(s => (
                 <button
                   key={s}
                   onClick={() => toggle('status', s)}
-                  className="px-3 py-2 rounded-xl text-sm font-semibold border capitalize transition"
+                  className="px-3 py-2 rounded-xl text-sm font-semibold border transition"
                   style={local.status === s
                     ? { backgroundColor: '#0891B2', color: '#fff', borderColor: '#0891B2' }
                     : { backgroundColor: '#fff', color: '#374151', borderColor: '#E5E7EB' }
                   }
-                >{s}</button>
+                >{t(`cashier.history.${s}`)}</button>
               ))}
             </div>
           </div>
@@ -295,7 +297,7 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
           {/* Waitress */}
           {waitressOptions.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Server</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('roles.waitress')}</p>
               <div className="flex flex-wrap gap-2">
                 {waitressOptions.map(name => (
                   <button
@@ -315,7 +317,7 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
           {/* Table */}
           {tableOptions.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Table</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('nav.tables')}</p>
               <div className="flex flex-wrap gap-2">
                 {tableOptions.map(name => (
                   <button
@@ -339,7 +341,7 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
             className="w-full py-3 rounded-xl text-white font-bold text-sm transition"
             style={{ backgroundColor: '#0891B2' }}
           >
-            {activeCount > 0 ? `Apply ${activeCount} filter${activeCount > 1 ? 's' : ''}` : 'Apply'}
+            {activeCount > 0 ? `${t('common.apply')} (${activeCount})` : t('common.apply')}
           </button>
         </div>
       </div>
@@ -349,6 +351,7 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
 
 // ── Order Detail Modal ────────────────────────────────────────────────────────
 function OrderDetailModal({ order, onClose, onRefund }) {
+  const { t } = useTranslation();
   const [fullOrder, setFullOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
 
@@ -377,14 +380,14 @@ function OrderDetailModal({ order, onClose, onRefund }) {
   const isSplit    = methodKey === 'split';
 
   const methodMeta = {
-    cash:     { icon: <Banknote className="w-5 h-5" />,    label: 'Cash',     color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
-    card:     { icon: <CreditCard className="w-5 h-5" />,  label: 'Card',     color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' },
-    qr_code:  { icon: <QrCode className="w-5 h-5" />,      label: 'QR Code',  color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
-    'qr code':{ icon: <QrCode className="w-5 h-5" />,      label: 'QR Code',  color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
-    loan:     { icon: <Wallet className="w-5 h-5" />,       label: 'Loan',     color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
-    split:    { icon: <Receipt className="w-5 h-5" />,      label: 'Split',    color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' },
+    cash:     { icon: <Banknote className="w-5 h-5" />,    label: t('paymentMethods.cash'),     color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
+    card:     { icon: <CreditCard className="w-5 h-5" />,  label: t('paymentMethods.card'),     color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' },
+    qr_code:  { icon: <QrCode className="w-5 h-5" />,      label: t('paymentMethods.qrCode'),   color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+    'qr code':{ icon: <QrCode className="w-5 h-5" />,      label: t('paymentMethods.qrCode'),   color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+    loan:     { icon: <Wallet className="w-5 h-5" />,       label: t('paymentMethods.loan'),     color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
+    split:    { icon: <Receipt className="w-5 h-5" />,      label: t('cashier.orders.split'),    color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' },
   };
-  const mMeta = methodMeta[methodKey] || { icon: <Wallet className="w-5 h-5" />, label: data.paymentMethod || 'Cash', color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' };
+  const mMeta = methodMeta[methodKey] || { icon: <Wallet className="w-5 h-5" />, label: data.paymentMethod || t('paymentMethods.cash'), color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' };
 
   return (
     <div
@@ -409,7 +412,7 @@ function OrderDetailModal({ order, onClose, onRefund }) {
               <div className="flex items-center gap-3">
                 <p className="text-2xl font-extrabold text-gray-900">{fmtOrderNum(data)}</p>
                 <span className={`px-3 py-1 rounded-full text-xs font-bold border ${isRefunded ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                  {isRefunded ? 'Refunded' : 'Paid'}
+                  {isRefunded ? t('statuses.cancelled') : t('statuses.paid')}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 mt-1">
@@ -433,9 +436,9 @@ function OrderDetailModal({ order, onClose, onRefund }) {
             {/* Meta strip */}
             <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100 flex-shrink-0">
               {[
-                { icon: <TableProperties className="w-4 h-4" />, label: 'Table',   value: data.tableName || 'Walk-in' },
-                { icon: <User className="w-4 h-4" />,            label: 'Server',  value: data.waitressName || '—' },
-                { icon: <Clock className="w-4 h-4" />,           label: 'Date',    value: dateTimeStr(data.paidAt || data.updatedAt).split('  ')[0] },
+                { icon: <TableProperties className="w-4 h-4" />, label: t('nav.tables'),   value: data.tableName || t('cashier.orders.walkIn') },
+                { icon: <User className="w-4 h-4" />,            label: t('roles.waitress'),  value: data.waitressName || '—' },
+                { icon: <Clock className="w-4 h-4" />,           label: t('common.date'),    value: dateTimeStr(data.paidAt || data.updatedAt).split('  ')[0] },
               ].map(({ icon, label, value }) => (
                 <div key={label} className="flex items-center gap-3 px-5 py-4">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -453,7 +456,7 @@ function OrderDetailModal({ order, onClose, onRefund }) {
             {/* Items list */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Order Items</h3>
+                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">{t('cashier.orders.orderItems')}</h3>
                 {!loadingDetail && (
                   <span className="text-xs font-semibold px-2.5 py-1 rounded-full"
                     style={{ backgroundColor: '#E0F2FE', color: '#0891B2' }}>
@@ -465,19 +468,19 @@ function OrderDetailModal({ order, onClose, onRefund }) {
               {loadingDetail ? (
                 <div className="flex flex-col items-center justify-center h-40 gap-3">
                   <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#0891B2' }} />
-                  <p className="text-sm text-gray-400">Loading order details...</p>
+                  <p className="text-sm text-gray-400">{t('common.loading')}</p>
                 </div>
               ) : items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-40 gap-3">
                   <Hash className="w-10 h-10 text-gray-200" />
-                  <p className="text-sm text-gray-400">No items recorded</p>
+                  <p className="text-sm text-gray-400">{t('common.noResults')}</p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-gray-100 overflow-hidden">
                   <div className="grid px-4 py-2.5 bg-gray-50 border-b border-gray-100" style={{ gridTemplateColumns: '1fr 56px 110px' }}>
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Item</span>
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-center">Qty</span>
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-right">Amount</span>
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{t('common.name')}</span>
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-center">#</span>
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-right">{t('common.amount')}</span>
                   </div>
                   {items.map((item, i) => {
                     const price = parseFloat(item.unitPrice || item.price || 0);
@@ -492,7 +495,7 @@ function OrderDetailModal({ order, onClose, onRefund }) {
                     );
                   })}
                   <div className="grid items-center px-4 py-3 border-t border-gray-100 bg-gray-50" style={{ gridTemplateColumns: '1fr 56px 110px' }}>
-                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Subtotal</span>
+                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{t('common.subtotal')}</span>
                     <span />
                     <span className="text-sm font-bold text-right text-gray-900">{money(subtotal)}</span>
                   </div>
@@ -513,7 +516,7 @@ function OrderDetailModal({ order, onClose, onRefund }) {
                   {mMeta.icon}
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Payment Method</p>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">{t('cashier.orders.paymentMethod')}</p>
                   <p className="text-base font-bold" style={{ color: mMeta.color }}>{mMeta.label}</p>
                 </div>
               </div>
@@ -522,11 +525,11 @@ function OrderDetailModal({ order, onClose, onRefund }) {
               <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-gray-400" />
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Summary</p>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">{t('common.summary')}</p>
                 </div>
                 <div className="p-4 space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Subtotal</span>
+                    <span className="text-gray-500">{t('common.subtotal')}</span>
                     <span className="font-semibold text-gray-800">{money(subtotal || total)}</span>
                   </div>
                   {tax > 0 && (
@@ -538,13 +541,13 @@ function OrderDetailModal({ order, onClose, onRefund }) {
                   {disc > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="flex items-center gap-1 text-green-600">
-                        <Percent className="w-3.5 h-3.5" />Discount
+                        <Percent className="w-3.5 h-3.5" />{t('common.discount')}
                       </span>
                       <span className="font-semibold text-green-600">-{money(disc)}</span>
                     </div>
                   )}
                   <div className="flex justify-between items-center pt-3 border-t border-gray-100">
-                    <span className="text-sm font-extrabold text-gray-900">Total Paid</span>
+                    <span className="text-sm font-extrabold text-gray-900">{t('cashier.orders.totalToPay')}</span>
                     <span className="text-lg font-extrabold" style={{ color: '#0891B2' }}>{money(total)}</span>
                   </div>
                 </div>
@@ -572,7 +575,7 @@ function OrderDetailModal({ order, onClose, onRefund }) {
                 <div className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200">
                   <User className="w-4 h-4 flex-shrink-0" style={{ color: '#0891B2' }} />
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide">Customer</p>
+                    <p className="text-xs text-gray-400 uppercase tracking-wide">{t('admin.newOrder.customer')}</p>
                     <p className="text-sm font-semibold text-gray-900">{data.customerName}</p>
                   </div>
                 </div>
@@ -583,7 +586,7 @@ function OrderDetailModal({ order, onClose, onRefund }) {
                 <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
                   <StickyNote className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1">Notes</p>
+                    <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1">{t('common.notes')}</p>
                     <p className="text-sm text-amber-900">{data.notes}</p>
                   </div>
                 </div>
@@ -599,14 +602,14 @@ function OrderDetailModal({ order, onClose, onRefund }) {
                   style={{ borderColor: '#FCA5A5', color: '#DC2626' }}
                 >
                   <RefreshCcw className="w-4 h-4" />
-                  Process Refund
+                  {t('cashier.history.refundProcessed')}
                 </button>
               )}
               <button
                 onClick={onClose}
                 className="w-full py-3 rounded-xl bg-white border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-100 transition"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           </div>
@@ -619,7 +622,8 @@ function OrderDetailModal({ order, onClose, onRefund }) {
 
 // ── Refund Modal ──────────────────────────────────────────────────────────────
 function RefundModal({ order, onClose, onConfirm, loading }) {
-  const [reason, setReason] = useState(REFUND_REASONS[0]);
+  const { t } = useTranslation();
+  const [reason, setReason] = useState(t('cashier.history.refundReasons')[0]);
 
   if (!order) return null;
 
@@ -633,15 +637,15 @@ function RefundModal({ order, onClose, onConfirm, loading }) {
             <RefreshCcw className="w-5 h-5 text-red-600" />
           </div>
           <div>
-            <p className="font-bold text-gray-900">Process Refund</p>
+            <p className="font-bold text-gray-900">{t('cashier.history.refundProcessed')}</p>
             <p className="text-sm text-gray-500">{fmtOrderNum(order)} · {money(parseFloat(order.totalAmount || 0))}</p>
           </div>
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Refund Reason</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('admin.orders.selectReason')}</p>
           <div className="space-y-2">
-            {REFUND_REASONS.map(r => (
+            {t('cashier.history.refundReasons').map(r => (
               <button
                 key={r}
                 onClick={() => setReason(r)}
@@ -665,7 +669,7 @@ function RefundModal({ order, onClose, onConfirm, loading }) {
           <button
             onClick={onClose}
             className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold text-sm transition hover:bg-gray-50"
-          >Cancel</button>
+          >{t('common.cancel')}</button>
           <button
             onClick={() => onConfirm(reason)}
             disabled={loading}
@@ -673,7 +677,7 @@ function RefundModal({ order, onClose, onConfirm, loading }) {
             style={{ backgroundColor: '#DC2626' }}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            {loading ? 'Processing...' : 'Confirm Refund'}
+            {loading ? t('common.processing') : t('common.confirm')}
           </button>
         </div>
       </div>
@@ -683,6 +687,7 @@ function RefundModal({ order, onClose, onConfirm, loading }) {
 
 // ── CashierHistory ────────────────────────────────────────────────────────────
 export default function CashierHistory() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [allOrders, setAllOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -757,7 +762,7 @@ export default function CashierHistory() {
       setRefundTarget(null);
       loadOrders();
     } catch (e) {
-      setToast({ type: 'error', msg: e?.error || 'Refund failed' });
+      setToast({ type: 'error', msg: e?.error || t('alerts.refundFailed', 'Refund failed') });
     } finally {
       setRefunding(false);
       setTimeout(() => setToast(null), 4000);
@@ -778,7 +783,7 @@ export default function CashierHistory() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cyan-100 mb-4">
             <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
           </div>
-          <p className="text-gray-600 font-medium">Loading history...</p>
+          <p className="text-gray-600 font-medium">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -802,7 +807,7 @@ export default function CashierHistory() {
             <div className="p-2.5 rounded-xl" style={{ backgroundColor: '#0891B2' }}>
               <History className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">Order History</h1>
+            <h1 className="text-xl font-bold text-gray-900">{t('cashier.history.title')}</h1>
           </div>
           <div className="flex items-center gap-2">
             {/* Period selector */}
@@ -824,7 +829,7 @@ export default function CashierHistory() {
               }
             >
               <Filter className="w-4 h-4" />
-              {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filter'}
+              {activeFilterCount > 0 ? `${t('common.search')} (${activeFilterCount})` : t('common.search')}
             </button>
           </div>
         </div>
@@ -850,7 +855,7 @@ export default function CashierHistory() {
               onClick={() => setFilters({ waitress: '', table: '', method: '', status: '' })}
               className="text-xs font-medium text-gray-500 hover:text-gray-700"
             >
-              Clear all
+              {t('common.clear')}
             </button>
           </div>
         )}
@@ -858,10 +863,10 @@ export default function CashierHistory() {
         {/* Stats cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Transactions', value: notRefunded.length, color: '#0891B2', bg: '#F0F9FF', icon: <Receipt className="w-5 h-5" /> },
-            { label: 'Total Revenue', value: money(totalRev), color: '#16A34A', bg: '#F0FDF4', icon: <TrendingUp className="w-5 h-5" /> },
-            { label: 'Total Discount', value: money(totalDisc), color: '#D97706', bg: '#FFFBEB', icon: <TrendingUp className="w-5 h-5" /> },
-            { label: 'Refunded', value: filtered.filter(o=>o.status==='cancelled'||o.status==='refunded').length, color: '#DC2626', bg: '#FEF2F2', icon: <RefreshCcw className="w-5 h-5" /> },
+            { label: t('nav.history'), value: notRefunded.length, color: '#0891B2', bg: '#F0F9FF', icon: <Receipt className="w-5 h-5" /> },
+            { label: t('owner.sales.totalRevenue'), value: money(totalRev), color: '#16A34A', bg: '#F0FDF4', icon: <TrendingUp className="w-5 h-5" /> },
+            { label: t('common.discount'), value: money(totalDisc), color: '#D97706', bg: '#FFFBEB', icon: <TrendingUp className="w-5 h-5" /> },
+            { label: t('cashier.history.refundProcessed'), value: filtered.filter(o=>o.status==='cancelled'||o.status==='refunded').length, color: '#DC2626', bg: '#FEF2F2', icon: <RefreshCcw className="w-5 h-5" /> },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-2">
@@ -877,13 +882,13 @@ export default function CashierHistory() {
 
         {/* Revenue by method */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <p className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">Revenue by Payment Method</p>
+          <p className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">{t('cashier.orders.paymentMethod')}</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: 'Cash',    value: byCash,  icon: <Wallet className="w-4 h-4" />,     color: '#16A34A', bg: '#F0FDF4'  },
-              { label: 'Card',    value: byCard,  icon: <CreditCard className="w-4 h-4" />,  color: '#0891B2', bg: '#F0F9FF'  },
-              { label: 'QR Code', value: byQr,    icon: <QrCode className="w-4 h-4" />,      color: '#7C3AED', bg: '#F5F3FF'  },
-              { label: 'Loan',    value: byLoan,  icon: <Receipt className="w-4 h-4" />,     color: '#D97706', bg: '#FFFBEB'  },
+              { label: t('paymentMethods.cash'),    value: byCash,  icon: <Wallet className="w-4 h-4" />,     color: '#16A34A', bg: '#F0FDF4'  },
+              { label: t('paymentMethods.card'),    value: byCard,  icon: <CreditCard className="w-4 h-4" />,  color: '#0891B2', bg: '#F0F9FF'  },
+              { label: t('paymentMethods.qrCode'), value: byQr,    icon: <QrCode className="w-4 h-4" />,      color: '#7C3AED', bg: '#F5F3FF'  },
+              { label: t('paymentMethods.loan'),    value: byLoan,  icon: <Receipt className="w-4 h-4" />,     color: '#D97706', bg: '#FFFBEB'  },
             ].map(m => (
               <div key={m.label} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: m.bg }}>
                 <div className="p-2 rounded-lg" style={{ backgroundColor: m.color + '22', color: m.color }}>
@@ -904,13 +909,13 @@ export default function CashierHistory() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date & Time</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Order</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Table</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Payment</th>
-                  <th className="px-5 py-3.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="px-5 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
-                  <th className="px-5 py-3.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Details</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.date')}</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.order')}</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('nav.tables')}</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('cashier.orders.paymentMethod')}</th>
+                  <th className="px-5 py-3.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.status')}</th>
+                  <th className="px-5 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.total')}</th>
+                  <th className="px-5 py-3.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.details')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -918,8 +923,8 @@ export default function CashierHistory() {
                   <tr>
                     <td colSpan="7" className="px-5 py-16 text-center">
                       <Receipt className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-500 font-medium">No orders found</p>
-                      <p className="text-gray-400 text-sm mt-1">Try adjusting the date range or filters</p>
+                      <p className="text-gray-500 font-medium">{t('admin.orders.noOrdersFound')}</p>
+                      <p className="text-gray-400 text-sm mt-1">{t('common.noResults')}</p>
                     </td>
                   </tr>
                 ) : filtered.map(order => {
@@ -930,7 +935,7 @@ export default function CashierHistory() {
                     <tr key={order.id} className="hover:bg-gray-50 transition">
                       <td className="px-5 py-4 text-sm text-gray-600">{dateTimeStr(order.paidAt || order.updatedAt)}</td>
                       <td className="px-5 py-4 font-bold text-gray-900">{fmtOrderNum(order)}</td>
-                      <td className="px-5 py-4 text-sm text-gray-700">{order.tableName || 'Walk-in'}</td>
+                      <td className="px-5 py-4 text-sm text-gray-700">{order.tableName || t('cashier.orders.walkIn')}</td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-1.5 text-sm text-gray-700">
                           <span className="text-gray-400">{icon}</span>
@@ -939,7 +944,7 @@ export default function CashierHistory() {
                       </td>
                       <td className="px-5 py-4 text-center">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${isRef ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                          {isRef ? 'Refunded' : 'Paid'}
+                          {isRef ? t('statuses.cancelled') : t('statuses.paid')}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-right font-bold" style={{ color: '#0891B2' }}>
@@ -950,7 +955,7 @@ export default function CashierHistory() {
                           onClick={() => setDetailOrder(order)}
                           className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition"
                         >
-                          View
+                          {t('common.details')}
                         </button>
                       </td>
                     </tr>

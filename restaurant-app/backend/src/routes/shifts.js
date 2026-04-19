@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // POST /api/shifts/clock-in
 // Any authenticated user can clock themselves in.
@@ -19,10 +19,14 @@ router.post('/clock-in', authenticate, async (req, res) => {
   const user_id = bodyUserId || req.user.id;
 
   try {
+    // Get restaurant_id from JWT
+    const restaurant_id = rid(req);
+    if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
     // Prevent double clock-in
     const open = await db.query(
-      'SELECT * FROM shifts WHERE user_id=$1 AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1',
-      [user_id]
+      'SELECT * FROM shifts WHERE user_id=$1 AND restaurant_id=$2 AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1',
+      [user_id, restaurant_id]
     );
     if (open.rows.length > 0) return res.status(400).json({ error: 'User is already clocked in' });
 
@@ -37,8 +41,8 @@ router.post('/clock-in', authenticate, async (req, res) => {
     }
 
     const result = await db.query(
-      'INSERT INTO shifts (user_id, clock_in, hourly_rate, scheduled_start_time, status) VALUES ($1, NOW(), $2, $3, $4) RETURNING *',
-      [user_id, hourly_rate || 0, scheduled_start_time || null, calculatedStatus]
+      'INSERT INTO shifts (user_id, restaurant_id, clock_in, hourly_rate, scheduled_start_time, status) VALUES ($1, $2, NOW(), $3, $4, $5) RETURNING *',
+      [user_id, restaurant_id, hourly_rate || 0, scheduled_start_time || null, calculatedStatus]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -59,12 +63,15 @@ async function clockOut(req, res) {
   }
 
   const user_id = bodyUserId || req.user.id;
+  const restaurant_id = rid(req);
+  if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
   try {
     const result = await db.query(
       `UPDATE shifts SET clock_out=NOW()
-       WHERE user_id=$1 AND clock_out IS NULL
+       WHERE user_id=$1 AND restaurant_id=$2 AND clock_out IS NULL
        RETURNING *, ROUND((EXTRACT(EPOCH FROM (clock_out - clock_in))/3600)::numeric, 2) AS hours_worked`,
-      [user_id]
+      [user_id, restaurant_id]
     );
     if (!result.rows[0]) return res.status(400).json({ error: 'No active shift found for this user' });
     res.json(result.rows[0]);
@@ -76,9 +83,12 @@ router.put('/clock-out',  authenticate, clockOut);
 // GET /api/shifts/active — check if currently clocked in
 router.get('/active', authenticate, async (req, res) => {
   try {
+    const restaurant_id = rid(req);
+    if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
     const result = await db.query(
-      'SELECT * FROM shifts WHERE user_id=$1 AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1',
-      [req.user.id]
+      'SELECT * FROM shifts WHERE user_id=$1 AND restaurant_id=$2 AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1',
+      [req.user.id, restaurant_id]
     );
     // Always return JSON object — { active: false } or the shift row
     if (result.rows[0]) {
@@ -95,10 +105,13 @@ router.get('/active', authenticate, async (req, res) => {
 // GET /api/shifts/mine
 router.get('/mine', authenticate, async (req, res) => {
   try {
+    const restaurant_id = rid(req);
+    if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
     const result = await db.query(
       `SELECT *, ROUND((EXTRACT(EPOCH FROM COALESCE(clock_out, NOW()) - clock_in)/3600)::numeric, 2) AS hours_worked
-       FROM shifts WHERE user_id=$1 ORDER BY clock_in DESC LIMIT 30`,
-      [req.user.id]
+       FROM shifts WHERE user_id=$1 AND restaurant_id=$2 ORDER BY clock_in DESC LIMIT 30`,
+      [req.user.id, restaurant_id]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -107,6 +120,9 @@ router.get('/mine', authenticate, async (req, res) => {
 // GET /api/shifts/payroll
 router.get('/payroll', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { from, to } = req.query;
+  const restaurant_id = rid(req);
+  if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
   try {
     const result = await db.query(
       `SELECT
@@ -144,18 +160,19 @@ router.get('/payroll', authenticate, authorize('owner', 'admin'), async (req, re
                SELECT COALESCE(SUM(o.total_amount), 0)
                FROM orders o
                WHERE o.waitress_id    = u.id
+                 AND o.restaurant_id  = $3
                  AND o.order_type     = 'dine_in'
                  AND o.status         = 'paid'
                  AND o.paid_at::date BETWEEN $1 AND $2
              ), 2)
          ELSE 0 END AS commission_earned
        FROM users u
-       LEFT JOIN shifts s ON u.id = s.user_id AND s.clock_in::date BETWEEN $1 AND $2
+       LEFT JOIN shifts s ON u.id = s.user_id AND s.restaurant_id = $3 AND s.clock_in::date BETWEEN $1 AND $2
        WHERE u.is_active = true
          AND u.role IN ('owner','admin','waitress','kitchen','manager','cashier','cleaner')
        GROUP BY u.id, u.name, u.role, u.salary, u.salary_type, u.commission_rate
        ORDER BY u.name`,
-      [from || '2000-01-01', to || new Date().toISOString().split('T')[0]]
+      [from || '2000-01-01', to || new Date().toISOString().split('T')[0], restaurant_id]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -164,6 +181,9 @@ router.get('/payroll', authenticate, authorize('owner', 'admin'), async (req, re
 // GET /api/shifts
 router.get('/', authenticate, async (req, res) => {
   const { from, to, user_id } = req.query;
+  const restaurant_id = rid(req);
+  if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
   try {
     let query = `
       SELECT s.*, u.name, u.role,
@@ -181,9 +201,9 @@ router.get('/', authenticate, async (req, res) => {
             THEN ROUND(((EXTRACT(EPOCH FROM NOW() - s.clock_in)/3600) * s.hourly_rate)::numeric, 2)
           ELSE 0
         END AS earnings
-      FROM shifts s LEFT JOIN users u ON s.user_id=u.id WHERE 1=1
+      FROM shifts s LEFT JOIN users u ON s.user_id=u.id WHERE s.restaurant_id=$1
     `;
-    const params = [];
+    const params = [restaurant_id];
     if (req.user.role === 'waitress') { params.push(req.user.id); query += ` AND s.user_id=$${params.length}`; }
     else if (user_id) { params.push(user_id); query += ` AND s.user_id=$${params.length}`; }
     // Use COALESCE(shift_date, clock_in::date) to handle manual absent records where clock_in is NULL
@@ -198,6 +218,9 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/shifts/admin/staff-status
 router.get('/admin/staff-status', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
+    const restaurant_id = rid(req);
+    if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
     const result = await db.query(`
             SELECT u.id as user_id, u.name, u.role, u.email,
                    s.id as shift_id, s.clock_in, s.clock_out, s.scheduled_start_time, s.status,
@@ -213,7 +236,7 @@ router.get('/admin/staff-status', authenticate, authorize('owner', 'admin'), asy
                 SELECT DISTINCT ON (user_id)
                     id, user_id, clock_in, clock_out, scheduled_start_time, status
                 FROM shifts
-                WHERE (
+                WHERE restaurant_id = $1 AND (
                     -- Shifts for today using COALESCE to handle both clock-in and manual records
                     COALESCE(shift_date, clock_in::date) = CURRENT_DATE
                 )
@@ -229,7 +252,7 @@ router.get('/admin/staff-status', authenticate, authorize('owner', 'admin'), asy
             WHERE u.is_active = true
               AND u.role IN ('waitress', 'kitchen', 'cashier', 'cleaner', 'manager')
             ORDER BY u.role, u.name
-        `);
+        `, [restaurant_id]);
 
     // Accurately map shift state:
     //   clock_in present  → use actual status from DB (present / late)
@@ -256,6 +279,9 @@ router.post('/manual', authenticate, authorize('owner', 'admin'), async (req, re
   const { user_id, date, status, clock_in, clock_out, note } = req.body;
   if (!user_id || !date) return res.status(400).json({ error: 'Missing user_id or date' });
 
+  const restaurant_id = rid(req);
+  if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
+
   const validStatuses = ['present', 'absent', 'late', 'excused'];
   const finalStatus = validStatuses.includes(status) ? status : 'absent';
 
@@ -264,8 +290,9 @@ router.post('/manual', authenticate, authorize('owner', 'admin'), async (req, re
     const existing = await db.query(
       `SELECT id FROM shifts
        WHERE user_id=$1
-         AND COALESCE(shift_date, clock_in::date) = $2`,
-      [user_id, date]
+         AND restaurant_id=$2
+         AND COALESCE(shift_date, clock_in::date) = $3`,
+      [user_id, restaurant_id, date]
     );
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'A shift record already exists for this date. Use PUT /shifts/:id to edit it.', existing_id: existing.rows[0].id });
@@ -275,9 +302,9 @@ router.post('/manual', authenticate, authorize('owner', 'admin'), async (req, re
     const clockOutVal = (clock_out && clock_out !== '') ? new Date(`${date}T${clock_out}:00`) : null;
 
     const result = await db.query(
-      `INSERT INTO shifts (user_id, clock_in, clock_out, status, note, hourly_rate, shift_date)
-       VALUES ($1, $2, $3, $4, $5, 0, $6) RETURNING *`,
-      [user_id, clockInVal, clockOutVal, finalStatus, note || null, date]
+      `INSERT INTO shifts (user_id, restaurant_id, clock_in, clock_out, status, note, hourly_rate, shift_date)
+       VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING *`,
+      [user_id, restaurant_id, clockInVal, clockOutVal, finalStatus, note || null, date]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -290,9 +317,11 @@ router.post('/manual', authenticate, authorize('owner', 'admin'), async (req, re
 router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { id } = req.params;
   const { status, clock_in, clock_out, note, date } = req.body;
+  const restaurant_id = rid(req);
+  if (!restaurant_id) return res.status(400).json({ error: 'Restaurant ID not found' });
 
   try {
-    const cur = await db.query('SELECT * FROM shifts WHERE id=$1', [id]);
+    const cur = await db.query('SELECT * FROM shifts WHERE id=$1 AND restaurant_id=$2', [id, restaurant_id]);
     if (!cur.rows[0]) return res.status(404).json({ error: 'Shift not found' });
 
     const c = cur.rows[0];

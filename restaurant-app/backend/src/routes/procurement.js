@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // Helper: local date string (avoids UTC shift from .toISOString())
 function localDate() {
@@ -12,6 +12,7 @@ function localDate() {
 // GET /api/procurement/suggested-order
 router.get('/suggested-order', authenticate, authorize('owner', 'admin'), async (req, res) => {
     try {
+        const restaurantId = rid(req);
         const result = await db.query(`
       SELECT
         w.id as item_id, w.name as item_name, w.sku_code, w.purchase_unit,
@@ -20,9 +21,9 @@ router.get('/suggested-order', authenticate, authorize('owner', 'admin'), async 
         (w.min_stock_level * 1.5 - w.quantity_in_stock) as suggested_order_qty
       FROM warehouse_items w
       LEFT JOIN suppliers s ON w.supplier_id = s.id
-      WHERE w.quantity_in_stock <= w.min_stock_level
+      WHERE w.restaurant_id = $1 AND w.quantity_in_stock <= w.min_stock_level
       ORDER BY s.name ASC, w.name ASC
-    `);
+    `, [restaurantId]);
         const grouped = result.rows.reduce((acc, row) => {
             const suppId = row.supplier_id || 'unknown';
             if (!acc[suppId]) {
@@ -50,6 +51,7 @@ async function ensureDeliveriesTable() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS supplier_deliveries (
       id             TEXT          PRIMARY KEY,
+      restaurant_id  UUID          NOT NULL,
       supplier_name  TEXT          NOT NULL DEFAULT '',
       supplier_id    INTEGER,
       total          NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -63,6 +65,7 @@ async function ensureDeliveriesTable() {
     );
   `).catch(() => {});
   await db.query(`ALTER TABLE supplier_deliveries DROP CONSTRAINT IF EXISTS supplier_deliveries_supplier_id_fkey;`).catch(() => {});
+  await db.query(`ALTER TABLE supplier_deliveries ADD COLUMN IF NOT EXISTS restaurant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'`).catch(() => {});
   await db.query(`ALTER TABLE supplier_deliveries ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT ''`).catch(() => {});
   await db.query(`ALTER TABLE supplier_deliveries ADD COLUMN IF NOT EXISTS payment_note TEXT DEFAULT ''`).catch(() => {});
   await db.query(`ALTER TABLE supplier_deliveries ADD COLUMN IF NOT EXISTS payment_due_date DATE`).catch(() => {});
@@ -96,6 +99,7 @@ router.get('/deliveries', authenticate, authorize('owner', 'admin'), async (req,
   try {
     await ensureDeliveriesTable();
     await ensureDeliveryItemsTable();
+    const restaurantId = rid(req);
     const result = await db.query(`
       SELECT sd.*,
              COALESCE(di.cnt, 0)::int AS item_count
@@ -106,8 +110,9 @@ router.get('/deliveries', authenticate, authorize('owner', 'admin'), async (req,
         WHERE removed = FALSE
         GROUP BY delivery_id
       ) di ON di.delivery_id = sd.id
+      WHERE sd.restaurant_id = $1
       ORDER BY sd.timestamp DESC, sd.created_at DESC
-    `);
+    `, [restaurantId]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -117,11 +122,12 @@ router.get('/deliveries', authenticate, authorize('owner', 'admin'), async (req,
 router.get('/deliveries/debt', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     await ensureDeliveriesTable();
+    const restaurantId = rid(req);
     const result = await db.query(`
       SELECT COALESCE(SUM(total), 0) AS total_debt, COUNT(*)::int AS count
       FROM supplier_deliveries
-      WHERE payment_status != 'paid' AND status IN ('Delivered', 'Partial')
-    `);
+      WHERE restaurant_id = $1 AND payment_status != 'paid' AND status IN ('Delivered', 'Partial')
+    `, [restaurantId]);
     res.json({ total_debt: parseFloat(result.rows[0].total_debt), count: result.rows[0].count });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -130,12 +136,13 @@ router.get('/deliveries/debt', authenticate, authorize('owner', 'admin'), async 
 router.get('/deliveries/unpaid-summary', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     await ensureDeliveriesTable();
+    const restaurantId = rid(req);
     const result = await db.query(`
       SELECT id, supplier_name, supplier_id, total, status, payment_due_date, timestamp, notes
       FROM supplier_deliveries
-      WHERE payment_status != 'paid' AND status IN ('Delivered', 'Partial')
+      WHERE restaurant_id = $1 AND payment_status != 'paid' AND status IN ('Delivered', 'Partial')
       ORDER BY payment_due_date ASC NULLS LAST, timestamp DESC
-    `);
+    `, [restaurantId]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -146,7 +153,8 @@ router.get('/deliveries/:id', authenticate, authorize('owner', 'admin'), async (
   try {
     await ensureDeliveriesTable();
     await ensureDeliveryItemsTable();
-    const deliv = await db.query(`SELECT * FROM supplier_deliveries WHERE id = $1`, [req.params.id]);
+    const restaurantId = rid(req);
+    const deliv = await db.query(`SELECT * FROM supplier_deliveries WHERE id = $1 AND restaurant_id = $2`, [req.params.id, restaurantId]);
     if (!deliv.rows.length) return res.status(404).json({ error: 'Delivery not found' });
     const items = await db.query(
       `SELECT * FROM delivery_items WHERE delivery_id = $1 ORDER BY id ASC`, [req.params.id]
@@ -160,10 +168,12 @@ router.post('/deliveries', authenticate, authorize('owner', 'admin'), async (req
   try {
     await ensureDeliveriesTable();
     await ensureDeliveryItemsTable();
+    const restaurantId = rid(req);
     const { id, supplier_name, supplier_id, total, status, payment_status, notes, timestamp, payment_due_date, items } = req.body;
     const delivId = id || `deliv-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
     const params = [
       delivId,
+      restaurantId,
       supplier_name || '',
       supplier_id ? parseInt(supplier_id, 10) || null : null,
       parseFloat(total) || 0,
@@ -174,8 +184,8 @@ router.post('/deliveries', authenticate, authorize('owner', 'admin'), async (req
       payment_due_date || null,
     ];
     const result = await db.query(`
-      INSERT INTO supplier_deliveries (id, supplier_name, supplier_id, total, status, payment_status, notes, timestamp, payment_due_date)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO supplier_deliveries (id, restaurant_id, supplier_name, supplier_id, total, status, payment_status, notes, timestamp, payment_due_date)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
         supplier_name = EXCLUDED.supplier_name, supplier_id = EXCLUDED.supplier_id,
         total = EXCLUDED.total, status = EXCLUDED.status, notes = EXCLUDED.notes,
@@ -216,11 +226,12 @@ router.post('/deliveries', authenticate, authorize('owner', 'admin'), async (req
 router.patch('/deliveries/:id/status', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     await ensureDeliveriesTable();
+    const restaurantId = rid(req);
     const { status } = req.body;
     if (!status) return res.status(400).json({ error: 'status is required' });
     const result = await db.query(`
-      UPDATE supplier_deliveries SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING *
-    `, [req.params.id, status]);
+      UPDATE supplier_deliveries SET status = $2, updated_at = NOW() WHERE id = $1 AND restaurant_id = $3 RETURNING *
+    `, [req.params.id, status, restaurantId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Delivery not found' });
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -230,13 +241,14 @@ router.patch('/deliveries/:id/status', authenticate, authorize('owner', 'admin')
 router.patch('/deliveries/:id/pay', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     await ensureDeliveriesTable();
+    const restaurantId = rid(req);
     const { payment_method, payment_note, paid_at } = req.body || {};
     const result = await db.query(`
       UPDATE supplier_deliveries
       SET payment_status = 'paid', paid_at = COALESCE($4::timestamptz, NOW()), updated_at = NOW(),
           payment_method = COALESCE($2, ''), payment_note = COALESCE($3, '')
-      WHERE id = $1 RETURNING *
-    `, [req.params.id, payment_method || '', payment_note || '', paid_at || null]);
+      WHERE id = $1 AND restaurant_id = $5 RETURNING *
+    `, [req.params.id, payment_method || '', payment_note || '', paid_at || null, restaurantId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Delivery not found' });
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -289,6 +301,7 @@ router.patch('/delivery-items/:itemId/update-qty', authenticate, authorize('owne
 router.post('/deliveries/bulk-sync', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     await ensureDeliveriesTable();
+    const restaurantId = rid(req);
     const deliveries = req.body;
     if (!Array.isArray(deliveries) || deliveries.length === 0) return res.json({ synced: 0 });
     let synced = 0;
@@ -297,14 +310,14 @@ router.post('/deliveries/bulk-sync', authenticate, authorize('owner', 'admin'), 
       const total = parseFloat(d.total) || 0;
       const ts = d.date || d.timestamp || localDate();
       await db.query(`
-        INSERT INTO supplier_deliveries (id, supplier_name, supplier_id, total, status, payment_status, notes, timestamp, payment_due_date)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO supplier_deliveries (id, restaurant_id, supplier_name, supplier_id, total, status, payment_status, notes, timestamp, payment_due_date)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (id) DO UPDATE SET
           supplier_name = EXCLUDED.supplier_name, total = EXCLUDED.total, status = EXCLUDED.status,
           payment_status = EXCLUDED.payment_status,
           notes = EXCLUDED.notes, timestamp = EXCLUDED.timestamp, payment_due_date = EXCLUDED.payment_due_date,
           updated_at = NOW()
-      `, [delivId, d.supplierName || d.supplier_name || '', null, total,
+      `, [delivId, restaurantId, d.supplierName || d.supplier_name || '', null, total,
           d.status || 'Delivered', d.paymentStatus || d.payment_status || 'unpaid',
           d.notes || '', ts, d.paymentDueDate || d.payment_due_date || null]).catch(() => {});
       synced++;
@@ -318,8 +331,11 @@ router.delete('/deliveries/:id', authenticate, authorize('owner', 'admin'), asyn
   try {
     await ensureDeliveriesTable();
     await ensureDeliveryItemsTable();
+    const restaurantId = rid(req);
+    const deliv = await db.query(`SELECT id FROM supplier_deliveries WHERE id = $1 AND restaurant_id = $2`, [req.params.id, restaurantId]);
+    if (!deliv.rows.length) return res.status(404).json({ error: 'Delivery not found' });
     await db.query(`DELETE FROM delivery_items WHERE delivery_id = $1`, [req.params.id]);
-    await db.query(`DELETE FROM supplier_deliveries WHERE id = $1`, [req.params.id]);
+    await db.query(`DELETE FROM supplier_deliveries WHERE id = $1 AND restaurant_id = $2`, [req.params.id, restaurantId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

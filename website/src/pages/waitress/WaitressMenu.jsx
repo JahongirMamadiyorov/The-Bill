@@ -3,8 +3,10 @@ import { UtensilsCrossed, Search, Plus, AlertCircle, Minus } from 'lucide-react'
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
 import Dropdown from '../../components/Dropdown';
+import { useTranslation } from '../../context/LanguageContext';
 
 const WaitressMenu = () => {
+  const { t } = useTranslation();
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -80,7 +82,7 @@ const WaitressMenu = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          <p className="mt-4 text-gray-600">Loading menu...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -91,7 +93,7 @@ const WaitressMenu = () => {
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
           <UtensilsCrossed className="w-8 h-8" style={{ color: '#16A34A' }} />
-          Menu Browser
+          {t('waitress.menu.title')}
         </h1>
 
         {error && (
@@ -105,7 +107,7 @@ const WaitressMenu = () => {
           <div className="lg:col-span-1">
             <div className="bg-white rounded-lg shadow sticky top-8">
               <div className="p-4 border-b border-gray-200">
-                <h2 className="font-semibold text-gray-900 mb-3">Categories</h2>
+                <h2 className="font-semibold text-gray-900 mb-3">{t('admin.menu.categories')}</h2>
                 <div className="space-y-2">
                   {categories.map(cat => (
                     <button
@@ -131,7 +133,7 @@ const WaitressMenu = () => {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search items..."
+                    placeholder={t('waitress.menu.searchPlaceholder')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 text-sm"
@@ -146,7 +148,7 @@ const WaitressMenu = () => {
               {filteredItems.length === 0 ? (
                 <div className="col-span-full text-center py-12 bg-white rounded-lg">
                   <UtensilsCrossed className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500 text-lg">No items found</p>
+                  <p className="text-gray-500 text-lg">{t('waitress.menu.noItemsFound')}</p>
                 </div>
               ) : (
                 filteredItems.map(item => (
@@ -159,14 +161,14 @@ const WaitressMenu = () => {
                     <div className="flex items-start justify-between mb-3">
                       <h3 className="text-lg font-semibold text-gray-900 flex-1">{item.name}</h3>
                       {!item.isAvailable && (
-                        <span className="text-xs font-bold text-red-600 ml-2 whitespace-nowrap">OUT OF STOCK</span>
+                        <span className="text-xs font-bold text-red-600 ml-2 whitespace-nowrap">{t('waitress.menu.outOfStock')}</span>
                       )}
                     </div>
                     <p className="text-sm text-gray-600 mb-4 line-clamp-2">{item.description}</p>
 
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Price</p>
+                        <p className="text-sm text-gray-600">{t('waitress.menu.price')}</p>
                         <p className="text-2xl font-bold" style={{ color: '#16A34A' }}>
                           {money(item.price)}
                         </p>
@@ -180,7 +182,7 @@ const WaitressMenu = () => {
                         className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Plus className="w-4 h-4" />
-                        Add
+                        {t('common.add')}
                       </button>
                     </div>
                   </div>
@@ -207,12 +209,12 @@ const WaitressMenu = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Select Table (Occupied Only)</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('admin.tables.selectStatus')}</label>
                 <Dropdown
                   value={selectedTable || ''}
                   onChange={(value) => setSelectedTable(value ? Number(value) : null)}
                   options={[
-                    { value: '', label: 'Choose a table...' },
+                    { value: '', label: t('waitress.menu.chooseTable') },
                     ...occupiedTables.map(t => ({
                       value: t.id,
                       label: `Table ${t.tableNumber} (${t.capacity} seats)`
@@ -220,12 +222,12 @@ const WaitressMenu = () => {
                   ]}
                 />
                 {occupiedTables.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-2">No occupied tables available</p>
+                  <p className="text-xs text-amber-600 mt-2">{t('waitress.menu.noOccupiedTables')}</p>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('waitress.menu.quantity')}</label>
                 <div className="flex items-center border border-gray-300 rounded-lg">
                   <button
                     onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -250,7 +252,7 @@ const WaitressMenu = () => {
               </div>
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-gray-600 text-sm mb-1">Subtotal</p>
+                <p className="text-gray-600 text-sm mb-1">{t('common.subtotal')}</p>
                 <p className="text-3xl font-bold" style={{ color: '#16A34A' }}>
                   {money(selectedItem.price * quantity)}
                 </p>
@@ -261,7 +263,7 @@ const WaitressMenu = () => {
                   onClick={() => setSelectedItem(null)}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleAddToOrder}
@@ -269,7 +271,7 @@ const WaitressMenu = () => {
                   className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition font-medium flex items-center justify-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
-                  {addingToOrder ? 'Adding...' : 'Add to Order'}
+                  {addingToOrder ? t('waitress.menu.addingToOrder') : t('waitress.menu.addToOrder')}
                 </button>
               </div>
             </div>

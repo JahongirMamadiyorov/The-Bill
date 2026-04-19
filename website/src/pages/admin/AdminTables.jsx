@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import AdminNewOrder from './AdminNewOrder';
 import PhoneInput, { formatPhoneDisplay } from '../../components/PhoneInput';
 import { useApi } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 import { tablesAPI, ordersAPI, menuAPI } from '../../api/client';
 import {
   Plus, Minus, Trash2, X, Grid3X3, Users, AlertTriangle, RefreshCw,
@@ -12,15 +13,15 @@ import {
 
 // ─── Status config ────────────────────────────────────────────────────────────
 // Colors aligned with mobile app: free=green, occupied=red, reserved=blue, cleaning=amber
-const STATUS = {
+const getStatusConfig = (t) => ({
   free: {
     border:    'border-l-4 border-green-500',
     badge:     'bg-green-100 text-green-700',
     dot:       'bg-green-500',
     dotText:   'text-green-500',
-    label:     'Free',
-    title:     'Available',
-    subtitle:  'Ready to seat guests',
+    label:     t('statuses.free'),
+    title:     t('admin.tables.statusFreeTitle'),
+    subtitle:  t('admin.tables.statusFreeSubtitle'),
     icon:      CheckCircle2,
     iconColor: 'text-green-500',
     barColor:  'bg-green-500',
@@ -31,9 +32,9 @@ const STATUS = {
     badge:     'bg-red-100 text-red-700',
     dot:       'bg-red-500',
     dotText:   'text-red-600',
-    label:     'Occupied',
-    title:     'Occupied',
-    subtitle:  'Currently in use',
+    label:     t('statuses.occupied'),
+    title:     t('admin.tables.statusOccupiedTitle'),
+    subtitle:  t('admin.tables.statusOccupiedSubtitle'),
     icon:      AlertCircle,
     iconColor: 'text-red-500',
     barColor:  'bg-red-500',
@@ -44,9 +45,9 @@ const STATUS = {
     badge:     'bg-blue-100 text-blue-700',
     dot:       'bg-blue-500',
     dotText:   'text-blue-600',
-    label:     'Reserved',
-    title:     'Reserved',
-    subtitle:  'Reservation is active',
+    label:     t('statuses.reserved'),
+    title:     t('admin.tables.statusReservedTitle'),
+    subtitle:  t('admin.tables.statusReservedSubtitle'),
     icon:      CalendarCheck,
     iconColor: 'text-blue-500',
     barColor:  'bg-blue-500',
@@ -57,15 +58,15 @@ const STATUS = {
     badge:     'bg-amber-100 text-amber-700',
     dot:       'bg-amber-400',
     dotText:   'text-amber-600',
-    label:     'Cleaning',
-    title:     'Cleaning',
-    subtitle:  'Being prepared for next guests',
+    label:     t('statuses.cleaning'),
+    title:     t('admin.tables.statusCleaningTitle'),
+    subtitle:  t('admin.tables.statusCleaningSubtitle'),
     icon:      Sparkles,
     iconColor: 'text-amber-500',
     barColor:  'bg-amber-500',
     cardBg:    'bg-amber-50/30',
   },
-};
+});
 
 // ─── Section helpers ──────────────────────────────────────────────────────────
 const sectionBadgeColor = (sec) => {
@@ -100,7 +101,7 @@ const getSection = (table) => {
   return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 };
 
-const getStatusCfg = (status) => STATUS[status] || STATUS.free;
+// getStatusCfg is now set inside the component after STATUS is computed
 
 const getTableName = (table) =>
   table.name || (table.tableNumber ? `Table ${table.tableNumber}` : 'Table');
@@ -109,6 +110,11 @@ const getTableName = (table) =>
 export default function AdminTables() {
 
   const { call }   = useApi();
+  const { t } = useTranslation();
+
+  // Build STATUS config inside component so it has access to t()
+  const STATUS = useMemo(() => getStatusConfig(t), [t]);
+  const getStatusCfg = (status) => STATUS[status] || STATUS.free;
 
   const [tables,          setTables]          = useState([]);
   const [loading,         setLoading]         = useState(true);
@@ -150,6 +156,14 @@ export default function AdminTables() {
   // polling ref
   const pollRef = useRef(null);
 
+  // Recently-deleted/added section names with their expiry timestamps. Used to
+  // shield optimistic UI from a stale GET response that would resurrect a
+  // chip the user just removed (or hide one they just added) in the brief
+  // window before the backend reflects the write.
+  const pendingSectionDeletesRef = useRef(new Map()); // name(lc) -> expiresAt
+  const pendingSectionAddsRef    = useRef(new Map()); // name(lc) -> expiresAt
+  const PENDING_TTL_MS = 8000;
+
   // tick state — increments every second to keep elapsed timers live
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -161,9 +175,41 @@ export default function AdminTables() {
   const fetchSections = useCallback(async () => {
     try {
       const data = await call(tablesAPI.getSections);
-      if (Array.isArray(data)) setAllSections(data);
+      if (!Array.isArray(data)) return;
+      const now = Date.now();
+
+      // Drop expired entries from the pending shields.
+      for (const m of [pendingSectionDeletesRef.current, pendingSectionAddsRef.current]) {
+        for (const [k, exp] of m) if (exp < now) m.delete(k);
+      }
+      const pendingDel = pendingSectionDeletesRef.current;
+      const pendingAdd = pendingSectionAddsRef.current;
+
+      // Filter the server snapshot through pending writes so optimistic UI
+      // doesn't get snapped back during the brief window before the backend
+      // reflects an in-flight add or delete.
+      const seen = new Set();
+      const merged = [];
+      for (const name of data) {
+        const lc = String(name).toLowerCase();
+        if (pendingDel.has(lc)) continue; // user just removed this
+        if (seen.has(lc)) continue;
+        seen.add(lc);
+        merged.push(name);
+      }
+      // Re-add any pending additions the server hasn't acknowledged yet.
+      for (const [lc, _exp] of pendingAdd) {
+        if (!seen.has(lc)) {
+          // We stored the lowercase key — recover the original casing from
+          // the current state if available, otherwise capitalise.
+          const fromState = allSections.find(s => s.toLowerCase() === lc);
+          merged.push(fromState || lc);
+          seen.add(lc);
+        }
+      }
+      setAllSections(merged);
     } catch (_) {}
-  }, [call]);
+  }, [call, allSections]);
 
   const fetchTables = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -179,7 +225,7 @@ export default function AdminTables() {
       setError(null);
     } catch (err) {
       console.error('Failed to fetch tables:', err);
-      if (!silent) setError('Failed to load tables');
+      if (!silent) setError(t('admin.tables.failedToLoadTables'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -188,9 +234,15 @@ export default function AdminTables() {
   useEffect(() => {
     fetchTables();
     fetchSections();
-    // poll every 1 second to stay in sync
+    // Poll tables every second to stay in sync. Sections refresh every 5s so
+    // that adds/deletes performed on the app or by other admins propagate
+    // here without leaving stale chips behind.
     pollRef.current = setInterval(() => fetchTables(true), 1000);
-    return () => clearInterval(pollRef.current);
+    const sectionsPoll = setInterval(() => fetchSections(), 5000);
+    return () => {
+      clearInterval(pollRef.current);
+      clearInterval(sectionsPoll);
+    };
   }, [fetchTables, fetchSections]);
 
   // ── Fetch active order for a table ──────────────────────────────────────────
@@ -245,8 +297,8 @@ export default function AdminTables() {
   // ── Poll the active order every 1s while order view is open ─────────────────
   useEffect(() => {
     if (!orderViewOpen || !selectedTable?.id) return;
-    const t = setInterval(() => fetchTableOrder(selectedTable.id, true), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => fetchTableOrder(selectedTable.id, true), 1000);
+    return () => clearInterval(timer);
   }, [orderViewOpen, selectedTable?.id, fetchTableOrder]);
 
   // ── Elapsed time helper ───────────────────────────────────────────────────
@@ -300,10 +352,10 @@ export default function AdminTables() {
   // ── Validation ──────────────────────────────────────────────────────────────
   const validateForm = () => {
     const errors = {};
-    if (!form.tableName.trim()) errors.tableName = 'Table name is required';
-    if (!form.section)          errors.section   = 'Section is required';
+    if (!form.tableName.trim()) errors.tableName = t('admin.tables.tableName') + ' ' + t('common.required').toLowerCase();
+    if (!form.section)          errors.section   = t('admin.tables.section') + ' ' + t('common.required').toLowerCase();
     if (!form.capacity || isNaN(form.capacity) || parseInt(form.capacity) < 1)
-      errors.capacity = 'Number of seats must be a valid number';
+      errors.capacity = t('admin.tables.numberOfSeats') + ' ' + t('common.required').toLowerCase();
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -322,7 +374,7 @@ export default function AdminTables() {
     const sec = getSection(table);
     setForm({
       tableName: getTableName(table),
-      section:   sec || 'Indoor',
+      section:   sec || t('tables.indoor', 'Indoor'),
       capacity:  String(table.capacity || 4),
     });
     setEditingTableId(table.id);
@@ -454,14 +506,14 @@ export default function AdminTables() {
 
     // If reserving, open the reservation form instead of applying directly
     if (pendingStatus === 'reserved') {
-      const t = statusTable;
+      const tbl = statusTable;
       setStatusTable(null);
       setPendingStatus(null);
-      setEditingTableId(t.id);
+      setEditingTableId(tbl.id);
       setReserveForm({
-        reservationGuest: t.reservationGuest || '',
-        reservationPhone: t.reservationPhone || '',
-        reservationTime:  t.reservationTime  || '',
+        reservationGuest: tbl.reservationGuest || '',
+        reservationPhone: tbl.reservationPhone || '',
+        reservationTime:  tbl.reservationTime  || '',
       });
       setModal('reserve');
       return;
@@ -501,25 +553,49 @@ export default function AdminTables() {
   };
 
   // ── Manage sections ──────────────────────────────────────────────────────────
-  const handleAddSection = () => {
+  const handleAddSection = async () => {
     const name = newSectionInput.trim();
     if (!name) return;
     if (allSections.map(s => s.toLowerCase()).includes(name.toLowerCase())) return;
+    const lc = name.toLowerCase();
     // Optimistic update — instant UI response
     setAllSections(prev => [...prev, name]);
     setNewSectionInput('');
-    // Persist to backend in the background
-    call(tablesAPI.addSection, name).catch(() => {});
+    // Shield against polls that hit before the server has persisted.
+    pendingSectionAddsRef.current.set(lc, Date.now() + PENDING_TTL_MS);
+    try {
+      await call(tablesAPI.addSection, name);
+      // Server confirmed — drop the shield early so future polls reflect truth.
+      pendingSectionAddsRef.current.delete(lc);
+    } catch (_) {
+      pendingSectionAddsRef.current.delete(lc);
+      fetchSections();
+    }
   };
 
-  const handleDeleteSection = (sec) => {
+  const handleDeleteSection = async (sec) => {
     const count = tables.filter(t => getSection(t).toLowerCase() === sec.toLowerCase()).length;
     if (count > 0) return;
+    const lc = sec.toLowerCase();
     // Optimistic update — instant UI response
-    setAllSections(prev => prev.filter(s => s !== sec));
-    if (activeFilter.toLowerCase() === sec.toLowerCase()) setActiveFilter('all');
-    // Persist to backend in the background
-    call(tablesAPI.deleteSection, sec).catch(() => {});
+    setAllSections(prev => prev.filter(s => s.toLowerCase() !== lc));
+    if (activeFilter.toLowerCase() === lc) setActiveFilter('all');
+    // Shield against the 5s sections poll bringing the chip back before the
+    // backend has persisted the DELETE. The shield filters polled responses
+    // for up to PENDING_TTL_MS so optimistic UI stays stable.
+    pendingSectionDeletesRef.current.set(lc, Date.now() + PENDING_TTL_MS);
+    try {
+      await call(tablesAPI.deleteSection, sec);
+      // Confirm with one fresh fetch so if the GET still has it (e.g. because
+      // a table row still references the section), the user sees the truth
+      // rather than a stale optimistic state. The shield keeps the UI right
+      // if the backend responded slowly.
+      fetchSections();
+    } catch (_) {
+      // Persist failed — drop the shield so the poll can reset state.
+      pendingSectionDeletesRef.current.delete(lc);
+      fetchSections();
+    }
   };
 
   // ── Loading / error ─────────────────────────────────────────────────────────
@@ -528,7 +604,7 @@ export default function AdminTables() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <RefreshCw size={32} className="text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600 font-medium">Loading tables...</p>
+          <p className="text-gray-600 font-medium">{t('admin.tables.loadingTables')}</p>
         </div>
       </div>
     );
@@ -541,7 +617,7 @@ export default function AdminTables() {
           <AlertTriangle size={24} className="text-red-600 mx-auto mb-4" />
           <p className="text-red-700 font-medium">{error}</p>
           <button onClick={() => fetchTables()} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       </div>
@@ -563,9 +639,9 @@ export default function AdminTables() {
                 <Grid3X3 size={24} className="text-blue-600" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-900">Table Management</h1>
+                <h1 className="text-3xl font-bold text-gray-900">{t('admin.tables.title')}</h1>
                 <p className="text-gray-600 text-sm mt-1">
-                  {tableCount} total {tableCount === 1 ? 'table' : 'tables'} in system
+                  {t('admin.tables.tableCountInSystem', { count: tableCount })}
                 </p>
               </div>
             </div>
@@ -573,7 +649,7 @@ export default function AdminTables() {
               <button
                 onClick={() => fetchTables(true)}
                 className="p-2.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
-                title="Refresh"
+                title={t('admin.tables.refresh')}
               >
                 <RefreshCw size={18} />
               </button>
@@ -582,14 +658,14 @@ export default function AdminTables() {
                 className="inline-flex items-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors"
               >
                 <Settings size={18} />
-                Sections
+                {t('admin.tables.sections')}
               </button>
               <button
                 onClick={openAddModal}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-md"
               >
                 <Plus size={20} />
-                Add Table
+                {t('admin.tables.addTable')}
               </button>
             </div>
           </div>
@@ -606,9 +682,9 @@ export default function AdminTables() {
                 <CheckCircle2 size={22} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-green-600 uppercase tracking-wider">Free</p>
+                <p className="text-xs font-semibold text-green-600 uppercase tracking-wider">{t('statuses.free')}</p>
                 <p className="text-3xl font-black text-green-700 leading-none mt-0.5">{summary.free}</p>
-                <p className="text-xs text-green-500 mt-1">{summary.total ? Math.round(summary.free / summary.total * 100) : 0}% of tables</p>
+                <p className="text-xs text-green-500 mt-1">{t('admin.tables.percentOfTables', { percent: summary.total ? Math.round(summary.free / summary.total * 100) : 0 })}</p>
               </div>
               <div className="absolute right-3 bottom-3 text-green-100">
                 <CheckCircle2 size={48} />
@@ -621,9 +697,9 @@ export default function AdminTables() {
                 <AlertCircle size={22} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-red-600 uppercase tracking-wider">Occupied</p>
+                <p className="text-xs font-semibold text-red-600 uppercase tracking-wider">{t('statuses.occupied')}</p>
                 <p className="text-3xl font-black text-red-700 leading-none mt-0.5">{summary.occupied}</p>
-                <p className="text-xs text-red-400 mt-1">{summary.occupancy}% occupancy</p>
+                <p className="text-xs text-red-400 mt-1">{t('admin.tables.occupancyPercent', { percent: summary.occupancy })}</p>
               </div>
               <div className="absolute right-3 bottom-3 text-red-100">
                 <AlertCircle size={48} />
@@ -636,9 +712,9 @@ export default function AdminTables() {
                 <CalendarCheck size={22} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Reserved</p>
+                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">{t('statuses.reserved')}</p>
                 <p className="text-3xl font-black text-blue-700 leading-none mt-0.5">{summary.reserved}</p>
-                <p className="text-xs text-blue-400 mt-1">upcoming guests</p>
+                <p className="text-xs text-blue-400 mt-1">{t('admin.tables.upcomingGuests')}</p>
               </div>
               <div className="absolute right-3 bottom-3 text-blue-100">
                 <CalendarCheck size={48} />
@@ -651,9 +727,9 @@ export default function AdminTables() {
                 <Sparkles size={22} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Cleaning</p>
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">{t('statuses.cleaning')}</p>
                 <p className="text-3xl font-black text-amber-700 leading-none mt-0.5">{summary.cleaning}</p>
-                <p className="text-xs text-amber-400 mt-1">being prepared</p>
+                <p className="text-xs text-amber-400 mt-1">{t('admin.tables.beingPrepared')}</p>
               </div>
               <div className="absolute right-3 bottom-3 text-amber-100">
                 <Sparkles size={48} />
@@ -670,20 +746,20 @@ export default function AdminTables() {
             {/* Label */}
             <div className="flex items-center gap-2 text-gray-500 flex-shrink-0">
               <UtensilsCrossed size={15} className="text-gray-400" />
-              <span className="text-xs font-bold uppercase tracking-wider">Floor Summary</span>
+              <span className="text-xs font-bold uppercase tracking-wider">{t('admin.tables.floorSummary')}</span>
             </div>
             {/* Divider */}
             <div className="hidden md:block w-px h-6 bg-gray-200" />
             {/* Total tables */}
             <div className="flex items-center gap-2">
               <span className="text-lg font-black text-gray-800">{summary.total}</span>
-              <span className="text-xs text-gray-400 font-medium">Total Tables</span>
+              <span className="text-xs text-gray-400 font-medium">{t('admin.tables.totalTables')}</span>
             </div>
             {/* Occupancy bar */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-lg font-black text-red-600">{summary.occupancy}%</span>
-                <span className="text-xs text-gray-400 font-medium">Occupied</span>
+                <span className="text-xs text-gray-400 font-medium">{t('statuses.occupied')}</span>
               </div>
               <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div
@@ -704,16 +780,16 @@ export default function AdminTables() {
                   ? (summary.activeValue / 1000).toFixed(0) + 'K'
                   : Math.round(summary.activeValue).toLocaleString('uz-UZ')}
               </span>
-              <span className="text-xs text-gray-400 font-medium">so'm active</span>
+              <span className="text-xs text-gray-400 font-medium">{t('admin.tables.somActive')}</span>
             </div>
             {/* Divider */}
             <div className="hidden md:block w-px h-6 bg-gray-200" />
             {/* Status mini legend */}
             <div className="flex items-center gap-3 ml-auto">
               {[
-                { dot: 'bg-green-500', label: `${summary.free} free` },
-                { dot: 'bg-red-500',   label: `${summary.occupied} occupied` },
-                { dot: 'bg-blue-500',  label: `${summary.reserved} reserved` },
+                { dot: 'bg-green-500', label: t('admin.tables.freeCount', { count: summary.free }) },
+                { dot: 'bg-red-500',   label: t('admin.tables.occupiedCount', { count: summary.occupied }) },
+                { dot: 'bg-blue-500',  label: t('admin.tables.reservedCount', { count: summary.reserved }) },
               ].map(({ dot, label }) => (
                 <div key={label} className="flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full ${dot} flex-shrink-0`} />
@@ -740,12 +816,12 @@ export default function AdminTables() {
                   : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
               }`}
             >
-              {f === 'all' ? 'All' : f}
+              {f === 'all' ? t('common.all') : f}
             </button>
           ))}
           {activeFilter !== 'all' && (
             <span className="text-sm text-gray-500 ml-1">
-              {filteredTables.length} {filteredTables.length === 1 ? 'table' : 'tables'}
+              {t('admin.tables.tableCountLabel', { count: filteredTables.length })}
             </span>
           )}
         </div>
@@ -754,15 +830,15 @@ export default function AdminTables() {
         {tableCount === 0 ? (
           <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
             <Grid3X3 size={48} className="text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium mb-4">No tables yet</p>
+            <p className="text-gray-600 font-medium mb-4">{t('admin.tables.noTablesYet')}</p>
             <button onClick={openAddModal} className="inline-flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-              <Plus size={18} /> Create your first table
+              <Plus size={18} /> {t('admin.tables.createFirstTable')}
             </button>
           </div>
         ) : filteredTables.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
             <Grid3X3 size={48} className="text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">No {activeFilter} tables found</p>
+            <p className="text-gray-600 font-medium">{t('admin.tables.noFilteredTables', { filter: activeFilter })}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
@@ -798,7 +874,7 @@ export default function AdminTables() {
                     <div className="flex items-center gap-1.5 text-xs">
                       <Users size={12} className="text-gray-400 flex-shrink-0" />
                       <span className="text-gray-700 font-medium">
-                        {table.capacity} {table.capacity === 1 ? 'person' : 'people'}
+                        {table.capacity} {table.capacity === 1 ? t('admin.tables.person') : t('admin.tables.people')}
                       </span>
                     </div>
                     {/* Reservation guest */}
@@ -836,14 +912,14 @@ export default function AdminTables() {
                     <button
                       onClick={(e) => { e.stopPropagation(); openEditModal(table); }}
                       className="flex-1 flex items-center justify-center py-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                      title="Edit table"
+                      title={t('admin.tables.editTable')}
                     >
                       <Settings size={14} />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteId(table.id); }}
                       className="flex-1 flex items-center justify-center py-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                      title="Delete table"
+                      title={t('admin.tables.deleteTable')}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -902,7 +978,7 @@ export default function AdminTables() {
                 </div>
                 <div className="flex items-center gap-1.5 text-sm text-gray-500">
                   <Users size={14} className="text-gray-400" />
-                  <span>{table.capacity} seats</span>
+                  <span>{table.capacity} {t('admin.tables.seats')}</span>
                 </div>
                 <div className="ml-auto flex-1 max-w-32">
                   <div className={`h-1.5 w-full rounded-full ${cfg.barColor}`} />
@@ -913,9 +989,9 @@ export default function AdminTables() {
               {isReserved && (
                 <div className="mx-6 mb-4 bg-blue-50 rounded-xl divide-y divide-blue-100 border border-blue-100">
                   {[
-                    { icon: User,     label: 'Guest', value: table.reservationGuest || '—' },
-                    { icon: Phone,    label: 'Phone', value: formatPhoneDisplay(table.reservationPhone) || '—' },
-                    { icon: Calendar, label: 'Time',  value: table.reservationTime  || '—' },
+                    { icon: User,     label: t('admin.tables.guest'), value: table.reservationGuest || '—' },
+                    { icon: Phone,    label: t('admin.tables.phoneLabelShort'), value: formatPhoneDisplay(table.reservationPhone) || '—' },
+                    { icon: Calendar, label: t('admin.tables.time'),  value: table.reservationTime  || '—' },
                   ].map(({ icon: Icon, label, value }) => (
                     <div key={label} className="flex items-center justify-between px-4 py-3">
                       <div className="flex items-center gap-2 text-gray-500 text-sm">
@@ -935,7 +1011,7 @@ export default function AdminTables() {
                     <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-center">
                       <div className="flex items-center justify-center gap-1.5 mb-1">
                         <Timer size={14} className="text-red-500" />
-                        <p className="text-xs font-semibold text-red-400 uppercase tracking-wide">Time Elapsed</p>
+                        <p className="text-xs font-semibold text-red-400 uppercase tracking-wide">{t("admin.tables.timeElapsed")}</p>
                       </div>
                       <p className="text-xl font-bold text-red-600 font-mono">
                         {getElapsed(table.openedAt)}
@@ -944,7 +1020,7 @@ export default function AdminTables() {
                     <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-center">
                       <div className="flex items-center justify-center gap-1.5 mb-1">
                         <Receipt size={14} className="text-gray-400" />
-                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Order Total</p>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{t("admin.tables.orderTotal")}</p>
                       </div>
                       <p className="text-base font-bold text-gray-900">
                         {tableOrderLoading ? '...' : tableOrder ? formatPrice(tableOrder.totalAmount) : '—'}
@@ -955,7 +1031,7 @@ export default function AdminTables() {
                     <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <User size={14} />
-                        <span>Waiter</span>
+                        <span>{t("admin.tables.waiter")}</span>
                       </div>
                       <span className="text-sm font-bold text-gray-800">{tableOrder.waitressName}</span>
                     </div>
@@ -977,18 +1053,18 @@ export default function AdminTables() {
                 {isFree && (
                   <div className="flex gap-3">
                     <button
-                      onClick={() => { const t = table; setSelectedTable(null); setNewOrderTable(t); }}
+                      onClick={() => { const tbl = table; setSelectedTable(null); setNewOrderTable(tbl); }}
                       className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
                     >
                       <ClipboardList size={18} />
-                      New Order
+                      {t('admin.tables.newOrder')}
                     </button>
                     <button
                       onClick={() => { setSelectedTable(null); setStatusTable(table); setPendingStatus(table.status || 'free'); }}
                       className="flex-1 flex items-center justify-center gap-2 py-3.5 border-2 border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors"
                     >
                       <Settings size={18} />
-                      Status
+                      {t('admin.tables.statusLabel')}
                     </button>
                   </div>
                 )}
@@ -1000,14 +1076,14 @@ export default function AdminTables() {
                       className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
                     >
                       <UserCheck size={18} />
-                      Seat Guests
+                      {t('admin.tables.seatGuests')}
                     </button>
                     <button
                       onClick={() => { handleCancelReservation(table); setSelectedTable(null); }}
                       className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-red-50 border-2 border-red-200 text-red-600 font-semibold rounded-xl hover:bg-red-100 transition-colors"
                     >
                       <XCircle size={18} />
-                      Cancel Reservation
+                      {t('admin.tables.cancelReservation')}
                     </button>
                   </div>
                 )}
@@ -1019,7 +1095,7 @@ export default function AdminTables() {
                       className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
                     >
                       <ClipboardList size={18} />
-                      View Full Order
+                      {t('admin.tables.viewFullOrder')}
                     </button>
                     <div className="flex gap-2">
                       <button
@@ -1027,14 +1103,14 @@ export default function AdminTables() {
                         className="flex-1 flex items-center justify-center gap-2 py-3 border-2 border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors text-sm"
                       >
                         <Settings size={16} />
-                        Change Status
+                        {t('admin.tables.changeStatus')}
                       </button>
                       <button
                         onClick={() => { handleMarkFree(table); setSelectedTable(null); }}
                         className="flex-1 flex items-center justify-center gap-2 py-3 bg-green-50 border-2 border-green-300 text-green-700 font-semibold rounded-xl hover:bg-green-100 transition-colors text-sm"
                       >
                         <CheckCircle2 size={16} />
-                        Free Table
+                        {t('admin.tables.freeTable')}
                       </button>
                     </div>
                   </div>
@@ -1046,7 +1122,7 @@ export default function AdminTables() {
                     className="w-full flex items-center justify-center gap-2 py-3.5 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 transition-colors"
                   >
                     <CheckCircle2 size={18} />
-                    Mark as Free
+                    {t('admin.tables.markAsFree')}
                   </button>
                 )}
 
@@ -1058,7 +1134,7 @@ export default function AdminTables() {
                   >
                     <div className="flex items-center gap-3 text-gray-700 font-medium text-sm">
                       <Settings size={16} className="text-gray-400" />
-                      Edit Table
+                      {t('admin.tables.editTable')}
                     </div>
                     <ChevronRight size={16} className="text-gray-400" />
                   </button>
@@ -1068,7 +1144,7 @@ export default function AdminTables() {
                   >
                     <div className="flex items-center gap-3 text-red-600 font-medium text-sm">
                       <Trash2 size={16} className="text-red-400" />
-                      Delete
+                      {t('common.delete')}
                     </div>
                     <ChevronRight size={16} className="text-red-300" />
                   </button>
@@ -1087,7 +1163,7 @@ export default function AdminTables() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">
-                {modal === 'add' ? 'Add New Table' : 'Edit Table'}
+                {modal === 'add' ? t('admin.tables.addNewTable') : t('admin.tables.editTable')}
               </h2>
               <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X size={20} className="text-gray-600" />
@@ -1096,32 +1172,32 @@ export default function AdminTables() {
 
             <div className="px-6 py-6 space-y-5">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Table Name</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t('admin.tables.tableName')}</label>
                 <input
                   type="text"
                   value={form.tableName}
                   onChange={(e) => setForm({ ...form, tableName: e.target.value })}
                   className={`w-full px-4 py-3 border rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 ${validationErrors.tableName ? 'border-red-400' : 'border-gray-200'}`}
-                  placeholder="e.g. Table 9, Garden A, VIP 1..."
+                  placeholder={t('admin.tables.tableNamePlaceholder')}
                 />
                 {validationErrors.tableName && <p className="text-red-600 text-sm mt-1">{validationErrors.tableName}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Number of Seats</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t('admin.tables.numberOfSeats')}</label>
                 <input
                   type="number"
                   min="1"
                   value={form.capacity}
                   onChange={(e) => setForm({ ...form, capacity: e.target.value })}
                   className={`w-full px-4 py-3 border rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 ${validationErrors.capacity ? 'border-red-400' : 'border-gray-200'}`}
-                  placeholder="4"
+                  placeholder={t('placeholders.number4', '4')}
                 />
                 {validationErrors.capacity && <p className="text-red-600 text-sm mt-1">{validationErrors.capacity}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Section</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t('admin.tables.section')}</label>
                 <div className="flex flex-wrap gap-2">
                   {allSections.map((s) => (
                     <button key={s} type="button" onClick={() => setForm({ ...form, section: s })}
@@ -1139,12 +1215,12 @@ export default function AdminTables() {
               <button onClick={handleSave} disabled={saving}
                 className="w-full py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-60"
               >
-                {saving ? 'Saving...' : modal === 'add' ? 'Add Table' : 'Save Changes'}
+                {saving ? t('common.saving') : modal === 'add' ? t('admin.tables.addTable') : t('common.saveChanges')}
               </button>
               <button onClick={closeModal}
                 className="w-full py-3.5 text-gray-600 font-semibold border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
           </div>
@@ -1158,7 +1234,7 @@ export default function AdminTables() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">Reserve Table</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t("admin.tables.reserveTable")}</h2>
               <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X size={20} className="text-gray-600" />
               </button>
@@ -1166,7 +1242,7 @@ export default function AdminTables() {
 
             <div className="px-6 py-6 space-y-5">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Guest Name</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t("admin.tables.guestName")}</label>
                 <div className="relative">
                   <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -1174,7 +1250,7 @@ export default function AdminTables() {
                     value={reserveForm.reservationGuest}
                     onChange={(e) => setReserveForm({ ...reserveForm, reservationGuest: e.target.value })}
                     className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="Guest name"
+                    placeholder={t('admin.tables.guestNamePlaceholder')}
                   />
                 </div>
               </div>
@@ -1183,13 +1259,13 @@ export default function AdminTables() {
                 <PhoneInput
                   value={reserveForm.reservationPhone}
                   onChange={(value) => setReserveForm({ ...reserveForm, reservationPhone: value })}
-                  label="Phone"
+                  label={t('common.phone')}
                   size="md"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Reservation Time</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t("admin.tables.reservationTime")}</label>
                 <div className="relative">
                   <Clock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
@@ -1206,12 +1282,12 @@ export default function AdminTables() {
               <button onClick={handleSaveReservation} disabled={saving}
                 className="w-full py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-60"
               >
-                {saving ? 'Saving...' : 'Reserve Table'}
+                {saving ? t('common.saving') : t('admin.tables.reserveTable')}
               </button>
               <button onClick={closeModal}
                 className="w-full py-3.5 text-gray-600 font-semibold border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
           </div>
@@ -1224,10 +1300,10 @@ export default function AdminTables() {
       {statusTable && (() => {
         const name = getTableName(statusTable);
         const opts = [
-          { key: 'free',     label: 'Free',     dot: 'bg-green-500', sel: 'border-green-500 bg-green-50 text-green-700' },
-          { key: 'occupied', label: 'Occupied', dot: 'bg-red-500',   sel: 'border-red-500 bg-red-50 text-red-700'     },
-          { key: 'reserved', label: 'Reserved', dot: 'bg-blue-500',  sel: 'border-blue-500 bg-blue-50 text-blue-700'  },
-          { key: 'cleaning', label: 'Cleaning', dot: 'bg-amber-400', sel: 'border-amber-400 bg-amber-50 text-amber-700' },
+          { key: 'free',     label: t('statuses.free'),     dot: 'bg-green-500', sel: 'border-green-500 bg-green-50 text-green-700' },
+          { key: 'occupied', label: t('statuses.occupied'), dot: 'bg-red-500',   sel: 'border-red-500 bg-red-50 text-red-700'     },
+          { key: 'reserved', label: t('statuses.reserved'), dot: 'bg-blue-500',  sel: 'border-blue-500 bg-blue-50 text-blue-700'  },
+          { key: 'cleaning', label: t('statuses.cleaning'), dot: 'bg-amber-400', sel: 'border-amber-400 bg-amber-50 text-amber-700' },
         ];
 
         return (
@@ -1235,7 +1311,7 @@ export default function AdminTables() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">Change Status</h2>
+                  <h2 className="text-lg font-bold text-gray-900">{t("admin.tables.changeStatus")}</h2>
                   <p className="text-sm text-gray-500 mt-0.5">{name}</p>
                 </div>
                 <button onClick={() => { setStatusTable(null); setPendingStatus(null); }} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -1243,7 +1319,7 @@ export default function AdminTables() {
                 </button>
               </div>
               <div className="px-6 py-5">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Select Status</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t("admin.tables.selectStatus")}</p>
                 <div className="grid grid-cols-2 gap-2.5">
                   {opts.map(({ key, label, dot, sel }) => (
                     <button key={key} onClick={() => setPendingStatus(key)}
@@ -1261,12 +1337,12 @@ export default function AdminTables() {
                 <button onClick={() => { setStatusTable(null); setPendingStatus(null); }}
                   className="flex-1 py-3 text-gray-600 font-semibold border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-sm"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button onClick={handleApplyStatus} disabled={saving}
                   className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-60 text-sm"
                 >
-                  {saving ? 'Applying...' : 'Apply'}
+                  {saving ? t('common.applying') : t('common.apply')}
                 </button>
               </div>
             </div>
@@ -1292,14 +1368,14 @@ export default function AdminTables() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">Manage Sections</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t("admin.tables.manageSections")}</h2>
               <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X size={20} className="text-gray-600" />
               </button>
             </div>
             <div className="px-6 py-5 space-y-5">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Add New Section</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t("admin.tables.addNewSection")}</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -1307,15 +1383,15 @@ export default function AdminTables() {
                     onChange={(e) => setNewSectionInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAddSection()}
                     className="flex-1 px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="e.g. Rooftop, Garden..."
+                    placeholder={t('admin.tables.newSectionPlaceholder')}
                   />
                   <button onClick={handleAddSection} className="px-5 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
-                    Add
+                    {t('common.add')}
                   </button>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Sections</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{t('admin.tables.sectionsLabel')}</label>
                 <div className="space-y-2">
                   {allSections.map((sec) => {
                     const count = tables.filter(t => getSection(t).toLowerCase() === sec.toLowerCase()).length;
@@ -1328,7 +1404,7 @@ export default function AdminTables() {
                         </div>
                         <div className="flex-1">
                           <p className="font-semibold text-gray-800 text-sm">{sec}</p>
-                          <p className="text-xs text-gray-500">{count} {count === 1 ? 'table' : 'tables'}</p>
+                          <p className="text-xs text-gray-500">{t('admin.tables.tableCountLabel', { count })}</p>
                         </div>
                         <button
                           onClick={() => handleDeleteSection(sec)}
@@ -1336,7 +1412,7 @@ export default function AdminTables() {
                           className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
                             canDelete ? 'bg-red-100 hover:bg-red-200 text-red-500' : 'bg-gray-100 text-gray-300 cursor-not-allowed'
                           }`}
-                          title={canDelete ? 'Remove section' : 'Cannot remove — section has tables'}
+                          title={canDelete ? t('admin.tables.removeSection') : t('admin.tables.cannotRemoveSection')}
                         >
                           <X size={14} />
                         </button>
@@ -1344,12 +1420,12 @@ export default function AdminTables() {
                     );
                   })}
                 </div>
-                <p className="text-xs text-gray-400 mt-3 italic">Sections with tables cannot be removed.</p>
+                <p className="text-xs text-gray-400 mt-3 italic">{t('admin.tables.sectionsWithTablesHint')}</p>
               </div>
             </div>
             <div className="px-6 pb-6">
               <button onClick={closeModal} className="w-full py-3.5 text-gray-600 font-semibold border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                Done
+                {t('common.done')}
               </button>
             </div>
           </div>
@@ -1373,12 +1449,12 @@ export default function AdminTables() {
               <div className="flex-1">
                 <h2 className="text-lg font-bold text-gray-900">
                   {getTableName(selectedTable)}
-                  {tableOrder?.dailyNumber ? ` — Order #${tableOrder.dailyNumber}` : ''}
+                  {tableOrder?.dailyNumber ? ` — ${t('admin.tables.orderNumber', { number: tableOrder.dailyNumber })}` : ''}
                 </h2>
                 {tableOrder && (
                   <p className="text-xs text-gray-400">
-                    {(tableOrder.items || tableOrder.orderItems || []).length} items
-                    &nbsp;·&nbsp; Total: {formatPrice(tableOrder.totalAmount)}
+                    {t('admin.tables.itemsCount', { count: (tableOrder.items || tableOrder.orderItems || []).length })}
+                    &nbsp;·&nbsp; {t('common.total')}: {formatPrice(tableOrder.totalAmount)}
                   </p>
                 )}
               </div>
@@ -1400,8 +1476,8 @@ export default function AdminTables() {
               {!tableOrderLoading && !tableOrder && (
                 <div className="text-center py-12 text-gray-400">
                   <Receipt size={36} className="mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">No active order found</p>
-                  <p className="text-sm mt-1">Start a new order from the table card</p>
+                  <p className="font-medium">{t("admin.tables.noActiveOrderFound")}</p>
+                  <p className="text-sm mt-1">{t('admin.tables.startNewOrderHint')}</p>
                 </div>
               )}
               {tableOrder && (() => {
@@ -1409,7 +1485,7 @@ export default function AdminTables() {
                 return (
                   <div className="space-y-2">
                     {items.length === 0 && (
-                      <p className="text-center text-gray-400 py-8 text-sm">No items yet</p>
+                      <p className="text-center text-gray-400 py-8 text-sm">{t('admin.tables.noItemsYet')}</p>
                     )}
                     {items.map((item, idx) => (
                       <div
@@ -1418,7 +1494,7 @@ export default function AdminTables() {
                       >
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm text-gray-900 truncate">
-                            {item.name || item.menuItemName || item.itemName || 'Item'}
+                            {item.name || item.menuItemName || item.itemName || t('common.item', 'Item')}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">
                             {formatPrice(item.unitPrice || item.price)} × {item.quantity}
@@ -1449,7 +1525,7 @@ export default function AdminTables() {
             {tableOrder && (
               <div className="border-t border-gray-100 px-5 pt-3 pb-6">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold text-gray-500">Total</span>
+                  <span className="text-sm font-semibold text-gray-500">{t("common.total")}</span>
                   <span className="text-lg font-bold text-gray-900">{formatPrice(tableOrder.totalAmount)}</span>
                 </div>
                 <button
@@ -1457,7 +1533,7 @@ export default function AdminTables() {
                   className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors"
                 >
                   <Plus size={18} />
-                  Add Food
+                  {t('admin.tables.addFood')}
                 </button>
               </div>
             )}
@@ -1479,10 +1555,10 @@ export default function AdminTables() {
               >
                 <ArrowLeft size={18} className="text-gray-600" />
               </button>
-              <h2 className="flex-1 text-lg font-bold text-gray-900">Add Food</h2>
+              <h2 className="flex-1 text-lg font-bold text-gray-900">{t("admin.tables.addFood")}</h2>
               {Object.keys(addFoodCart).length > 0 && (
                 <span className="bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-                  {Object.values(addFoodCart).reduce((s, e) => s + e.qty, 0)} items
+                  {t('admin.tables.itemsCount', { count: Object.values(addFoodCart).reduce((s, e) => s + e.qty, 0) })}
                 </span>
               )}
             </div>
@@ -1569,7 +1645,7 @@ export default function AdminTables() {
                 <span className="bg-blue-500 rounded-lg px-2.5 py-1 text-sm">
                   {Object.values(addFoodCart).reduce((s, e) => s + e.qty, 0)}
                 </span>
-                <span>{addFoodSaving ? 'Adding...' : 'Add to Order'}</span>
+                <span>{addFoodSaving ? t('common.processing') : t('admin.tables.addToOrder')}</span>
                 <span className="text-blue-200 text-sm font-semibold">
                   {formatPrice(Object.values(addFoodCart).reduce((s, e) => s + e.qty * parseFloat(e.item.price || 0), 0))}
                 </span>
@@ -1589,18 +1665,18 @@ export default function AdminTables() {
               <div className="p-2 bg-red-100 rounded-lg">
                 <AlertTriangle size={20} className="text-red-600" />
               </div>
-              <h2 className="text-lg font-bold text-gray-900">Delete Table</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t("admin.tables.deleteConfirmTitle")}</h2>
             </div>
             <div className="px-6 py-6">
-              <p className="text-gray-700 font-medium mb-2">Are you sure you want to delete this table?</p>
-              <p className="text-gray-600 text-sm">This action cannot be undone.</p>
+              <p className="text-gray-700 font-medium mb-2">{t("admin.tables.deleteConfirmMessage")}</p>
+              <p className="text-gray-600 text-sm">{t("common.actionCannotBeUndone")}</p>
             </div>
             <div className="flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
               <button onClick={() => setDeleteId(null)} className="flex-1 px-4 py-2.5 text-gray-700 font-medium border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button onClick={handleDelete} className="flex-1 px-4 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors">
-                Delete Table
+                {t('admin.tables.deleteTable')}
               </button>
             </div>
           </div>

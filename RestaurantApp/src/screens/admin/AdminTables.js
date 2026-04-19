@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { tablesAPI, usersAPI, ordersAPI, menuAPI } from '../../api/client';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -913,6 +914,7 @@ function TableCard({ table, tick, sections, onPress, onEdit, onStatus, onDelete 
 // MAIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function AdminTables({ navigation }) {
+  const { t } = useTranslation();
   const [tables,    setTables]    = useState([]);
   const [waiters,   setWaiters]   = useState([]);
   const [sections,  setSections]  = useState([]);
@@ -922,6 +924,40 @@ export default function AdminTables({ navigation }) {
   const [dialog,    setDialog]    = useState(null);
 
   const [tick,      setTick]      = useState(Date.now());
+
+  // Pending-write shields: map of lowercase section name -> expiry timestamp.
+  // These protect the optimistic UI from a 5 s syncTables response that would
+  // briefly resurrect a just-deleted chip or hide a just-added one before the
+  // backend has persisted the write.
+  const pendingSecDeletesRef = useRef(new Map());
+  const pendingSecAddsRef    = useRef(new Map());
+  const SEC_PENDING_TTL_MS   = 8000;
+
+  // Apply the shields to a server sections snapshot, returning the list to
+  // hand to setSections(). Exported as a function so both load() and
+  // syncTables() go through it.
+  const reconcileSections = useCallback((serverList) => {
+    const now = Date.now();
+    for (const m of [pendingSecDeletesRef.current, pendingSecAddsRef.current]) {
+      for (const [k, exp] of m) if (exp < now) m.delete(k);
+    }
+    const seen = new Set();
+    const merged = [];
+    for (const name of serverList || []) {
+      const lc = String(name).toLowerCase();
+      if (pendingSecDeletesRef.current.has(lc)) continue;
+      if (seen.has(lc)) continue;
+      seen.add(lc);
+      merged.push(name);
+    }
+    for (const [lc] of pendingSecAddsRef.current) {
+      if (!seen.has(lc)) {
+        merged.push(lc);
+        seen.add(lc);
+      }
+    }
+    return merged;
+  }, []);
 
   // detail modal — two-state open: table is set first (mounts the component with
   // visible=false), then detailVisible transitions to true one frame later.
@@ -980,8 +1016,11 @@ export default function AdminTables({ navigation }) {
         setWaiters(staff.length ? staff : all);
       }
       if (sRes.status === 'fulfilled') {
-        const secs = sRes.value.data || [];
-        setSections(Array.isArray(secs) && secs.length ? secs : DEFAULT_SECTIONS);
+        // Trust the backend completely — whatever it returns is the source of
+        // truth (including custom sections like "Karvat" or "VIP" added from
+        // the website). Only fall back to defaults if the API itself failed.
+        const secs = sRes.value.data;
+        setSections(Array.isArray(secs) ? reconcileSections(secs) : DEFAULT_SECTIONS);
       } else {
         // API failed — fall back to defaults so the app still works
         setSections(DEFAULT_SECTIONS);
@@ -989,7 +1028,7 @@ export default function AdminTables({ navigation }) {
     } catch (_) {}
     setLoading(false);
     setRefreshing(false);
-  }, []);
+  }, [reconcileSections]);
 
   // ── silent poll every 5 s — keeps tables in sync with DB & website ──────────
   const syncTables = useCallback(async () => {
@@ -1003,11 +1042,17 @@ export default function AdminTables({ navigation }) {
         setTables(rows);
       }
       if (sRes.status === 'fulfilled') {
-        const secs = sRes.value.data || [];
-        if (Array.isArray(secs) && secs.length) setSections(secs);
+        // Always honour the backend list — including additions ("Karvat") and
+        // deletions made on the website. Previously we only updated when the
+        // list was non-empty, which froze custom sections out of the app.
+        // Filter through pending-write shields so optimistic adds/deletes
+        // aren't snapped back during the brief window before the backend
+        // reflects the change.
+        const secs = sRes.value.data;
+        if (Array.isArray(secs)) setSections(reconcileSections(secs));
       }
     } catch (_) {}
-  }, []);
+  }, [reconcileSections]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1192,24 +1237,41 @@ export default function AdminTables({ navigation }) {
     if (sections.map(s => s.toLowerCase()).includes(name.toLowerCase())) {
       setDialog({ title: 'Exists', message: 'Section already exists', type: 'warning' }); return;
     }
+    const lc = name.toLowerCase();
     // Optimistic update — instant UI
     setSections(prev => [...prev, name]);
     setNewSecName('');
-    // Persist to backend in background
-    tablesAPI.addSection(name).catch(() => {});
+    // Shield against the syncTables poll briefly hiding the chip before the
+    // server has acknowledged the add.
+    pendingSecAddsRef.current.set(lc, Date.now() + SEC_PENDING_TTL_MS);
+    tablesAPI.addSection(name)
+      .then(() => { pendingSecAddsRef.current.delete(lc); })
+      .catch(() => { pendingSecAddsRef.current.delete(lc); });
   }
 
   function removeSection(sec) {
-    const count = tables.filter(t => (t.section || '') === sec).length;
+    const count = tables.filter(t => (t.section || '').toLowerCase() === sec.toLowerCase()).length;
     if (count > 0) {
       setDialog({ title: 'Cannot Remove', message: `"${sec}" has ${count} table(s). Move them first.`, type: 'warning' });
       return;
     }
+    const lc = sec.toLowerCase();
     // Optimistic update — instant UI
-    setSections(prev => prev.filter(s => s !== sec));
+    setSections(prev => prev.filter(s => s.toLowerCase() !== lc));
     if (activeTab === sec) setActiveTab('All');
-    // Persist to backend in background
-    tablesAPI.deleteSection(sec).catch(() => {});
+    // Shield the syncTables poll for SEC_PENDING_TTL_MS so the chip doesn't
+    // pop back the next time we fetch /sections before the DELETE persists.
+    pendingSecDeletesRef.current.set(lc, Date.now() + SEC_PENDING_TTL_MS);
+    tablesAPI.deleteSection(sec)
+      .then(() => {
+        // Backend confirmed — keep the shield until TTL anyway, in case the
+        // GET endpoint's UNION with restaurant_tables briefly resurrects via
+        // a stale cached row. The shield expires on its own.
+      })
+      .catch(() => {
+        // Persist failed — drop the shield so the next poll restores truth.
+        pendingSecDeletesRef.current.delete(lc);
+      });
   }
 
   // ── loading ─────────────────────────────────────────────────────────────────
@@ -1238,7 +1300,7 @@ export default function AdminTables({ navigation }) {
       {/* ── Header ── */}
       <View style={S.header}>
         <View>
-          <Text style={S.headerTitle}>Tables</Text>
+          <Text style={S.headerTitle}>{t('nav.tables')}</Text>
           <Text style={S.headerSub}>{tables.length} tables · {cntOccupied} occupied</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -1294,7 +1356,7 @@ export default function AdminTables({ navigation }) {
               <View style={S.floorSummaryRow}>
                 <View style={S.floorSummaryLabel}>
                   <MaterialIcons name="bar-chart" size={11} color="#94a3b8" />
-                  <Text style={S.floorSummaryLabelTxt}>FLOOR SUMMARY</Text>
+                  <Text style={S.floorSummaryLabelTxt}>{t('admin.tables.floorSummary').toUpperCase()}</Text>
                 </View>
                 <View style={S.floorStatRow}>
                   <View style={S.floorStat}>
@@ -1359,8 +1421,8 @@ export default function AdminTables({ navigation }) {
         ListEmptyComponent={
           <View style={S.empty}>
             <MaterialIcons name="chair" size={44} color="#e5e7eb" />
-            <Text style={S.emptyTxt}>No tables in this section</Text>
-            <Text style={S.emptySub}>Tap + to add a table</Text>
+            <Text style={S.emptyTxt}>{t('admin.tables.noTablesYet')}</Text>
+            <Text style={S.emptySub}>{t('admin.tables.createFirstTable')}</Text>
           </View>
         }
         renderItem={({ item }) => {
@@ -1412,15 +1474,15 @@ export default function AdminTables({ navigation }) {
       {/* ══════════════ SHEETS ══════════════ */}
 
       {/* Add Table */}
-      <Sheet visible={addSheet} onClose={() => setAddSheet(false)} title="Add New Table">
-        <Field label="Table Name">
+      <Sheet visible={addSheet} onClose={() => setAddSheet(false)} title={t('admin.tables.addNewTable')}>
+        <Field label={t('admin.tables.tableName')}>
           <TInput
             value={form.name}
             onChangeText={v => fi('name', v)}
-            placeholder="e.g. Table 9, Garden A, VIP 1..."
+            placeholder={t('admin.tables.tableNamePlaceholder')}
           />
         </Field>
-        <Field label="Number of Seats">
+        <Field label={t('admin.tables.numberOfSeats')}>
           <TInput
             value={form.seats}
             onChangeText={v => fi('seats', v)}
@@ -1428,12 +1490,12 @@ export default function AdminTables({ navigation }) {
             keyboardType="number-pad"
           />
         </Field>
-        <Field label="Section">
+        <Field label={t('admin.tables.section')}>
           <Pills options={sections} value={form.section} onSelect={v => fi('section', v)} sections={sections} />
         </Field>
         <View style={S.btnRow}>
-          <Btn label="Add Table" onPress={addTable} loading={saving} />
-          <Btn label="Cancel" onPress={() => setAddSheet(false)} outline />
+          <Btn label={t('admin.tables.addTable')} onPress={addTable} loading={saving} />
+          <Btn label={t('common.cancel')} onPress={() => setAddSheet(false)} outline />
         </View>
       </Sheet>
 
@@ -1443,18 +1505,18 @@ export default function AdminTables({ navigation }) {
         onClose={() => setEditSheet(null)}
         title={`Edit — ${editSheet?.name || `Table ${editSheet?.table_number}`}`}
       >
-        <Field label="Table Name">
-          <TInput value={form.name} onChangeText={v => fi('name', v)} placeholder="Table name" />
+        <Field label={t('admin.tables.tableName')}>
+          <TInput value={form.name} onChangeText={v => fi('name', v)} placeholder={t('admin.tables.tableNamePlaceholder')} />
         </Field>
-        <Field label="Number of Seats">
+        <Field label={t('admin.tables.numberOfSeats')}>
           <TInput value={form.seats} onChangeText={v => fi('seats', v)} placeholder="4" keyboardType="number-pad" />
         </Field>
-        <Field label="Section">
+        <Field label={t('admin.tables.section')}>
           <Pills options={sections} value={form.section} onSelect={v => fi('section', v)} sections={sections} />
         </Field>
         <View style={S.btnRow}>
-          <Btn label="Save Changes" onPress={saveEdit} loading={saving} />
-          <Btn label="Cancel" onPress={() => setEditSheet(null)} outline />
+          <Btn label={t('common.saveChanges')} onPress={saveEdit} loading={saving} />
+          <Btn label={t('common.cancel')} onPress={() => setEditSheet(null)} outline />
         </View>
       </Sheet>
 
@@ -1464,7 +1526,7 @@ export default function AdminTables({ navigation }) {
         onClose={() => setStatusSheet(null)}
         title={`Status — ${statusSheet?.name || `Table ${statusSheet?.table_number}`}`}
       >
-        <Field label="Select Status">
+        <Field label={t('admin.tables.selectStatus')}>
           <View style={S.statusGrid}>
             {STATUSES.map(s => {
               const m = STATUS_META[s];
@@ -1512,8 +1574,8 @@ export default function AdminTables({ navigation }) {
 
         {newStatus === 'reserved' && (
           <View style={S.extra}>
-            <Field label="Guest Name">
-              <TInput value={resGuest} onChangeText={setResGuest} placeholder="Full name" />
+            <Field label={t('admin.tables.guestName')}>
+              <TInput value={resGuest} onChangeText={setResGuest} placeholder={t('admin.tables.guestNamePlaceholder')} />
             </Field>
             <Field label="Phone">
               <PhoneField value={resPhone} onChange={setResPhone} />
@@ -1534,7 +1596,7 @@ export default function AdminTables({ navigation }) {
       </Sheet>
 
       {/* Delete Sheet */}
-      <Sheet visible={!!deleteSheet} onClose={() => setDeleteSheet(null)} title="Delete Table">
+      <Sheet visible={!!deleteSheet} onClose={() => setDeleteSheet(null)} title={t('admin.tables.deleteTable')}>
         <View style={S.deleteBox}>
           {deleteSheet?.blocked ? (
             <>
@@ -1554,7 +1616,7 @@ export default function AdminTables({ navigation }) {
               <Text style={S.deleteTitle}>
                 Delete "{deleteSheet?.table.name}"?
               </Text>
-              <Text style={S.deleteSub}>This cannot be undone.</Text>
+              <Text style={S.deleteSub}>{t('common.actionCannotBeUndone')}</Text>
               <View style={S.btnRow}>
                 <Btn label="Yes, Delete" onPress={confirmDelete} loading={saving} danger />
                 <Btn label="Cancel" onPress={() => setDeleteSheet(null)} outline />
@@ -1568,26 +1630,26 @@ export default function AdminTables({ navigation }) {
       <Sheet
         visible={secSheet}
         onClose={() => { setSecSheet(false); setNewSecName(''); }}
-        title="Manage Sections"
+        title={t('admin.tables.manageSections')}
       >
-        <Field label="Add New Section">
+        <Field label={t('admin.tables.addNewSection')}>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <TextInput
               style={[S.input, { flex: 1 }]}
               value={newSecName}
               onChangeText={setNewSecName}
-              placeholder="e.g. Rooftop, Garden..."
+              placeholder={t('admin.tables.newSectionPlaceholder')}
               placeholderTextColor={colors.textMuted}
               returnKeyType="done"
               onSubmitEditing={addSection}
             />
             <TouchableOpacity style={S.addSecBtn} onPress={addSection}>
-              <Text style={S.addSecBtnTxt}>Add</Text>
+              <Text style={S.addSecBtnTxt}>{t('common.add')}</Text>
             </TouchableOpacity>
           </View>
         </Field>
 
-        <Field label="Sections">
+        <Field label={t('admin.tables.sections')}>
           {sections.map(sec => {
             const c     = secColor(sec, sections);
             const count = tables.filter(t => (t.section || '') === sec).length;

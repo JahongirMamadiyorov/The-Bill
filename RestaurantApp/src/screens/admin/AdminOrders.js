@@ -29,6 +29,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { ordersAPI, menuAPI, tablesAPI, usersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -40,16 +41,16 @@ const CANCEL_REASONS    = ['Customer Left', 'Customer Changed Mind', 'Kitchen Is
 const DISC_REASONS      = ['Manager Approved', 'Loyalty Customer', 'Complaint Resolution', 'Other'];
 const ACTION_WIDTH      = 148; // px revealed on swipe
 
-const STATUS_META = {
-  pending:         { label: 'Pending',        bg: '#f1f5f9', text: '#475569', dot: '#94a3b8' },
-  sent_to_kitchen: { label: 'In Kitchen',     bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
-  preparing:       { label: 'Preparing',      bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
-  ready:           { label: 'Ready',          bg: '#dcfce7', text: '#15803d', dot: '#22c55e' },
-  served:          { label: 'Served',         bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' },
-  bill_requested:  { label: 'Bill Requested', bg: '#fef9c3', text: '#a16207', dot: '#eab308' },
-  paid:            { label: 'Paid',           bg: '#f0fdfa', text: '#0f766e', dot: '#14b8a6' },
-  cancelled:       { label: 'Cancelled',      bg: '#fee2e2', text: '#dc2626', dot: '#ef4444' },
-};
+const getStatusMeta = (t) => ({
+  pending:         { label: t('statuses.pending'),        bg: '#f1f5f9', text: '#475569', dot: '#94a3b8' },
+  sent_to_kitchen: { label: t('statuses.sentToKitchen'),  bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
+  preparing:       { label: t('statuses.preparing'),      bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
+  ready:           { label: t('statuses.ready'),          bg: '#dcfce7', text: '#15803d', dot: '#22c55e' },
+  served:          { label: t('statuses.served'),         bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' },
+  bill_requested:  { label: t('statuses.billRequested'),  bg: '#fef9c3', text: '#a16207', dot: '#eab308' },
+  paid:            { label: t('statuses.paid'),           bg: '#f0fdfa', text: '#0f766e', dot: '#14b8a6' },
+  cancelled:       { label: t('statuses.cancelled'),      bg: '#fee2e2', text: '#dc2626', dot: '#ef4444' },
+});
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const money   = (v) => new Intl.NumberFormat('uz-UZ').format(Math.round(Number(v) || 0)) + " so'm";
@@ -59,12 +60,12 @@ const shortId = (order) => {
   return `#${(order.id || '').replace(/-/g, '').slice(-4).toUpperCase()}`;
 };
 
-function timeAgo(dateStr) {
+function timeAgo(dateStr, t) {
   if (!dateStr) return '';
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 60000);
-  if (diff < 1)    return 'Just now';
-  if (diff < 60)   return `${diff}m ago`;
-  if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
+  if (diff < 1)    return t ? t('adminExtra.justNow') : 'Just now';
+  if (diff < 60)   return `${diff}${t ? t('adminExtra.minAgo') : 'm ago'}`;
+  if (diff < 1440) return `${Math.floor(diff / 60)}${t ? t('adminExtra.hAgo') : 'h ago'}`;
   return new Date(dateStr).toLocaleDateString();
 }
 function timeOnly(dateStr) {
@@ -73,7 +74,13 @@ function timeOnly(dateStr) {
 }
 
 // ─── DATE RANGE HELPERS ───────────────────────────────────────────────────────
-const DATE_PRESETS = ['Today', '7 Days', '30 Days', 'This Month', 'Custom'];
+const getDatePresets = (t) => [
+  { id: 'Today',      label: t('periods.today') },
+  { id: '7 Days',     label: t('periods.last7days') },
+  { id: '30 Days',    label: t('periods.last30days') },
+  { id: 'This Month', label: t('periods.thisMonth') },
+  { id: 'Custom',     label: t('periods.custom') },
+];
 
 function getPresetRange(preset, customFrom, customTo) {
   const now   = new Date();
@@ -99,7 +106,9 @@ function inDateRange(dateStr, from, to) {
 }
 
 // ─── PhoneField with +998 country code ──────────────────────────────────────
-function PhoneField({ label = 'PHONE NUMBER', value, onChange }) {
+function PhoneField({ label, value, onChange }) {
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t('phoneField.defaultLabel', 'PHONE NUMBER');
   function handleChange(raw) {
     const digits = raw.replace(/\D/g, '');
     const local = digits.startsWith('998') ? digits.slice(3) : digits;
@@ -123,18 +132,18 @@ function PhoneField({ label = 'PHONE NUMBER', value, onChange }) {
     return out;
   })();
   return (
-    <View style={{ marginBottom: 16 }}>
-      <Text style={pay.fieldLabel}>{label.toUpperCase()}</Text>
-      <View style={[pay.input, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden' }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 6 }}>
+    <View style={{ marginBottom: 16, width: '100%', alignSelf: 'stretch' }}>
+      <Text style={pay.fieldLabel}>{resolvedLabel.toUpperCase()}</Text>
+      <View style={[pay.input, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden', minHeight: 48, width: '100%' }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 6, alignSelf: 'stretch' }}>
           <Text style={{ fontSize: 16 }}>🇺🇿</Text>
           <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>+998</Text>
         </View>
         <TextInput
-          style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 13, fontSize: 15, color: '#0f172a' }}
+          style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 13, fontSize: 15, color: '#0f172a', minHeight: 48 }}
           value={displayLocal}
           onChangeText={handleChange}
-          placeholder="90 123 45 67"
+          placeholder={t('placeholders.phoneLocal', '90 123 45 67')}
           placeholderTextColor="#cbd5e1"
           keyboardType="phone-pad"
           maxLength={13}
@@ -306,15 +315,16 @@ function AOCalendarModal({ visible, onClose, from, to, onChange }) {
 
 // ─── DATE PICKER (Paid tab) ───────────────────────────────────────────────────
 function PaidDatePicker({ preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, filteredOrders }) {
+  const { t } = useTranslation();
   const [calOpen, setCalOpen] = useState(false);
   const totalRevenue = filteredOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
   return (
     <View style={dp.wrap}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={dp.chipRow}>
-        {DATE_PRESETS.map(p => (
-          <TouchableOpacity key={p} style={[dp.chip, preset === p && dp.chipActive]}
-            onPress={() => { setPreset(p); if (p === 'Custom') setCalOpen(true); }}>
-            <Text style={[dp.chipText, preset === p && dp.chipTextActive]}>{p}</Text>
+        {getDatePresets(t).map(p => (
+          <TouchableOpacity key={p.id} style={[dp.chip, preset === p.id && dp.chipActive]}
+            onPress={() => { setPreset(p.id); if (p.id === 'Custom') setCalOpen(true); }}>
+            <Text style={[dp.chipText, preset === p.id && dp.chipTextActive]}>{p.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -324,7 +334,7 @@ function PaidDatePicker({ preset, setPreset, customFrom, setCustomFrom, customTo
           <Text style={{ flex:1, fontSize:13, fontWeight:'700', color:'#0f172a', marginLeft:6 }}>
             {customFrom && customTo
               ? customFrom === customTo ? customFrom : `${customFrom}  →  ${customTo}`
-              : 'Tap to select date range'}
+              : t('adminExtra.tapToSelectRange')}
           </Text>
           <MaterialIcons name="edit-calendar" size={16} color={colors.admin} />
         </TouchableOpacity>
@@ -337,9 +347,9 @@ function PaidDatePicker({ preset, setPreset, customFrom, setCustomFrom, customTo
         onChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }}
       />
       <View style={dp.summaryRow}>
-        <Text style={dp.summaryLabel}>Showing: <Text style={dp.summaryBold}>{preset}</Text></Text>
+        <Text style={dp.summaryLabel}>{t('adminExtra.showingLabel')}: <Text style={dp.summaryBold}>{preset}</Text></Text>
         <View style={dp.summaryRight}>
-          <Text style={dp.summaryCount}>{filteredOrders.length} orders</Text>
+          <Text style={dp.summaryCount}>{filteredOrders.length} {t('adminExtra.ordersLabel')}</Text>
           <Text style={dp.summaryDot}>·</Text>
           <Text style={dp.summaryRevenue}>{money(totalRevenue)}</Text>
         </View>
@@ -366,7 +376,9 @@ const dp = StyleSheet.create({
 
 // ─── STATUS BADGE ─────────────────────────────────────────────────────────────
 function StatusBadge({ status, size = 'sm' }) {
-  const meta = STATUS_META[status] || STATUS_META.pending;
+  const { t } = useTranslation();
+  const SM = getStatusMeta(t);
+  const meta = SM[status] || SM.pending;
   return (
     <View style={[bdg.wrap, { backgroundColor: meta.bg }, size === 'lg' && bdg.wrapLg]}>
       <View style={[bdg.dot, { backgroundColor: meta.dot }]} />
@@ -384,12 +396,13 @@ const bdg = StyleSheet.create({
 
 // ─── SWIPEABLE ORDER CARD ─────────────────────────────────────────────────────
 function SwipeableOrderCard({ order, onPress, onEdit, onDelete, onLongPress, hideActions = false }) {
+  const { t } = useTranslation();
   const translateX = useRef(new Animated.Value(0)).current;
   const currentX   = useRef(0);           // settled position: 0 or -ACTION_WIDTH
   const isOpen     = useRef(false);
 
-  const waiter     = order.waitress_name || order.waiter_name || 'Staff';
-  const tableLabel = order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in');
+  const waiter     = order.waitress_name || order.waiter_name || t('adminExtra.staffLabel');
+  const tableLabel = order.table_name || (order.table_number ? `${t('adminExtra.table')} ${order.table_number}` : t('adminExtra.walkIn'));
   const itemCount  = order.item_count || (order.items?.length ?? 0);
 
   const snapTo = useCallback((toValue) => {
@@ -440,7 +453,7 @@ function SwipeableOrderCard({ order, onPress, onEdit, onDelete, onLongPress, hid
             hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
           >
             <MaterialIcons name="edit" size={20} color="#fff" />
-            <Text style={sw.stripLabel}>Edit</Text>
+            <Text style={sw.stripLabel}>{t('common.edit')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={sw.deleteBtn}
@@ -448,7 +461,7 @@ function SwipeableOrderCard({ order, onPress, onEdit, onDelete, onLongPress, hid
             hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
           >
             <MaterialIcons name="delete" size={20} color="#fff" />
-            <Text style={sw.stripLabel}>Delete</Text>
+            <Text style={sw.stripLabel}>{t('common.delete')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -462,14 +475,14 @@ function SwipeableOrderCard({ order, onPress, onEdit, onDelete, onLongPress, hid
           delayLongPress={500}
           style={{ flexDirection: 'row' }}
         >
-          <View style={[sw.stripe, { backgroundColor: (STATUS_META[order.status] || STATUS_META.pending).dot }]} />
+          <View style={[sw.stripe, { backgroundColor: (getStatusMeta(t)[order.status] || getStatusMeta(t).pending).dot }]} />
           <View style={sw.body}>
             <View style={sw.row1}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={sw.orderNum}>{shortId(order)}</Text>
                 <StatusBadge status={order.status} />
               </View>
-              <Text style={sw.time}>{timeAgo(order.created_at)}</Text>
+              <Text style={sw.time}>{timeAgo(order.created_at, t)}</Text>
             </View>
             <View style={sw.row2}>
               <Text style={sw.tableLabel}>{tableLabel}</Text>
@@ -503,7 +516,7 @@ function SwipeableOrderCard({ order, onPress, onEdit, onDelete, onLongPress, hid
             ) : null}
             <View style={sw.row3}>
               <View style={sw.metaChip}>
-                <Text style={sw.metaText}>{itemCount} item{itemCount !== 1 ? 's' : ''}</Text>
+                <Text style={sw.metaText}>{itemCount === 1 ? t('admin.orders.oneItem') : t('admin.orders.itemsCount', { count: itemCount })}</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={sw.total}>{money(order.total_amount)}</Text>
@@ -567,6 +580,7 @@ const sw = StyleSheet.create({
 
 // ─── ACTION SHEET ─────────────────────────────────────────────────────────────
 function ActionSheetModal({ order, onClose, onEdit, onDelete }) {
+  const { t } = useTranslation();
   if (!order) return null;
   return (
     <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
@@ -578,16 +592,16 @@ function ActionSheetModal({ order, onClose, onEdit, onDelete }) {
 
           <TouchableOpacity style={ash.option} onPress={() => { onClose(); onEdit(); }}>
             <View style={[ash.iconWrap, { backgroundColor: '#eff6ff' }]}><MaterialIcons name="edit" size={20} color="#2563EB" /></View>
-            <Text style={ash.optionText}>Edit Order</Text>
+            <Text style={ash.optionText}>{t('adminExtra.editOrderTitle')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={ash.option} onPress={() => { onClose(); onDelete(); }}>
             <View style={[ash.iconWrap, { backgroundColor: '#fef2f2' }]}><MaterialIcons name="delete" size={20} color="#DC2626" /></View>
-            <Text style={[ash.optionText, { color: '#dc2626' }]}>Delete Order</Text>
+            <Text style={[ash.optionText, { color: '#dc2626' }]}>{t('adminExtra.deleteOrderTitle')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={ash.cancelRow} onPress={onClose}>
-            <Text style={ash.cancelText}>Cancel</Text>
+            <Text style={ash.cancelText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -610,6 +624,7 @@ const ash = StyleSheet.create({
 
 // ─── DELETE CONFIRM ───────────────────────────────────────────────────────────
 function DeleteConfirmModal({ order, onClose, onConfirm }) {
+  const { t } = useTranslation();
   const [reason,    setReason]    = useState('');
   const [otherText, setOtherText] = useState('');
   const [deleting,  setDeleting]  = useState(false);
@@ -633,7 +648,7 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
             <View style={dc.handle} />
 
             <View style={dc.header}>
-              <Text style={dc.title}>Delete Order</Text>
+              <Text style={dc.title}>{t('adminExtra.deleteOrderTitle')}</Text>
               <TouchableOpacity onPress={onClose} style={dc.closeXBtn}>
                 <MaterialIcons name="close" size={20} color="#475569" />
               </TouchableOpacity>
@@ -642,13 +657,13 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
             {/* Summary */}
             <View style={dc.summaryBox}>
               {[
-                ['Order', shortId(order)],
-                ['Table', order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in')],
-                ['Total', money(order.total_amount)],
+                [t('common.order'), shortId(order)],
+                [t('adminExtra.table'), order.table_name || (order.table_number ? `${t('adminExtra.table')} ${order.table_number}` : t('adminExtra.walkIn'))],
+                [t('common.total'), money(order.total_amount)],
               ].map(([k, v], i, arr) => (
                 <View key={k} style={[dc.summaryRow, i < arr.length - 1 && dc.summaryBorder]}>
                   <Text style={dc.summaryKey}>{k}</Text>
-                  <Text style={[dc.summaryVal, k === 'Total' && { color: colors.admin, fontWeight: '800' }]}>{v}</Text>
+                  <Text style={[dc.summaryVal, k === t('common.total') && { color: colors.admin, fontWeight: '800' }]}>{v}</Text>
                 </View>
               ))}
             </View>
@@ -657,7 +672,7 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
             {isPaid && (
               <View style={dc.reasonSection}>
                 <Text style={dc.reasonTitle}>
-                  Reason for deletion <Text style={{ color: '#ef4444' }}>*</Text>
+                  {t('adminExtra.reasonForDeletion')} <Text style={{ color: '#ef4444' }}>*</Text>
                 </Text>
                 {DELETE_REASONS.map(r => (
                   <TouchableOpacity
@@ -677,7 +692,7 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
                     style={dc.otherInput}
                     value={otherText}
                     onChangeText={setOtherText}
-                    placeholder="Describe the reason…"
+                    placeholder={t('adminExtra.describeReason')}
                     placeholderTextColor="#94a3b8"
                     multiline
                   />
@@ -739,6 +754,7 @@ const dc = StyleSheet.create({
 
 // ─── CANCEL REASON MODAL ─────────────────────────────────────────────────────────
 function CancelReasonModal({ order, onClose, onConfirm }) {
+  const { t } = useTranslation();
   const [reason, setReason]       = useState('');
   const [otherText, setOtherText] = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -786,7 +802,7 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
             {/* Reason selection */}
             <View style={cr.reasonSection}>
               <Text style={cr.reasonTitle}>
-                Reason for cancellation <Text style={{ color: '#ef4444' }}>*</Text>
+                {t('ordersExtra.reasonForCancellation','Reason for cancellation')} <Text style={{ color: '#ef4444' }}>*</Text>
               </Text>
               {CANCEL_REASONS.map(r => (
                 <TouchableOpacity
@@ -806,7 +822,7 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
                   style={cr.otherInput}
                   value={otherText}
                   onChangeText={setOtherText}
-                  placeholder="Describe the reason…"
+                  placeholder={t('placeholders.describeReason','Describe the reason…')}
                   placeholderTextColor="#94a3b8"
                   multiline
                 />
@@ -815,7 +831,7 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
 
             <View style={cr.btnRow}>
               <TouchableOpacity style={cr.cancelBtn} onPress={onClose}>
-                <Text style={cr.cancelBtnText}>Go Back</Text>
+                <Text style={cr.cancelBtnText}>{t('ordersExtra.goBack','Go Back')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[cr.confirmBtn, !canConfirm && { opacity: 0.38 }]}
@@ -824,7 +840,7 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
               >
                 {cancelling
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={cr.confirmBtnText}>Cancel Order</Text>}
+                  : <Text style={cr.confirmBtnText}>{t('ordersExtra.cancelOrderShort','Cancel Order')}</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -898,6 +914,7 @@ const fld = StyleSheet.create({
 
 // ─── EDIT CURRENT ORDER (full-screen) ─────────────────────────────────────────
 function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
+  const { t } = useTranslation();
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
 
@@ -935,11 +952,15 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
       setWaitressName(o.waitress_name || o.waiter_name || '');
       setGuestCount(Number(o.guest_count) || 1);
       setNotes(o.notes || '');
+      // NOTE: use the order_items row id (i.id) as the LOCAL unique key to avoid
+      // collisions when two order_items rows share the same menu_item_id.
+      // Keep menu_item_id separately so handleSave can submit the correct FK.
       setItems((o.items || []).map(i => ({
-        id:       i.menu_item_id || i.item_id || i.id,
-        name:     i.item_name || i.name,
-        price:    Number(i.unit_price || i.price || 0),
-        quantity: Number(i.quantity || 1),
+        id:           i.id || i.item_id || i.menu_item_id,
+        menu_item_id: i.menu_item_id || i.item_id || i.id,
+        name:         i.item_name || i.name,
+        price:        Number(i.unit_price || i.price || 0),
+        quantity:     Number(i.quantity || 1),
       })));
       setTables(tRes.data || []);
       setStaff(sRes.data || []);
@@ -947,7 +968,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
       setLoading(false);
     }).catch(() => {
       if (!mounted) return;
-      showToast('Failed to load order details', 'error');
+      showToast(t('adminExtra.failedLoadOrder'), 'error');
       setLoading(false);
     });
     return () => { mounted = false; };
@@ -956,23 +977,31 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
   const liveTotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
 
   function addMenuItem(mi) {
+    const miId = mi.id || mi.menu_item_id;
     setItems(prev => {
-      const ex = prev.find(i => i.id === (mi.id || mi.menu_item_id));
-      if (ex) return prev.map(i => i.id === ex.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { id: mi.id || mi.menu_item_id, name: mi.name || mi.item_name, price: Number(mi.price || mi.unit_price || 0), quantity: 1 }];
+      // Match on menu_item_id so the same menu item increments qty instead of duplicating.
+      const ex = prev.find(i => i.menu_item_id === miId);
+      if (ex) return prev.map(i => i.menu_item_id === miId ? { ...i, quantity: i.quantity + 1 } : i);
+      return [...prev, {
+        id:           `new_${miId}_${Date.now()}`,
+        menu_item_id: miId,
+        name:         mi.name || mi.item_name,
+        price:        Number(mi.price || mi.unit_price || 0),
+        quantity:     1,
+      }];
     });
   }
   function changeQty(id, delta) {
     setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i));
   }
   function removeItem(id) {
-    if (items.length <= 1) { showToast('At least 1 item required', 'error'); return; }
+    if (items.length <= 1) { showToast(t('adminExtra.atLeast1Item'), 'error'); return; }
     setItems(prev => prev.filter(i => i.id !== id));
   }
 
   async function handleSave() {
-    if (!tableId && !tableName) { showToast('Please select a table', 'error'); return; }
-    if (items.length === 0)     { showToast('At least 1 item required', 'error'); return; }
+    if (!tableId && !tableName) { showToast(t('adminExtra.pleaseSelectTable'), 'error'); return; }
+    if (items.length === 0)     { showToast(t('adminExtra.atLeast1Item'), 'error'); return; }
     setSaving(true);
     try {
       await ordersAPI.update(order.id, {
@@ -980,13 +1009,15 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
         waitress_id: waitressId || undefined,
         guest_count: guestCount,
         notes:       notes      || undefined,
-        items:       items.map(i => ({ menu_item_id: i.id, quantity: i.quantity })),
+        // Send menu_item_id explicitly so removed items actually drop from the
+        // server (backend does DELETE + INSERT of the provided items list).
+        items:       items.map(i => ({ menu_item_id: i.menu_item_id || i.id, quantity: i.quantity })),
       });
       showToast(`Order ${shortId(order)} updated`, 'success');
       onSaved();
       onClose();
     } catch (e) {
-      showToast(e.response?.data?.error || 'Failed to save changes', 'error');
+      showToast(e.response?.data?.error || t('adminExtra.failedSaveChanges'), 'error');
     }
     setSaving(false);
   }
@@ -1004,11 +1035,11 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
             <TouchableOpacity onPress={onClose} style={ec.headerBtn}>
               <MaterialIcons name="close" size={20} color="#475569" />
             </TouchableOpacity>
-            <Text style={ec.title} numberOfLines={1}>Edit Order {shortId(order)}</Text>
+            <Text style={ec.title} numberOfLines={1}>{`${t('admin.editOrder.editOrderTitle','Edit Order')} ${shortId(order)}`}</Text>
             <TouchableOpacity style={ec.saveBtn} onPress={handleSave} disabled={saving}>
               {saving
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={ec.saveBtnText}>Save</Text>}
+                : <Text style={ec.saveBtnText}>{t('common.save','Save')}</Text>}
             </TouchableOpacity>
           </View>
 
@@ -1018,7 +1049,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
               <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                 <MaterialIcons name="warning" size={16} color="#c2410c" style={{ marginRight: 8, marginTop: 1 }} />
                 <Text style={ec.kitchenWarnText}>
-                  Kitchen is preparing this order. Item changes may cause confusion. Proceed carefully.
+                  {t('adminExtra.kitchenWarning')}
                 </Text>
               </View>
             </View>
@@ -1031,15 +1062,15 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={ec.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
                   {/* ── Order Info ── */}
-                  <Text style={ec.sectionTitle}>Order Info</Text>
+                  <Text style={ec.sectionTitle}>{t('adminExtra.orderInfo')}</Text>
 
-                  <FieldLabel>Table</FieldLabel>
-                  <SelectRow value={tableName} placeholder="Select table" onPress={() => setShowTablePicker(true)} />
+                  <FieldLabel>{t('adminExtra.table')}</FieldLabel>
+                  <SelectRow value={tableName} placeholder={t('adminExtra.selectTablePlaceholder')} onPress={() => setShowTablePicker(true)} />
 
-                  <FieldLabel>Waitress</FieldLabel>
-                  <SelectRow value={waitressName} placeholder="Select waitress" onPress={() => setShowWaitressPicker(true)} />
+                  <FieldLabel>{t('adminExtra.waitressLabel')}</FieldLabel>
+                  <SelectRow value={waitressName} placeholder={t('adminExtra.selectWaitressPlaceholder')} onPress={() => setShowWaitressPicker(true)} />
 
-                  <FieldLabel>Number of Guests</FieldLabel>
+                  <FieldLabel>{t('adminExtra.numberOfGuests')}</FieldLabel>
                   <View style={ec.qtyRow}>
                     <TouchableOpacity style={ec.qtyBtn} onPress={() => setGuestCount(g => Math.max(1, g - 1))}>
                       <Text style={ec.qtyBtnText}>−</Text>
@@ -1051,7 +1082,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                   </View>
 
                   {/* ── Order Items ── */}
-                  <Text style={ec.sectionTitle}>Order Items</Text>
+                  <Text style={ec.sectionTitle}>{t('adminExtra.orderItems')}</Text>
                   {items.map(it => (
                     <View key={it.id} style={ec.itemRow}>
                       <View style={{ flex: 1 }}>
@@ -1074,14 +1105,14 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                   ))}
 
                   {/* ── Add Items ── */}
-                  <Text style={ec.sectionTitle}>Add Items</Text>
+                  <Text style={ec.sectionTitle}>{t('adminExtra.addItemsLabel')}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', paddingLeft: 12, marginBottom: 10 }}>
                     <MaterialIcons name="search" size={18} color="#94a3b8" style={{ marginRight: 6 }} />
                     <TextInput
                       style={{ flex: 1, paddingHorizontal: 6, paddingVertical: 12, fontSize: 14, color: '#0f172a' }}
                       value={menuSearch}
                       onChangeText={setMenuSearch}
-                      placeholder="Search menu…"
+                      placeholder={t('adminExtra.searchMenu')}
                       placeholderTextColor="#94a3b8"
                       clearButtonMode="while-editing"
                     />
@@ -1097,12 +1128,12 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                   ))}
 
                   {/* ── Notes ── */}
-                  <Text style={ec.sectionTitle}>Notes</Text>
+                  <Text style={ec.sectionTitle}>{t('common.notes','Notes')}</Text>
                   <TextInput
                     style={ec.notesInput}
                     value={notes}
                     onChangeText={setNotes}
-                    placeholder="Special instructions…"
+                    placeholder={t('placeholders.specialInstructions',"Special instructions…")}
                     placeholderTextColor="#94a3b8"
                     multiline
                     numberOfLines={3}
@@ -1111,7 +1142,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
 
                   {/* ── Live Total ── */}
                   <View style={ec.totalBox}>
-                    <Text style={ec.totalLabel}>Order Total</Text>
+                    <Text style={ec.totalLabel}>{t('common.total','Total')}</Text>
                     <Text style={ec.totalVal}>{money(liveTotal)}</Text>
                   </View>
 
@@ -1128,14 +1159,14 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowTablePicker(false)} />
               <View style={pkr.sheet}>
                 <View style={pkr.handle} />
-                <Text style={pkr.title}>Select Table</Text>
+                <Text style={pkr.title}>{t('admin.newOrder.selectTable','Select Table')}</Text>
                 <ScrollView>
-                  {tables.map(t => {
-                    const name = t.name || (t.table_number ? `Table ${t.table_number}` : `Table ${t.id}`);
+                  {tables.map(tb => {
+                    const name = tb.name || (tb.table_number ? `Table ${tb.table_number}` : `Table ${tb.id}`);
                     return (
-                      <TouchableOpacity key={t.id} style={pkr.option} onPress={() => { setTableId(t.id); setTableName(name); setShowTablePicker(false); }}>
+                      <TouchableOpacity key={tb.id} style={pkr.option} onPress={() => { setTableId(tb.id); setTableName(name); setShowTablePicker(false); }}>
                         <Text style={pkr.optionText}>{name}</Text>
-                        {tableId === t.id && <MaterialIcons name="check" size={18} color="#16A34A" />}
+                        {tableId === tb.id && <MaterialIcons name="check" size={18} color="#16A34A" />}
                       </TouchableOpacity>
                     );
                   })}
@@ -1152,7 +1183,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowWaitressPicker(false)} />
               <View style={pkr.sheet}>
                 <View style={pkr.handle} />
-                <Text style={pkr.title}>Select Waitress</Text>
+                <Text style={pkr.title}>{t('placeholders.selectWaitress','Select Waitress')}</Text>
                 <ScrollView>
                   {staff.map(s => {
                     const name = s.full_name || s.name || s.email;
@@ -1212,6 +1243,7 @@ const ec = StyleSheet.create({
 
 // ─── EDIT PAID ORDER (bottom sheet) ──────────────────────────────────────────
 function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
+  const { t } = useTranslation();
   const [saving,  setSaving]  = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -1271,7 +1303,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
       onSaved();
       onClose();
     } catch (e) {
-      showToast(e.response?.data?.error || 'Failed to save changes', 'error');
+      showToast(e.response?.data?.error || t('adminExtra.failedSaveChanges'), 'error');
     }
     setSaving(false);
   }
@@ -1290,11 +1322,11 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                 <TouchableOpacity onPress={onClose} style={ep.closeBtn}>
                   <MaterialIcons name="close" size={20} color="#475569" />
                 </TouchableOpacity>
-                <Text style={ep.title} numberOfLines={1}>Edit Paid Order {shortId(order)}</Text>
+                <Text style={ep.title} numberOfLines={1}>{`${t('admin.editOrder.editPaidOrder','Edit Paid Order')} ${shortId(order)}`}</Text>
                 <TouchableOpacity style={ep.saveBtn} onPress={handleSave} disabled={saving}>
                   {saving
                     ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={ep.saveBtnText}>Save</Text>}
+                    : <Text style={ep.saveBtnText}>{t('common.save','Save')}</Text>}
                 </TouchableOpacity>
               </View>
 
@@ -1328,17 +1360,17 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                     </View>
 
                     <FieldLabel>Assigned Waitress</FieldLabel>
-                    <SelectRow value={waitressName} placeholder="Select waitress" onPress={() => setShowWaitressPicker(true)} />
+                    <SelectRow value={waitressName} placeholder={t('placeholders.selectWaitress','Select waitress')} onPress={() => setShowWaitressPicker(true)} />
 
-                    <FieldLabel>Table</FieldLabel>
-                    <SelectRow value={tableName} placeholder="Select table" onPress={() => setShowTablePicker(true)} />
+                    <FieldLabel>{t('adminExtra.table','Table')}</FieldLabel>
+                    <SelectRow value={tableName} placeholder={t('placeholders.selectTable','Select table')} onPress={() => setShowTablePicker(true)} />
 
                     <FieldLabel>Internal Notes</FieldLabel>
                     <TextInput
                       style={ep.notesInput}
                       value={notes}
                       onChangeText={setNotes}
-                      placeholder="Internal notes…"
+                      placeholder={t('placeholders.internalNotes','Internal notes…')}
                       placeholderTextColor="#94a3b8"
                       multiline
                       numberOfLines={2}
@@ -1376,14 +1408,14 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowTablePicker(false)} />
               <View style={pkr.sheet}>
                 <View style={pkr.handle} />
-                <Text style={pkr.title}>Select Table</Text>
+                <Text style={pkr.title}>{t('admin.newOrder.selectTable','Select Table')}</Text>
                 <ScrollView>
-                  {tables.map(t => {
-                    const name = t.name || (t.table_number ? `Table ${t.table_number}` : `Table ${t.id}`);
+                  {tables.map(tb => {
+                    const name = tb.name || (tb.table_number ? `Table ${tb.table_number}` : `Table ${tb.id}`);
                     return (
-                      <TouchableOpacity key={t.id} style={pkr.option} onPress={() => { setTableId(t.id); setTableName(name); setShowTablePicker(false); }}>
+                      <TouchableOpacity key={tb.id} style={pkr.option} onPress={() => { setTableId(tb.id); setTableName(name); setShowTablePicker(false); }}>
                         <Text style={pkr.optionText}>{name}</Text>
-                        {tableId === t.id && <MaterialIcons name="check" size={18} color="#16A34A" />}
+                        {tableId === tb.id && <MaterialIcons name="check" size={18} color="#16A34A" />}
                       </TouchableOpacity>
                     );
                   })}
@@ -1400,7 +1432,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowWaitressPicker(false)} />
               <View style={pkr.sheet}>
                 <View style={pkr.handle} />
-                <Text style={pkr.title}>Select Waitress</Text>
+                <Text style={pkr.title}>{t('placeholders.selectWaitress','Select Waitress')}</Text>
                 <ScrollView>
                   {staff.map(s => {
                     const name = s.full_name || s.name || s.email;
@@ -1530,6 +1562,7 @@ function LoanDatePickerSheet({ current, onSelect, onClose }) {
 
 // ─── PAYMENT SHEET ────────────────────────────────────────────────────────────
 function PaymentSheet({ visible, order, onClose, onPaid }) {
+  const { t } = useTranslation();
   const [method,      setMethod]      = useState('Cash');
   const [cashIn,      setCashIn]      = useState('');
   const [cardOk,      setCardOk]      = useState(false);
@@ -1628,7 +1661,7 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
       }
       await ordersAPI.pay(order.id, payload);
       onPaid();
-    } catch (e) { Alert.alert('Payment failed', e.response?.data?.error || e.message); }
+    } catch (e) { Alert.alert(t('alerts.paymentFailed','Payment failed'), e.response?.data?.error || e.message); }
     setPaying(false);
   }
 
@@ -1753,9 +1786,9 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                   <MaterialIcons name="info-outline" size={15} color="#D97706" />
                   <Text style={pay.loanNoticeTxt}>Order marked paid. Debt tracked until customer returns.</Text>
                 </View>
-                <Text style={pay.fieldLabel}>Customer Name</Text>
-                <TextInput style={pay.input} placeholder="Full name" placeholderTextColor="#94a3b8" value={loanName} onChangeText={setLoanName} />
-                <PhoneField label="Phone Number" value={loanPhone} onChange={setLoanPhone} />
+                <Text style={pay.fieldLabel}>{t('common.customerName','Customer Name')}</Text>
+                <TextInput style={pay.input} placeholder={t('placeholders.fullName','Full name')} placeholderTextColor="#94a3b8" value={loanName} onChangeText={setLoanName} />
+                <PhoneField label={t('phoneField.label','Phone Number')} value={loanPhone} onChange={setLoanPhone} />
                 <Text style={pay.fieldLabel}>Expected Return Date</Text>
                 <TouchableOpacity style={[pay.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
                   onPress={() => setShowLoanCal(true)} activeOpacity={0.8}>
@@ -1825,7 +1858,7 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                           </View>
                           <TextInput
                             style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, color: '#0f172a' }}
-                            placeholder="90 123 45 67"
+                            placeholder={t('placeholders.phoneLocal', '90 123 45 67')}
                             placeholderTextColor="#94a3b8"
                             keyboardType="phone-pad"
                             value={(() => {
@@ -1992,6 +2025,7 @@ const pay = StyleSheet.create({
 
 // ─── ORDER DETAIL SHEET ───────────────────────────────────────────────────────
 function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
+  const { t } = useTranslation();
   const [detail,    setDetail]    = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [advancing, setAdvancing] = useState(false);
@@ -2035,7 +2069,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
       const r = await ordersAPI.getById(order.id);
       setDetail(r.data);
       onRefresh();
-    } catch (e) { Alert.alert('Error', e.response?.data?.error || e.message); }
+    } catch (e) { Alert.alert(t('alerts.error','Error'), e.response?.data?.error || e.message); }
     setAdvancing(false);
   }
 
@@ -2056,7 +2090,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
             <View style={{ flex: 1 }}>
               <Text style={det.orderNum}>{shortId(order)}</Text>
               <Text style={det.orderTime}>
-                {timeOnly(current.created_at)}  ·  {timeAgo(current.created_at)}
+                {timeOnly(current.created_at)}  {'\u00b7'}  {timeAgo(current.created_at, t)}
               </Text>
             </View>
             <StatusBadge status={current.status} size="lg" />
@@ -2065,24 +2099,24 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
           {/* ── Key info strip: Table | Waitress | Guests | Payment ── */}
           <View style={det.infoStrip}>
             <View style={det.infoCell}>
-              <Text style={det.infoCellLbl}>Table</Text>
+              <Text style={det.infoCellLbl}>{t('admin.tables.tableName')}</Text>
               <Text style={det.infoCellVal}>{tableLabel}</Text>
             </View>
             <View style={det.infoDivider} />
             <View style={det.infoCell}>
-              <Text style={det.infoCellLbl}>Waitress</Text>
+              <Text style={det.infoCellLbl}>{t('admin.tables.waiter')}</Text>
               <Text style={det.infoCellVal} numberOfLines={1}>{waiter}</Text>
             </View>
             <View style={det.infoDivider} />
             <View style={det.infoCell}>
-              <Text style={det.infoCellLbl}>Guests</Text>
+              <Text style={det.infoCellLbl}>{t('admin.newOrder.guests')}</Text>
               <Text style={det.infoCellVal}>{guests > 0 ? guests : '—'}</Text>
             </View>
             {isPaid && current.payment_method ? (
               <>
                 <View style={det.infoDivider} />
                 <View style={det.infoCell}>
-                  <Text style={det.infoCellLbl}>Payment</Text>
+                  <Text style={det.infoCellLbl}>{t('cashier.orders.paymentMethod')}</Text>
                   <Text style={det.infoCellVal}>
                     {current.payment_method.charAt(0).toUpperCase() + current.payment_method.slice(1)}
                   </Text>
@@ -2094,7 +2128,8 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
           {/* ── Status timeline ── */}
           <View style={det.timeline}>
             {STEPS.map((step, idx) => {
-              const meta      = STATUS_META[step] || STATUS_META.pending;
+              const SM_ = getStatusMeta(t);
+              const meta      = SM_[step] || SM_.pending;
               const isReached = idx <= currentStepIdx;
               const isCurrent = idx === currentStepIdx;
               return (
@@ -2124,7 +2159,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
             <View style={det.cancelBanner}>
               <MaterialIcons name="block" size={18} color="#dc2626" />
               <View style={{ flex: 1 }}>
-                <Text style={det.cancelBannerTitle}>Order Cancelled</Text>
+                <Text style={det.cancelBannerTitle}>{t('admin.orders.cancelOrder')}</Text>
                 <Text style={det.cancelBannerReason}>{current.cancellation_reason || 'No reason specified'}</Text>
               </View>
             </View>
@@ -2136,7 +2171,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
 
               {/* ── Items ── */}
-              <Text style={det.sectionLabel}>Items Ordered</Text>
+              <Text style={det.sectionLabel}>{t('cashier.orders.orderItems')}</Text>
               {items.length === 0 ? (
                 <Text style={det.emptyItems}>No item details available</Text>
               ) : items.map((item, idx) => {
@@ -2156,7 +2191,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                           <Text style={det.itemNote}>{item.notes}</Text>
                         </View>
                       ) : null}
-                      <Text style={det.itemUnit}>{money(unitPrice)} each</Text>
+                      <Text style={det.itemUnit}>{money(unitPrice)} {t('common.each')}</Text>
                     </View>
                     <Text style={det.itemPrice}>{money(lineTotal)}</Text>
                   </View>
@@ -2166,7 +2201,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
               {/* ── Order notes ── */}
               {!!notes && (
                 <>
-                  <Text style={det.sectionLabel}>Order Notes</Text>
+                  <Text style={det.sectionLabel}>{t('common.notes')}</Text>
                   <View style={det.notesBox}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                       <MaterialIcons name="assignment" size={16} color="#475569" style={{ marginRight: 8, marginTop: 2 }} />
@@ -2180,7 +2215,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
               <View style={det.totalsBox}>
                 {subtotal > 0 && Math.round(subtotal) !== Math.round(Number(current.total_amount)) && (
                   <View style={det.totalRow}>
-                    <Text style={det.totalLabel}>Subtotal</Text>
+                    <Text style={det.totalLabel}>{t('common.subtotal')}</Text>
                     <Text style={det.totalVal}>{money(subtotal)}</Text>
                   </View>
                 )}
@@ -2192,12 +2227,12 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                 )}
                 {Number(current.discount_amount) > 0 && (
                   <View style={det.totalRow}>
-                    <Text style={[det.totalLabel, { color: '#dc2626' }]}>Discount</Text>
+                    <Text style={[det.totalLabel, { color: '#dc2626' }]}>{t('common.discount')}</Text>
                     <Text style={[det.totalVal, { color: '#dc2626' }]}>− {money(current.discount_amount)}</Text>
                   </View>
                 )}
                 <View style={[det.totalRow, det.grandRow]}>
-                  <Text style={det.grandLabel}>Total</Text>
+                  <Text style={det.grandLabel}>{t('common.total')}</Text>
                   <Text style={det.grandVal}>{money(current.total_amount)}</Text>
                 </View>
                 {isPaid && (
@@ -2351,7 +2386,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
           {!loading && (
             <View style={det.actions}>
               <TouchableOpacity style={det.closeBtn} onPress={onClose}>
-                <Text style={det.closeBtnTxt}>Close</Text>
+                <Text style={det.closeBtnTxt}>{t('common.close')}</Text>
               </TouchableOpacity>
 
               {/* Edit — hide for paid & cancelled */}
@@ -2359,7 +2394,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                 <TouchableOpacity style={det.editBtn} onPress={() => { onClose(); setTimeout(() => onEdit && onEdit(current), 300); }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
                     <MaterialIcons name="edit" size={16} color="#2563EB" style={{ marginRight: 6 }} />
-                    <Text style={det.editBtnTxt}>Edit</Text>
+                    <Text style={det.editBtnTxt}>{t('common.edit')}</Text>
                   </View>
                 </TouchableOpacity>
               )}
@@ -2372,7 +2407,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                     : (
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
                         <MaterialIcons name="block" size={16} color="#dc2626" style={{ marginRight: 6 }} />
-                        <Text style={det.cancelOrderTxt}>Cancel</Text>
+                        <Text style={det.cancelOrderTxt}>{t('common.cancel')}</Text>
                       </View>
                     )}
                 </TouchableOpacity>
@@ -2395,7 +2430,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                             <Text style={det.advanceBtnTxt}>Collect Payment</Text>
                           </>
                         ) : (
-                          <Text style={det.advanceBtnTxt}>→ {STATUS_META[nextStatus]?.label || nextStatus}</Text>
+                          <Text style={det.advanceBtnTxt}>→ {getStatusMeta(t)[nextStatus]?.label || nextStatus}</Text>
                         )}
                       </View>
                     )}
@@ -2490,20 +2525,22 @@ const det = StyleSheet.create({
 
 // ─── EMPTY STATE ──────────────────────────────────────────────────────────────
 function EmptyState({ tab }) {
+  const { t } = useTranslation();
   const icon = tab === 'current' ? 'restaurant' : tab === 'paid' ? 'receipt-long' : 'block';
-  const title = tab === 'current' ? 'No active orders' : tab === 'paid' ? 'No paid orders yet' : 'No cancelled orders';
-  const hint = tab === 'current' ? 'Active orders will appear here' : tab === 'paid' ? 'Completed payments will show here' : 'Cancelled orders will appear here';
+  const title = t('admin.orders.noOrdersFound');
+  const hint = '';
   return (
     <View style={st.emptyWrap}>
       <MaterialIcons name={icon} size={48} color="#E5E7EB" />
       <Text style={st.emptyTitle}>{title}</Text>
-      <Text style={st.emptyHint}>{hint}</Text>
+      {hint ? <Text style={st.emptyHint}>{hint}</Text> : null}
     </View>
   );
 }
 
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
 export default function AdminOrders({ navigation }) {
+  const { t } = useTranslation();
   const [orders,      setOrders]      = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
@@ -2551,8 +2588,8 @@ export default function AdminOrders({ navigation }) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    const pollTimer = setInterval(load, 5000);
+    return () => clearInterval(pollTimer);
   }, [load]);
 
   // ── Toast helper ──
@@ -2615,7 +2652,7 @@ export default function AdminOrders({ navigation }) {
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       {/* ── Header ── */}
       <View style={st.header}>
-        <Text style={st.headerTitle}>Orders</Text>
+        <Text style={st.headerTitle}>{t('admin.orders.title')}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={st.headerBadge}>
             <View style={[st.liveDot, { backgroundColor: '#22c55e' }]} />
@@ -2626,7 +2663,7 @@ export default function AdminOrders({ navigation }) {
             onPress={() => navigation.navigate('CashierWalkin')}
           >
             <MaterialIcons name="add" size={16} color="#fff" />
-            <Text style={st.newOrderTxt}>New Order</Text>
+            <Text style={st.newOrderTxt}>{t('admin.orders.newOrder')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -2634,19 +2671,27 @@ export default function AdminOrders({ navigation }) {
       {/* ── Tab Bar ── */}
       <View style={st.tabBar}>
         {[
-          { id: 'current',   label: 'Active',    count: currentOrders.length },
-          { id: 'paid',      label: 'Paid',       count: paidOrders.length },
-          { id: 'cancelled', label: 'Cancelled',  count: cancelledOrders.length },
-        ].map(t => (
+          { id: 'current',   label: t('admin.orders.activeOrders'),    count: currentOrders.length },
+          { id: 'paid',      label: t('admin.orders.paidOrders'),       count: paidOrders.length },
+          { id: 'cancelled', label: t('admin.orders.cancelledOrders'),  count: cancelledOrders.length },
+        ].map(tb => (
           <TouchableOpacity
-            key={t.id}
-            style={[st.tabBtn, tab === t.id && st.tabBtnActive]}
-            onPress={() => setTab(t.id)}
+            key={tb.id}
+            style={[st.tabBtn, tab === tb.id && st.tabBtnActive]}
+            onPress={() => setTab(tb.id)}
           >
-            <Text style={[st.tabLabel, tab === t.id && st.tabLabelActive]}>{t.label}</Text>
-            {t.count > 0 && (
-              <View style={[st.tabCount, tab === t.id && st.tabCountActive]}>
-                <Text style={[st.tabCountText, tab === t.id && st.tabCountTextActive]}>{t.count}</Text>
+            <Text
+              style={[st.tabLabel, tab === tb.id && st.tabLabelActive]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {tb.label}
+            </Text>
+            {tb.count > 0 && (
+              <View style={[st.tabCount, tab === tb.id && st.tabCountActive]}>
+                <Text style={[st.tabCountText, tab === tb.id && st.tabCountTextActive]}>{tb.count}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -2659,7 +2704,7 @@ export default function AdminOrders({ navigation }) {
           {['pending', 'sent_to_kitchen', 'preparing', 'ready', 'served', 'bill_requested'].map(s => {
             const cnt  = currentOrders.filter(o => o.status === s).length;
             if (cnt === 0) return null;
-            const meta = STATUS_META[s];
+            const meta = getStatusMeta(t)[s];
             return (
               <View key={s} style={[st.summaryChip, { backgroundColor: meta.bg }]}>
                 <View style={[st.summaryDot, { backgroundColor: meta.dot }]} />
@@ -2764,8 +2809,8 @@ export default function AdminOrders({ navigation }) {
 
       {/* ── Toast Rack ── */}
       <View style={st.toastRack} pointerEvents="none">
-        {toasts.map(t => (
-          <ToastItem key={t.id} toast={t} onDone={() => dismissToast(t.id)} />
+        {toasts.map(ts => (
+          <ToastItem key={ts.id} toast={ts} onDone={() => dismissToast(ts.id)} />
         ))}
       </View>
 
@@ -2788,11 +2833,11 @@ const st = StyleSheet.create({
   liveText:     { fontSize: 11, fontWeight: '700', color: '#15803d' },
 
   tabBar:           { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  tabBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabBtn:           { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 13, paddingHorizontal: 4, borderBottomWidth: 3, borderBottomColor: 'transparent' },
   tabBtnActive:     { borderBottomColor: colors.admin },
-  tabLabel:         { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  tabLabel:         { fontSize: 12, fontWeight: '600', color: '#64748b', flexShrink: 1 },
   tabLabelActive:   { color: colors.admin, fontWeight: '800' },
-  tabCount:         { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 99, backgroundColor: '#f1f5f9' },
+  tabCount:         { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 99, backgroundColor: '#f1f5f9', minWidth: 20, alignItems: 'center' },
   tabCountActive:   { backgroundColor: colors.admin + '22' },
   tabCountText:     { fontSize: 11, fontWeight: '700', color: '#64748b' },
   tabCountTextActive: { color: colors.admin },

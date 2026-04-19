@@ -2,6 +2,7 @@
 // ConfirmDialog — Styled replacement for window.confirm / alert
 // ════════════════════════════════════════════════════════════════
 import { AlertTriangle, Trash2, CheckCircle, Info, XCircle, AlertCircle } from 'lucide-react';
+import { useTranslation } from '../context/LanguageContext';
 
 /**
  * Usage:
@@ -41,6 +42,7 @@ const TYPE_CONFIG = {
 };
 
 export default function ConfirmDialog({ dialog, onClose }) {
+  const { t } = useTranslation();
   if (!dialog) return null;
 
   const type = dialog.type || 'info';
@@ -63,7 +65,7 @@ export default function ConfirmDialog({ dialog, onClose }) {
         </div>
 
         {/* Title */}
-        <h2 className="text-lg font-bold text-gray-900 mb-1">{dialog.title || 'Alert'}</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-1">{dialog.title || t('common.alert', 'Alert')}</h2>
 
         {/* Message */}
         {dialog.message && (
@@ -77,14 +79,14 @@ export default function ConfirmDialog({ dialog, onClose }) {
               onClick={onClose}
               className="flex-1 py-2.5 text-sm font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
             >
-              Cancel
+              {t('common.cancel', 'Cancel')}
             </button>
             <button
               onClick={dialog.onConfirm}
               disabled={dialog.loading}
               className={`flex-1 py-2.5 text-sm font-semibold text-white rounded-xl transition-colors disabled:opacity-50 ${cfg.btnCls}`}
             >
-              {dialog.loading ? 'Loading…' : (dialog.confirmLabel || 'Confirm')}
+              {dialog.loading ? t('common.loading', 'Loading…') : (dialog.confirmLabel || t('common.confirm', 'Confirm'))}
             </button>
           </div>
         ) : (
@@ -92,7 +94,7 @@ export default function ConfirmDialog({ dialog, onClose }) {
             onClick={onClose}
             className={`w-full py-2.5 text-sm font-semibold text-white rounded-xl transition-colors ${cfg.btnCls}`}
           >
-            {dialog.confirmLabel || 'OK'}
+            {dialog.confirmLabel || t('common.ok', 'OK')}
           </button>
         )}
       </div>

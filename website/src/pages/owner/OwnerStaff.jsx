@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronUp, Users, TrendingUp, AlertCircle } from 'lucide-react';
 import { usersAPI, shiftsAPI, reportsAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 
 export default function OwnerStaff() {
+  const { t } = useTranslation();
   const [staff, setStaff] = useState([]);
   const [staffStatus, setStaffStatus] = useState({});
   const [performance, setPerformance] = useState({});
@@ -48,7 +50,7 @@ export default function OwnerStaff() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading staff data...</p>
+          <p className="text-gray-600">{t('owner.staff.loadingStaff')}</p>
         </div>
       </div>
     );
@@ -65,7 +67,7 @@ export default function OwnerStaff() {
           onClick={() => fetchStaffData()}
           className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
         >
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     );
@@ -82,41 +84,41 @@ export default function OwnerStaff() {
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
           <Users className="w-8 h-8" style={{ color: '#7C3AED' }} />
-          Staff Management
+          {t('owner.staff.title')}
         </h1>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-gray-600">Total Staff</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.staff.totalStaff')}</h3>
               <Users className="w-5 h-5" style={{ color: '#7C3AED' }} />
             </div>
             <p className="text-3xl font-bold text-gray-900">{staff.length}</p>
-            <p className="text-xs text-gray-500 mt-2">Team members</p>
+            <p className="text-xs text-gray-500 mt-2">{t('owner.staff.teamMembers')}</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-gray-600">On Shift</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.staff.onShift')}</h3>
               <TrendingUp className="w-5 h-5" style={{ color: '#7C3AED' }} />
             </div>
             <p className="text-3xl font-bold text-gray-900">{onShiftCount}</p>
-            <p className="text-xs text-gray-500 mt-2">Currently working</p>
+            <p className="text-xs text-gray-500 mt-2">{t('owner.staff.onShift')}</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-gray-600">Payroll This Month</h3>
+              <h3 className="text-sm font-medium text-gray-600">{t('owner.finance.payrollSummary')}</h3>
               <DollarSignIcon className="w-5 h-5" style={{ color: '#7C3AED' }} />
             </div>
             <p className="text-3xl font-bold text-gray-900">{money(payroll?.totalPayroll || 0)}</p>
-            <p className="text-xs text-gray-500 mt-2">Total expenses</p>
+            <p className="text-xs text-gray-500 mt-2">{t('owner.finance.totalExpenses')}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="p-6 border-b border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900">Staff List</h2>
+            <h2 className="text-lg font-bold text-gray-900">{t('admin.staff.staffList')}</h2>
           </div>
 
           <div className="divide-y divide-gray-200">
@@ -152,13 +154,13 @@ export default function OwnerStaff() {
                             ? 'bg-green-100 text-green-700'
                             : 'bg-gray-100 text-gray-700'
                         }`}>
-                          {status?.isOnShift ? 'On Shift' : 'Off Shift'}
+                          {status?.isOnShift ? t('owner.staff.onShift') : t('superAdmin.filterInactive')}
                         </span>
 
                         {perf && (
                           <div className="text-right hidden sm:block">
                             <p className="text-sm font-medium text-gray-900">{perf.avgRating}/5</p>
-                            <p className="text-xs text-gray-600">Rating</p>
+                            <p className="text-xs text-gray-600">{t('common.status')}</p>
                           </div>
                         )}
                       </div>
@@ -174,21 +176,21 @@ export default function OwnerStaff() {
                       <div className="px-6 py-5 bg-gray-50 border-t border-gray-200">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                           <div>
-                            <p className="text-xs font-medium text-gray-600 mb-1">Email</p>
+                            <p className="text-xs font-medium text-gray-600 mb-1">{t('common.email')}</p>
                             <p className="text-sm font-medium text-gray-900">{member.email}</p>
                           </div>
                           {perf && (
                             <>
                               <div>
-                                <p className="text-xs font-medium text-gray-600 mb-1">Orders Handled</p>
+                                <p className="text-xs font-medium text-gray-600 mb-1">{t('owner.staff.ordersHandled')}</p>
                                 <p className="text-sm font-medium text-gray-900">{perf.ordersHandled}</p>
                               </div>
                               <div>
-                                <p className="text-xs font-medium text-gray-600 mb-1">Avg Rating</p>
+                                <p className="text-xs font-medium text-gray-600 mb-1">{t('owner.staff.avgRating')}</p>
                                 <p className="text-sm font-medium text-gray-900">{perf.avgRating}/5</p>
                               </div>
                               <div>
-                                <p className="text-xs font-medium text-gray-600 mb-1">Hourly Rate</p>
+                                <p className="text-xs font-medium text-gray-600 mb-1">{t('owner.staff.hourlyRate')}</p>
                                 <p className="text-sm font-medium text-gray-900">{money(perf.hourlyRate || 0)}</p>
                               </div>
                             </>
@@ -200,7 +202,7 @@ export default function OwnerStaff() {
                 );
               })
             ) : (
-              <div className="text-center py-8 text-gray-500">No staff members found</div>
+              <div className="text-center py-8 text-gray-500">{t('common.noResults')}</div>
             )}
           </div>
         </div>

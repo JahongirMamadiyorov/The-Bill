@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: '/api', timeout: 15000, headers: { 'Content-Type': 'application/json' } });
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+const api = axios.create({ baseURL: API_URL, timeout: 15000, headers: { 'Content-Type': 'application/json' } });
 
 // Convert snake_case keys to camelCase recursively
 const toCamel = (s) => s.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -50,6 +52,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('restaurant');
       window.location.href = '/login';
     }
     return Promise.reject(error.response?.data || error);
@@ -265,6 +268,28 @@ export const procurementAPI = {
   // Delivery line items
   removeDeliveryItem: (itemId, removeReason) => api.patch(`/procurement/delivery-items/${itemId}/remove`, { removeReason }),
   updateDeliveryItemQty: (itemId, qty) => api.patch(`/procurement/delivery-items/${itemId}/update-qty`, { qty }),
+};
+
+// ─── Super Admin ────────────────────────────────────────────
+export const superAdminAPI = {
+  // Stats
+  getStats: () => api.get('/super-admin/stats'),
+  // Restaurants
+  getRestaurants: () => api.get('/super-admin/restaurants'),
+  getRestaurant: (id) => api.get(`/super-admin/restaurants/${id}`),
+  createRestaurant: (data) => api.post('/super-admin/restaurants', data),
+  updateRestaurant: (id, data) => api.put(`/super-admin/restaurants/${id}`, data),
+  deleteRestaurant: (id) => api.delete(`/super-admin/restaurants/${id}`),
+  reactivateRestaurant: (id) => api.post(`/super-admin/restaurants/${id}/reactivate`),
+  // Plans & Subscriptions
+  getPlans: () => api.get('/super-admin/plans'),
+  updatePlan: (restaurantId, data) => api.put(`/super-admin/restaurants/${restaurantId}/plan`, data),
+  getPlanHistory: (restaurantId) => api.get(`/super-admin/restaurants/${restaurantId}/plan-history`),
+  // Staff (owners & admins)
+  getStaff: (restaurantId) => api.get(`/super-admin/restaurants/${restaurantId}/staff`),
+  createStaff: (restaurantId, data) => api.post(`/super-admin/restaurants/${restaurantId}/staff`, data),
+  updateStaff: (userId, data) => api.put(`/super-admin/staff/${userId}`, data),
+  deleteStaff: (userId) => api.delete(`/super-admin/staff/${userId}`),
 };
 
 export default api;

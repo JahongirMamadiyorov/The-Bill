@@ -6,10 +6,10 @@ import {
 } from 'lucide-react';
 import { loansAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAY_HDRS = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+// MONTH_NAMES and DAY_HDRS are now loaded from i18n via t('datePicker.months') and t('datePicker.days')
 
 const todayStr = () => {
   const d = new Date();
@@ -32,17 +32,17 @@ const fmtDate = (iso) => {
 
 const TODAY = todayStr();
 
-const dueDateLabel = (dueDateStr, status) => {
+const dueDateLabel = (dueDateStr, status, t) => {
   if (!dueDateStr) return { label: '—', color: '#6B7280' };
   const dateStr = typeof dueDateStr === 'string' ? dueDateStr.slice(0, 10) : fmtDateStr(new Date(dueDateStr));
   if (status === 'paid') return { label: fmtDate(dueDateStr), color: '#6B7280' };
   if (dateStr < TODAY) {
     const days = Math.round((new Date(TODAY) - new Date(dateStr)) / 86400000);
-    return { label: `${days}d overdue`, color: '#DC2626' };
+    return { label: t('cashier.loans.overdueLabel', { days }), color: '#DC2626' };
   }
-  if (dateStr === TODAY) return { label: 'Due today', color: '#D97706' };
+  if (dateStr === TODAY) return { label: t('cashier.loans.dueToday'), color: '#D97706' };
   const days = Math.round((new Date(dateStr) - new Date(TODAY)) / 86400000);
-  if (days <= 3) return { label: `${days}d left`, color: '#D97706' };
+  if (days <= 3) return { label: t('cashier.loans.daysLeft', { days }), color: '#D97706' };
   return { label: fmtDate(dueDateStr), color: '#6B7280' };
 };
 
@@ -50,15 +50,15 @@ const isOverdue = (loan) =>
   loan.status === 'active' && loan.dueDate && loan.dueDate.slice(0, 10) < TODAY;
 
 // ── Presets ───────────────────────────────────────────────────────────────────
-const presets = [
-  { label: 'All Time',   from: '2020-01-01', to: TODAY },
-  { label: 'Today',      from: TODAY, to: TODAY },
-  { label: 'This Week',  from: fmtDateStr(getMonday(new Date())), to: TODAY },
-  { label: 'This Month', from: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: TODAY },
+const getPresets = (t) => [
+  { label: t('periods.allTime'),   from: '2020-01-01', to: TODAY },
+  { label: t('periods.today'),     from: TODAY, to: TODAY },
+  { label: t('periods.thisWeek'),  from: fmtDateStr(getMonday(new Date())), to: TODAY },
+  { label: t('periods.thisMonth'), from: fmtDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: TODAY },
 ];
 
 // ── Calendar Picker ───────────────────────────────────────────────────────────
-function CalendarPicker({ visible, onClose, period, onChange }) {
+function CalendarPicker({ visible, onClose, period, onChange, t }) {
   const [viewYear, setViewYear] = useState(new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
   const [tempFrom, setTempFrom] = useState(period.from);
@@ -110,7 +110,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5" style={{ color: '#0891B2' }} />
-            <span className="font-bold text-gray-900">Select Period</span>
+            <span className="font-bold text-gray-900">{t('cashier.loans.selectPeriod')}</span>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400"><X className="w-5 h-5" /></button>
         </div>
@@ -118,24 +118,24 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
           <div className="flex gap-3 items-center">
             <button onClick={() => setStep('from')} className="flex-1 rounded-xl border-2 p-2.5 text-center transition"
               style={step==='from' ? { borderColor:'#0891B2',backgroundColor:'#F0F9FF' } : { borderColor:'#E5E7EB' }}>
-              <p className="text-xs text-gray-500 uppercase tracking-wide">From</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('common.from')}</p>
               <p className="font-bold text-sm" style={{ color: step==='from'?'#0891B2':'#111827' }}>{tempFrom}</p>
             </button>
             <ChevronDown className="w-4 h-4 text-gray-400 rotate-[-90deg] flex-shrink-0" />
             <button onClick={() => setStep('to')} className="flex-1 rounded-xl border-2 p-2.5 text-center transition"
               style={step==='to' ? { borderColor:'#0891B2',backgroundColor:'#F0F9FF' } : { borderColor:'#E5E7EB' }}>
-              <p className="text-xs text-gray-500 uppercase tracking-wide">To</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{t('common.to')}</p>
               <p className="font-bold text-sm" style={{ color: step==='to'?'#0891B2':'#111827' }}>{tempTo}</p>
             </button>
           </div>
-          <p className="text-xs text-center text-gray-400">{step==='from' ? 'Tap a date to set start' : 'Tap a date to set end'}</p>
+          <p className="text-xs text-center text-gray-400">{t('cashier.loans.tapDateHint')}</p>
           <div className="flex items-center justify-between">
             <button onClick={prevMonth} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 font-bold text-lg">‹</button>
-            <span className="text-sm font-semibold text-gray-800">{MONTH_NAMES[viewMonth]} {viewYear}</span>
+            <span className="text-sm font-semibold text-gray-800">{t('datePicker.months')[viewMonth]} {viewYear}</span>
             <button onClick={nextMonth} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 font-bold text-lg">›</button>
           </div>
           <div className="grid grid-cols-7">
-            {DAY_HDRS.map(d => <div key={d} className="text-center text-xs text-gray-400 font-medium py-1">{d}</div>)}
+            {t('datePicker.days').map(d => <div key={d} className="text-center text-xs text-gray-400 font-medium py-1">{d}</div>)}
           </div>
           {weeks.map((week, wi) => (
             <div key={wi} className="grid grid-cols-7">
@@ -158,7 +158,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
             </div>
           ))}
           <div className="flex flex-wrap gap-2">
-            {presets.map(p => (
+            {getPresets(t).map(p => (
               <button key={p.label} onClick={() => setPreset(p.from, p.to)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition"
                 style={{
@@ -180,17 +180,18 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
 
 // ── LoanPayModal ──────────────────────────────────────────────────────────────
 const PAY_METHODS = [
-  { key: 'Cash',    label: 'Cash',    icon: <Banknote className="w-5 h-5" />,    color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
-  { key: 'Card',    label: 'Card',    icon: <CreditCard className="w-5 h-5" />,  color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' },
-  { key: 'QR Code', label: 'QR Code', icon: <QrCode className="w-5 h-5" />,      color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
+  { key: 'Cash',    tKey: 'paymentMethods.cash',   icon: <Banknote className="w-5 h-5" />,    color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
+  { key: 'Card',    tKey: 'paymentMethods.card',   icon: <CreditCard className="w-5 h-5" />,  color: '#0891B2', bg: '#F0F9FF', border: '#BAE6FD' },
+  { key: 'QR Code', tKey: 'paymentMethods.qrCode', icon: <QrCode className="w-5 h-5" />,      color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
 ];
 
 function LoanPayModal({ loan, onClose, onConfirm, loading }) {
+  const { t } = useTranslation();
   const [method, setMethod] = useState('Cash');
   if (!loan) return null;
 
   const amount   = parseFloat(loan.amount || 0);
-  const due      = dueDateLabel(loan.dueDate, loan.status);
+  const due      = dueDateLabel(loan.dueDate, loan.status, t);
   const overdue  = isOverdue(loan);
   const selected = PAY_METHODS.find(m => m.key === method) || PAY_METHODS[0];
 
@@ -218,7 +219,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
                   <Receipt className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <p className="text-xl font-extrabold text-gray-900">Collect Loan Payment</p>
+                  <p className="text-xl font-extrabold text-gray-900">{t('cashier.loans.collectPayment')}</p>
                   <p className="text-sm text-gray-500 mt-0.5">Confirm payment method to mark this loan as paid</p>
                 </div>
               </div>
@@ -240,7 +241,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
                   <User className="w-4 h-4" style={{ color: '#0891B2' }} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Customer</p>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">{t('cashier.loans.customer')}</p>
                   <p className="text-sm font-bold text-gray-900 truncate">{loan.customerName || '—'}</p>
                 </div>
               </div>
@@ -250,7 +251,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
                   <TrendingUp className="w-4 h-4" style={{ color: '#0891B2' }} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Loan Amount</p>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">{t('cashier.loans.loanAmount')}</p>
                   <p className="text-sm font-bold" style={{ color: '#0891B2' }}>{money(amount)}</p>
                 </div>
               </div>
@@ -265,7 +266,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
                   <Clock className="w-4 h-4" style={{ color: overdue ? '#DC2626' : '#0891B2' }} />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Due Date</p>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">{t('cashier.loans.dueDate')}</p>
                   <p className="text-sm font-bold" style={{ color: due.color }}>{due.label}</p>
                 </div>
               </div>
@@ -276,7 +277,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
                     <User className="w-4 h-4" style={{ color: '#0891B2' }} />
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Phone</p>
+                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">{t('cashier.loans.phone')}</p>
                     <p className="text-sm font-bold text-gray-900">{loan.phone}</p>
                   </div>
                 </div>
@@ -287,7 +288,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
               <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
                 <Receipt className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1">Notes</p>
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1">{t('cashier.loans.notes')}</p>
                   <p className="text-sm text-amber-900">{loan.notes}</p>
                 </div>
               </div>
@@ -298,7 +299,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
         {/* ── RIGHT: Payment selection ── */}
         <div className="flex flex-col bg-gray-50" style={{ width: '320px', borderLeft: '1px solid #F3F4F6', flexShrink: 0 }}>
           <div className="px-6 pt-6 pb-4 border-b border-gray-200 flex-shrink-0">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Select Payment Method</p>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">{t('cashier.loans.selectPaymentMethod')}</p>
           </div>
 
           <div className="flex-1 p-5 space-y-2.5 flex flex-col justify-center">
@@ -320,9 +321,9 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
                   {m.icon}
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-bold">{m.label}</p>
+                  <p className="text-sm font-bold">{t(m.tKey)}</p>
                   {method === m.key && (
-                    <p className="text-xs mt-0.5" style={{ color: m.color }}>Selected</p>
+                    <p className="text-xs mt-0.5" style={{ color: m.color }}>{t('cashier.loans.selected')}</p>
                   )}
                 </div>
                 {method === m.key && (
@@ -337,7 +338,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
 
           <div className="p-5 border-t border-gray-200 space-y-3 flex-shrink-0">
             <div className="flex justify-between items-center px-1">
-              <span className="text-sm text-gray-500 font-medium">Total to collect</span>
+              <span className="text-sm text-gray-500 font-medium">{t('cashier.loans.totalToCollect')}</span>
               <span className="text-lg font-extrabold" style={{ color: '#0891B2' }}>{money(amount)}</span>
             </div>
             <button
@@ -347,14 +348,14 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
               style={{ backgroundColor: selected.color }}
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
-              {loading ? 'Processing...' : 'Confirm Payment'}
+              {loading ? t('common.processing') : t('cashier.orders.confirmPayment')}
             </button>
             <button
               onClick={onClose}
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-white border border-gray-200 text-gray-500 font-semibold text-sm hover:bg-gray-100 transition"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -365,6 +366,7 @@ function LoanPayModal({ loan, onClose, onConfirm, loading }) {
 
 // ── CashierLoans ──────────────────────────────────────────────────────────────
 export default function CashierLoans() {
+  const { t } = useTranslation();
   const [loans, setLoans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -383,7 +385,7 @@ export default function CashierLoans() {
       setLoans(Array.isArray(data) ? data : []);
       setError(null);
     } catch (err) {
-      setError(err?.error || err?.message || 'Failed to load loans');
+      setError(err?.error || err?.message || t('cashier.loans.failedToLoad'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -407,9 +409,9 @@ export default function CashierLoans() {
       await loansAPI.markPaid(payTarget.id, { paymentMethod: method });
       setLoans(prev => prev.map(l => l.id === payTarget.id ? { ...l, status: 'paid' } : l));
       setPayTarget(null);
-      showToast('success', 'Loan marked as paid');
+      showToast('success', t('cashier.loans.markedAsPaid'));
     } catch (err) {
-      showToast('error', err?.error || 'Could not update loan');
+      showToast('error', err?.error || t('cashier.loans.couldNotUpdate'));
     } finally {
       setPaying(false);
     }
@@ -446,7 +448,7 @@ export default function CashierLoans() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cyan-100 mb-4">
             <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
           </div>
-          <p className="text-gray-600 font-medium">Loading loans...</p>
+          <p className="text-gray-600 font-medium">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -470,14 +472,14 @@ export default function CashierLoans() {
             <div className="p-2.5 rounded-xl" style={{ backgroundColor: '#0891B2' }}>
               <CreditCard className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">Loan Tracking</h1>
+            <h1 className="text-xl font-bold text-gray-900">{t('cashier.loans.title')}</h1>
           </div>
           <button
             onClick={() => setCalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
           >
             <Calendar className="w-4 h-4" style={{ color: '#0891B2' }} />
-            <span>{period.from === '2020-01-01' ? 'All Time' : `${period.from} → ${period.to}`}</span>
+            <span>{period.from === '2020-01-01' ? t('periods.allTime') : `${period.from} → ${period.to}`}</span>
             <ChevronDown className="w-4 h-4 text-gray-400" />
           </button>
         </div>
@@ -495,10 +497,10 @@ export default function CashierLoans() {
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Total Loans',   value: totalLoans,      color: '#0891B2', bg: '#F0F9FF',  icon: <CreditCard className="w-5 h-5" /> },
-            { label: 'Active',        value: activeLoans,     color: '#D97706', bg: '#FFFBEB',  icon: <Clock className="w-5 h-5" /> },
-            { label: 'Overdue',       value: overdueLoans,    color: '#DC2626', bg: '#FEF2F2',  icon: <AlertCircle className="w-5 h-5" /> },
-            { label: 'Outstanding',   value: money(totalOutstanding), color: '#7C3AED', bg: '#F5F3FF', icon: <Wallet className="w-5 h-5" /> },
+            { label: t('cashier.loans.title'), value: totalLoans,      color: '#0891B2', bg: '#F0F9FF',  icon: <CreditCard className="w-5 h-5" /> },
+            { label: t('common.active'),     value: activeLoans,     color: '#D97706', bg: '#FFFBEB',  icon: <Clock className="w-5 h-5" /> },
+            { label: t('cashier.loans.overdue'), value: overdueLoans,    color: '#DC2626', bg: '#FEF2F2',  icon: <AlertCircle className="w-5 h-5" /> },
+            { label: t('cashier.loans.outstanding'),   value: money(totalOutstanding), color: '#7C3AED', bg: '#F5F3FF', icon: <Wallet className="w-5 h-5" /> },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-2">
@@ -517,7 +519,7 @@ export default function CashierLoans() {
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by customer name or phone..."
+              placeholder={t('cashier.loans.searchPlaceholder')}
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 bg-white"
@@ -526,10 +528,10 @@ export default function CashierLoans() {
           {/* Status tabs */}
           <div className="flex gap-2 flex-wrap">
             {[
-              { id: 'all',     label: `All (${totalLoans})` },
-              { id: 'active',  label: `Active (${activeLoans - overdueLoans})` },
-              { id: 'overdue', label: `Overdue (${overdueLoans})` },
-              { id: 'paid',    label: `Paid (${paidLoans})` },
+              { id: 'all',     label: `${t('cashier.loans.allStatuses')} (${totalLoans})` },
+              { id: 'active',  label: `${t('common.active')} (${activeLoans - overdueLoans})` },
+              { id: 'overdue', label: `${t('cashier.loans.overdue')} (${overdueLoans})` },
+              { id: 'paid',    label: `${t('statuses.paid')} (${paidLoans})` },
             ].map(s => (
               <button
                 key={s.id}
@@ -548,9 +550,9 @@ export default function CashierLoans() {
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-gray-100 shadow-sm text-center">
             <CreditCard className="w-12 h-12 text-gray-300 mb-3" />
-            <p className="text-gray-500 font-medium">No loans found</p>
+            <p className="text-gray-500 font-medium">{t('cashier.loans.noLoansFound')}</p>
             <p className="text-gray-400 text-sm mt-1">
-              {search ? 'Try a different search term' : 'No loans in this period'}
+              {search ? t('cashier.loans.noLoansFound') : t('cashier.loans.noLoansFound')}
             </p>
           </div>
         ) : (
@@ -558,7 +560,7 @@ export default function CashierLoans() {
             {filtered.map(loan => {
               const over = isOverdue(loan);
               const isPaid = loan.status === 'paid';
-              const dueInfo = dueDateLabel(loan.dueDate, loan.status);
+              const dueInfo = dueDateLabel(loan.dueDate, loan.status, t);
 
               return (
                 <div
@@ -573,7 +575,7 @@ export default function CashierLoans() {
                         <User className="w-5 h-5 text-gray-500" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-gray-900 truncate">{loan.customerName || 'Unknown'}</p>
+                        <p className="font-bold text-gray-900 truncate">{loan.customerName || t('cashier.loans.unknown')}</p>
                         {loan.customerPhone && (
                           <p className="text-sm text-gray-500 mt-0.5">{loan.customerPhone}</p>
                         )}
@@ -616,7 +618,7 @@ export default function CashierLoans() {
                           ? { backgroundColor: '#FEF2F2', color: '#DC2626', borderColor: '#FECACA' }
                           : { backgroundColor: '#FFFBEB', color: '#D97706', borderColor: '#FDE68A' }
                         }>
-                        {isPaid ? 'Paid' : over ? 'Overdue' : 'Active'}
+                        {isPaid ? t('statuses.paid') : over ? t('cashier.loans.overdue') : t('common.active')}
                       </span>
                       {!isPaid && (
                         <button
@@ -625,7 +627,7 @@ export default function CashierLoans() {
                           style={{ backgroundColor: '#0891B2' }}
                         >
                           <Check className="w-3.5 h-3.5" />
-                          Mark Paid
+                          {t('cashier.loans.markPaid')}
                         </button>
                       )}
                     </div>
@@ -643,6 +645,7 @@ export default function CashierLoans() {
         onClose={() => setCalOpen(false)}
         period={period}
         onChange={setPeriod}
+        t={t}
       />
 
       {/* Pay Modal */}

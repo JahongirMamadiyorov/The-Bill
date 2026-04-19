@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { useTranslation } from '../context/LanguageContext';
 
 /**
  * Custom date picker to replace native <input type="date">.
@@ -30,7 +31,9 @@ function toStr(year, month, day) {
   return `${year}-${pad(month + 1)}-${pad(day)}`;
 }
 
-export default function DatePicker({ value, onChange, placeholder = 'Pick a date', className = '', size = 'md' }) {
+export default function DatePicker({ value, onChange, placeholder, className = '', size = 'md' }) {
+  const { t } = useTranslation();
+  const effectivePlaceholder = placeholder ?? t('placeholders.pickDate', 'Pick a date');
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const [panelPos, setPanelPos] = useState({ top: 0, left: 0, openUp: false });
@@ -209,7 +212,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick a date
       >
         <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
         <span className={`flex-1 text-left whitespace-nowrap ${!displayValue ? 'text-gray-400' : ''}`}>
-          {displayValue || placeholder}
+          {displayValue || effectivePlaceholder}
         </span>
         {displayValue && (
           <span onClick={clearDate} className="text-gray-300 hover:text-gray-500 text-xs font-bold ml-1 flex-shrink-0">&times;</span>

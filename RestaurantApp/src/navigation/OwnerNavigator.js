@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from '../context/LanguageContext';
 
 import OwnerHome from '../screens/owner/OwnerHome';
 import OwnerSales from '../screens/owner/OwnerSales';
@@ -14,6 +15,7 @@ const Tab = createBottomTabNavigator();
 
 const OwnerNavigator = () => {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   return (
     <Tab.Navigator
       lazy={true}
@@ -43,6 +45,7 @@ const OwnerNavigator = () => {
         name="Home"
         component={OwnerHome}
         options={{
+          title: t('nav.home', 'Home'),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="home" size={size} color={color} />
           ),
@@ -52,6 +55,7 @@ const OwnerNavigator = () => {
         name="Sales"
         component={OwnerSales}
         options={{
+          title: t('nav.sales', 'Sales'),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="bar-chart" size={size} color={color} />
           ),
@@ -61,6 +65,7 @@ const OwnerNavigator = () => {
         name="Staff"
         component={OwnerStaff}
         options={{
+          title: t('nav.staff', 'Staff'),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="people" size={size} color={color} />
           ),
@@ -70,6 +75,7 @@ const OwnerNavigator = () => {
         name="Inventory"
         component={OwnerInventory}
         options={{
+          title: t('nav.inventory', 'Inventory'),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="inventory" size={size} color={color} />
           ),
@@ -79,6 +85,7 @@ const OwnerNavigator = () => {
         name="Finance"
         component={OwnerFinance}
         options={{
+          title: t('nav.finance', 'Finance'),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="account-balance" size={size} color={color} />
           ),
@@ -88,6 +95,7 @@ const OwnerNavigator = () => {
         name="Profile"
         component={OwnerProfile}
         options={{
+          title: t('nav.profile', 'Profile'),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="person" size={size} color={color} />
           ),

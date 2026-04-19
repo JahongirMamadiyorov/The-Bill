@@ -30,6 +30,7 @@ try {
   console.warn('react-native-image-picker not linked yet — rebuild the app');
 }
 import { menuAPI, inventoryAPI } from '../../api/client';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, shadow, topInset } from '../../utils/theme';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -54,15 +55,15 @@ const COMMON_UNITS = ['piece', 'g', 'kg', 'ml', 'l', 'portion', 'tbsp', 'tsp'];
 // ─── ITEM TYPES ──────────────────────────────────────────────────────────────
 // Both types go through the Kitchen screen; use kitchen_station to route to
 // the correct station (e.g. Bar station for drinks/sale items).
-const ITEM_TYPES = [
-  { id: 'food', iconName: 'set-meal',  label: 'Food', sub: 'Sends order to kitchen' },
-  { id: 'sale', iconName: 'local-bar', label: 'Sale', sub: 'Drinks & bar items'     },
+const getItemTypes = (t) => [
+  { id: 'food', iconName: 'set-meal',  label: t('admin.menu.food'), sub: t('admin.menu.foodHint') },
+  { id: 'sale', iconName: 'local-bar', label: t('admin.menu.sale'), sub: t('admin.menu.saleHint') },
 ];
 
 // ─── KITCHEN STATIONS ─────────────────────────────────────────────────────────
 // null = all stations see this item
-const KITCHEN_STATIONS = [
-  { id: null,     icon: 'restaurant',          label: 'All Stations',  sub: 'Visible to everyone',        bg: '#F3F4F6', text: '#6B7280' },
+const getKitchenStations = (t) => [
+  { id: null,     icon: 'restaurant',          label: t('adminExtra.allStations'),  sub: t('adminExtra.visibleToEveryone'),  bg: '#F3F4F6', text: '#6B7280' },
   { id: 'salad',  icon: 'eco',                 label: 'Salad',         sub: 'Salad station only',          bg: '#F0FDF4', text: '#16A34A' },
   { id: 'grill',  icon: 'outdoor-grill',        label: 'Grill',         sub: 'Grill station only',          bg: '#FFF7ED', text: '#EA580C' },
   { id: 'bar',    icon: 'local-bar',            label: 'Bar',           sub: 'Bar station only',            bg: '#EFF6FF', text: '#2563EB' },
@@ -163,6 +164,7 @@ function Btn({ label, onPress, loading, danger, outline }) {
 
 // ─── ITEM CARD ────────────────────────────────────────────────────────────────
 function ItemCard({ item, categories, onEdit, onDelete, onToggle }) {
+  const { t }   = useTranslation();
   const cc      = catColor(item.category_id, categories);
   const catName = categories.find(c => String(c.id) === String(item.category_id))?.name || '';
   const avail   = (item.is_available ?? item.available) !== false;
@@ -228,7 +230,7 @@ function ItemCard({ item, categories, onEdit, onDelete, onToggle }) {
             style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
           />
           <Text style={[S.availLbl, { color: avail ? '#15803d' : '#dc2626' }]}>
-            {avail ? 'Active' : 'Inactive'}
+            {avail ? t('common.active') : t('common.inactive')}
           </Text>
         </View>
       </View>
@@ -237,12 +239,12 @@ function ItemCard({ item, categories, onEdit, onDelete, onToggle }) {
       <View style={S.itemActions}>
         <TouchableOpacity style={[S.chip, { backgroundColor: '#dbeafe', flexDirection: 'row', alignItems: 'center', gap: 4 }]} onPress={() => onEdit(item)}>
           <MaterialIcons name="edit" size={14} color={colors.admin} />
-          <Text style={[S.chipTxt, { color: colors.admin }]}>Edit</Text>
+          <Text style={[S.chipTxt, { color: colors.admin }]}>{t('common.edit')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[S.chip, { backgroundColor: '#fee2e2' }]} onPress={() => onDelete(item)}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <MaterialIcons name="close" size={14} color={colors.error} />
-            <Text style={[S.chipTxt, { color: colors.error }]}>Delete</Text>
+            <Text style={[S.chipTxt, { color: colors.error }]}>{t('common.delete')}</Text>
           </View>
         </TouchableOpacity>
       </View>
@@ -252,6 +254,7 @@ function ItemCard({ item, categories, onEdit, onDelete, onToggle }) {
 
 // ─── CATEGORY CARD ────────────────────────────────────────────────────────────
 function CatCard({ cat, idx, total, itemCount, onEdit, onDelete, onUp, onDown }) {
+  const { t } = useTranslation();
   const cc = PALETTE[idx % PALETTE.length];
   return (
     <View style={S.catCard}>
@@ -279,7 +282,7 @@ function CatCard({ cat, idx, total, itemCount, onEdit, onDelete, onUp, onDown })
         </TouchableOpacity>
         <TouchableOpacity style={[S.chip, { backgroundColor: '#dbeafe', marginLeft: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }]} onPress={() => onEdit(cat)}>
           <MaterialIcons name="edit" size={14} color={colors.admin} />
-          <Text style={[S.chipTxt, { color: colors.admin }]}>Edit</Text>
+          <Text style={[S.chipTxt, { color: colors.admin }]}>{t('common.edit')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[S.chip, { backgroundColor: '#fee2e2', marginLeft: 6 }]} onPress={() => onDelete(cat)}>
           <MaterialIcons name="close" size={14} color={colors.error} />
@@ -293,6 +296,7 @@ function CatCard({ cat, idx, total, itemCount, onEdit, onDelete, onUp, onDown })
 // MAIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function AdminMenu() {
+  const { t } = useTranslation();
   const [categories,     setCategories]     = useState([]);
   const [items,          setItems]          = useState([]);
   const [allIngredients, setAllIngredients] = useState([]);
@@ -331,7 +335,8 @@ export default function AdminMenu() {
 
   // Merge: built-in presets + stations from existing items + DB custom stations
   const allStationPresets = (() => {
-    const builtinIds = new Set(KITCHEN_STATIONS.map(s => (s.id || '').toLowerCase()));
+    const stationPresets = getKitchenStations(t);
+    const builtinIds = new Set(stationPresets.map(s => (s.id || '').toLowerCase()));
     // Derive unique stations already used by menu items
     const fromItems = [...new Set(
       items.map(i => (i.kitchen_station || '').trim()).filter(s => s && !builtinIds.has(s.toLowerCase()))
@@ -341,10 +346,10 @@ export default function AdminMenu() {
       s => !builtinIds.has(s.toLowerCase()) && !fromItems.map(x => x.toLowerCase()).includes(s.toLowerCase())
     );
     return [
-      ...KITCHEN_STATIONS,
+      ...stationPresets,
       ...[...fromItems, ...fromDb].map(name => ({
         id: name, icon: 'label', label: name,
-        sub: 'Custom station', bg: '#EEF2FF', text: '#6366F1', custom: true,
+        sub: t('adminExtra.customStation'), bg: '#EEF2FF', text: '#6366F1', custom: true,
       })),
     ];
   })();
@@ -352,7 +357,7 @@ export default function AdminMenu() {
   const addStationToQuickPick = async () => {
     const val = (itemForm.kitchen_station || '').trim();
     if (!val) return;
-    if (KITCHEN_STATIONS.some(p => (p.id || '').toLowerCase() === val.toLowerCase())) return;
+    if (getKitchenStations(t).some(p => (p.id || '').toLowerCase() === val.toLowerCase())) return;
     if (customStationPresets.some(s => s.toLowerCase() === val.toLowerCase())) return;
     // Optimistic add so UI feels instant
     setCustomStationPresets(prev => [...prev, val]);
@@ -367,13 +372,13 @@ export default function AdminMenu() {
 
   const removeStationFromQuickPick = (name) => {
     setDialog({
-      title: 'Delete Station',
-      message: `Remove "${name}" from quick picks? This won't affect existing menu items.`,
+      title: t('adminExtra.deleteStation'),
+      message: t('adminExtra.removeStationMsg'),
       type: 'danger',
       options: [
-        { label: 'Cancel', onPress: () => setDialog(null) },
+        { label: t('common.cancel'), onPress: () => setDialog(null) },
         {
-          label: 'Delete',
+          label: t('common.delete'),
           onPress: async () => {
             setDialog(null);
             setCustomStationPresets(prev => prev.filter(s => s.toLowerCase() !== name.toLowerCase()));
@@ -382,10 +387,10 @@ export default function AdminMenu() {
             } catch (err) {
               const msg = err?.response?.data?.error || err?.error || 'Failed to delete station';
               setDialog({
-                title: 'Cannot Delete Station',
+                title: t('adminExtra.cannotDeleteStation'),
                 message: msg,
                 type: 'warning',
-                options: [{ label: 'Got it', onPress: () => setDialog(null) }],
+                options: [{ label: t('adminExtra.gotIt'), onPress: () => setDialog(null) }],
               });
               loadStations(); // restore list
             }
@@ -506,12 +511,12 @@ export default function AdminMenu() {
   // Add an ingredient to the local form list
   function addFormIng() {
     if (!pickedIngId || !pickedIngQty) {
-      setDialog({ title: 'Required', message: 'Select an ingredient and enter the quantity needed per dish.', type: 'warning' });
+      setDialog({ title: t('common.required'), message: t('adminExtra.selectIngAndQty'), type: 'warning' });
       return;
     }
     const qty = parseFloat(pickedIngQty);
     if (!qty || qty <= 0) {
-      setDialog({ title: 'Invalid', message: 'Quantity must be greater than 0.', type: 'warning' });
+      setDialog({ title: t('common.error'), message: t('adminExtra.qtyMustBePositive'), type: 'warning' });
       return;
     }
 
@@ -549,10 +554,10 @@ export default function AdminMenu() {
     const launcher = fromCamera ? launchCamera : launchImageLibrary;
     if (!launcher) {
       setDialog({
-        title: 'Rebuild Required',
-        message: 'Image picker needs a one-time app rebuild to activate.\n\nRun: npx react-native run-android\n\nThen try again.',
+        title: t('adminExtra.rebuildRequired'),
+        message: t('adminExtra.rebuildMsg'),
         type: 'warning',
-        options: [{ label: 'OK', onPress: () => setDialog(null) }],
+        options: [{ label: t('common.ok'), onPress: () => setDialog(null) }],
       });
       return;
     }
@@ -573,9 +578,9 @@ export default function AdminMenu() {
         // fullUrl is the absolute URL; fall back to url (relative path) if needed
         const url = res.data?.fullUrl || res.data?.url;
         if (url) fi('image_url', url);
-        else setDialog({ title: 'Upload failed', message: 'Server did not return a URL.', type: 'error' });
+        else setDialog({ title: t('common.error'), message: 'Server did not return a URL.', type: 'error' });
       } catch (err) {
-        setDialog({ title: 'Upload failed', message: err?.response?.data?.error || 'Could not upload image. Check your connection.', type: 'error' });
+        setDialog({ title: t('common.error'), message: err?.response?.data?.error || t('common.error'), type: 'error' });
       } finally {
         setImageUploading(false);
       }
@@ -584,24 +589,24 @@ export default function AdminMenu() {
 
   function showImageOptions() {
     setDialog({
-      title: 'Add Image',
-      message: 'Choose how to add a photo',
+      title: t('adminExtra.addImage'),
+      message: t('adminExtra.chooseHowToAdd'),
       type: 'info',
       options: [
-        { label: 'Choose from Gallery', onPress: () => { setDialog(null); pickImage(false); } },
-        { label: 'Take Photo', onPress: () => { setDialog(null); pickImage(true); } },
-        { label: 'Remove Image', onPress: () => { setDialog(null); fi('image_url', ''); }, style: 'danger' },
+        { label: t('adminExtra.chooseFromGallery'), onPress: () => { setDialog(null); pickImage(false); } },
+        { label: t('adminExtra.takePhoto'), onPress: () => { setDialog(null); pickImage(true); } },
+        { label: t('adminExtra.removeImage'), onPress: () => { setDialog(null); fi('image_url', ''); }, style: 'danger' },
       ],
     });
   }
 
   async function saveItem() {
     if (!itemForm.name.trim()) {
-      setDialog({ title: 'Required', message: 'Item name is required.', type: 'warning' });
+      setDialog({ title: t('common.required'), message: t('adminExtra.itemNameRequired'), type: 'warning' });
       return;
     }
     if (!itemForm.price) {
-      setDialog({ title: 'Required', message: 'Price is required.', type: 'warning' });
+      setDialog({ title: t('common.required'), message: t('adminExtra.priceRequired'), type: 'warning' });
       return;
     }
     setSaving(true);
@@ -653,7 +658,7 @@ export default function AdminMenu() {
       setItemSheet(false);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.message || 'Failed to save item.', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.message || t('adminExtra.failedSaveItem'), type: 'error' });
     }
     setSaving(false);
   }
@@ -673,7 +678,7 @@ export default function AdminMenu() {
               await menuAPI.deleteItem(item.id);
               load();
             } catch (_) {
-              setDialog({ title: 'Error', message: 'Delete failed. Please try again.', type: 'error', options: [{ label: 'OK', onPress: () => setDialog(null) }] });
+              setDialog({ title: t('common.error'), message: t('adminExtra.deleteFailedRetry'), type: 'error', options: [{ label: t('common.ok'), onPress: () => setDialog(null) }] });
             }
           },
           style: 'danger',
@@ -700,7 +705,7 @@ export default function AdminMenu() {
       });
     } catch (_) {
       setItems(prev => prev.map(i => i.id === item.id ? { ...i, is_available: curAvail, available: curAvail } : i));
-      setDialog({ title: 'Error', message: 'Could not update availability', type: 'error' });
+      setDialog({ title: t('common.error'), message: t('adminExtra.couldNotUpdateAvail'), type: 'error' });
     }
   }
 
@@ -710,7 +715,7 @@ export default function AdminMenu() {
 
   async function saveCat() {
     if (!catName.trim()) {
-      setDialog({ title: 'Required', message: 'Category name is required.', type: 'warning' });
+      setDialog({ title: t('common.required'), message: t('adminExtra.categoryNameRequired'), type: 'warning' });
       return;
     }
     setCatSaving(true);
@@ -720,7 +725,7 @@ export default function AdminMenu() {
       setCatSheet(false);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.message || 'Failed to save category.', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.message || t('adminExtra.failedSaveCategory'), type: 'error' });
     }
     setCatSaving(false);
   }
@@ -728,7 +733,7 @@ export default function AdminMenu() {
   function deleteCat(cat) {
     const count = items.filter(i => String(i.category_id) === String(cat.id)).length;
     if (count > 0) {
-      setDialog({ title: 'Cannot Delete', message: `"${cat.name}" has ${count} item(s).\nMove or delete those items first.`, type: 'warning', options: [{ label: 'Got it', onPress: () => setDialog(null) }] });
+      setDialog({ title: t('adminExtra.cannotDeleteCat'), message: `"${cat.name}" ${t('adminExtra.hasItemsMsg')}`, type: 'warning', options: [{ label: t('adminExtra.gotIt'), onPress: () => setDialog(null) }] });
       return;
     }
     setDialog({
@@ -745,7 +750,7 @@ export default function AdminMenu() {
               await menuAPI.deleteCategory(cat.id);
               load();
             } catch (_) {
-              setDialog({ title: 'Error', message: 'Delete failed. Please try again.', type: 'error', options: [{ label: 'OK', onPress: () => setDialog(null) }] });
+              setDialog({ title: t('common.error'), message: t('adminExtra.deleteFailedRetry'), type: 'error', options: [{ label: t('common.ok'), onPress: () => setDialog(null) }] });
             }
           },
           style: 'danger',
@@ -780,7 +785,7 @@ export default function AdminMenu() {
       {/* ── Header ── */}
       <View style={S.header}>
         <View>
-          <Text style={S.headerTitle}>Menu</Text>
+          <Text style={S.headerTitle}>{t('nav.menu')}</Text>
           <Text style={S.headerSub}>{items.length} items · {categories.length} categories</Text>
         </View>
         <View style={S.avatar}><Text style={S.avatarTxt}>M</Text></View>
@@ -788,7 +793,7 @@ export default function AdminMenu() {
 
       {/* ── Tabs ── */}
       <View style={S.tabRow}>
-        {[['items', 'Menu Items'], ['categories', 'Categories']].map(([key, label]) => (
+        {[['items', t('admin.menu.allItems')], ['categories', t('admin.menu.categories')]].map(([key, label]) => (
           <TouchableOpacity
             key={key}
             style={[S.tab, activeTab === key && S.tabActive]}
@@ -809,7 +814,7 @@ export default function AdminMenu() {
               style={S.searchInput}
               value={search}
               onChangeText={setSearch}
-              placeholder="Search menu items..."
+              placeholder={t('admin.menu.searchPlaceholder')}
               placeholderTextColor="#94a3b8"
               returnKeyType="search"
             />
@@ -880,7 +885,7 @@ export default function AdminMenu() {
                       S.filterChipTxt,
                       { color: active ? '#DC2626' : '#F87171' },
                     ]}>
-                      Inactive
+                      {t('admin.menu.inactive')}
                     </Text>
                     <View style={[
                       S.filterBadge,
@@ -919,9 +924,9 @@ export default function AdminMenu() {
                 ) : (
                   <MaterialIcons name="restaurant" size={52} color="#e5e7eb" />
                 )}
-                <Text style={S.emptyTxt}>{search ? 'No results found' : 'No menu items yet'}</Text>
+                <Text style={S.emptyTxt}>{search ? t('admin.menu.noItemsMatchSearch') : t('admin.menu.noItemsYet')}</Text>
                 <Text style={S.emptySub}>
-                  {search ? `No items match "${search}"` : 'Tap + Add Item to get started'}
+                  {search ? `${t('admin.menu.noItemsMatchSearch')}` : t('admin.menu.addFirstItem')}
                 </Text>
               </View>
             }
@@ -937,7 +942,7 @@ export default function AdminMenu() {
           />
 
           <TouchableOpacity style={S.fab} onPress={openNewItem} activeOpacity={0.85}>
-            <Text style={S.fabTxt}>+ Add Item</Text>
+            <Text style={S.fabTxt}>+ {t('admin.menu.addItem')}</Text>
           </TouchableOpacity>
         </>
       )}
@@ -960,8 +965,8 @@ export default function AdminMenu() {
             ListEmptyComponent={
               <View style={S.empty}>
                 <MaterialIcons name="folder" size={52} color="#e5e7eb" />
-                <Text style={S.emptyTxt}>No categories yet</Text>
-                <Text style={S.emptySub}>Tap + Add Category to create one</Text>
+                <Text style={S.emptyTxt}>{t('admin.menu.noItemsYet')}</Text>
+                <Text style={S.emptySub}>{t('admin.menu.addFirstItem')}</Text>
               </View>
             }
             renderItem={({ item: cat, index }) => (
@@ -979,7 +984,7 @@ export default function AdminMenu() {
           />
 
           <TouchableOpacity style={S.fab} onPress={openNewCat} activeOpacity={0.85}>
-            <Text style={S.fabTxt}>+ Add Category</Text>
+            <Text style={S.fabTxt}>+ {t('admin.menu.newCategory')}</Text>
           </TouchableOpacity>
         </>
       )}
@@ -990,39 +995,39 @@ export default function AdminMenu() {
       <Sheet
         visible={itemSheet}
         onClose={() => { setIngSearch(''); setItemSheet(false); }}
-        title={editingItem ? `Edit — ${editingItem.name}` : 'New Menu Item'}
+        title={editingItem ? t('admin.menu.editMenuItem', { name: editingItem.name }) : t('admin.menu.newMenuItem')}
       >
         {/* ── Basic fields ── */}
-        <Field label="Item Name *">
+        <Field label={t('admin.menu.itemName')}>
           <TInput
             value={itemForm.name}
             onChangeText={v => fi('name', v)}
-            placeholder="e.g. Grilled Salmon, Caesar Salad..."
+            placeholder={t('admin.menu.itemNamePlaceholder')}
           />
         </Field>
 
-        <Field label="Price (so'm) *">
+        <Field label={t('admin.menu.priceSom')}>
           <TInput
             value={itemForm.price}
             onChangeText={v => fi('price', v)}
-            placeholder="0"
+            placeholder={t('warehouse.zero','0')}
             keyboardType="decimal-pad"
           />
         </Field>
 
-        <Field label="Description">
+        <Field label={t('common.description')}>
           <TInput
             value={itemForm.description}
             onChangeText={v => fi('description', v)}
-            placeholder="Optional description shown on menu"
+            placeholder={t('admin.menu.descriptionPlaceholder')}
             multiline
             numberOfLines={3}
           />
         </Field>
 
-        <Field label="Category">
+        <Field label={t('common.category')}>
           {categories.length === 0 ? (
-            <Text style={S.noCatHint}>No categories yet — create one in the Categories tab first.</Text>
+            <Text style={S.noCatHint}>{t('adminExtra.noCategoriesHint')}</Text>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1044,7 +1049,7 @@ export default function AdminMenu() {
           )}
         </Field>
 
-        <Field label="Availability">
+        <Field label={t('common.status')}>
           <View style={S.switchRow}>
             <Switch
               value={itemForm.available}
@@ -1056,12 +1061,12 @@ export default function AdminMenu() {
               {itemForm.available ? (
                 <>
                   <MaterialIcons name="check-circle" size={16} color="#16a34a" />
-                  <Text style={S.switchLbl}>Active — visible on menu</Text>
+                  <Text style={S.switchLbl}>{t('admin.menu.activeVisibleOnMenu')}</Text>
                 </>
               ) : (
                 <>
                   <MaterialIcons name="block" size={16} color="#dc2626" />
-                  <Text style={S.switchLbl}>Inactive — hidden from menu</Text>
+                  <Text style={S.switchLbl}>{t('admin.menu.hiddenFromMenu')}</Text>
                 </>
               )}
             </View>
@@ -1069,22 +1074,22 @@ export default function AdminMenu() {
         </Field>
 
         {/* ── Item Type ── */}
-        <Field label="Item Type" hint="who gets notified when ordered">
+        <Field label={t('admin.menu.itemType')} hint={t('admin.menu.itemTypeHint')}>
           <View style={S.typeRow}>
-            {ITEM_TYPES.map(t => {
-              const active = (itemForm.item_type || 'food') === t.id;
+            {getItemTypes(t).map(tp => {
+              const active = (itemForm.item_type || 'food') === tp.id;
               return (
                 <TouchableOpacity
-                  key={t.id}
-                  style={[S.typeCard, active && (t.id === 'food' ? S.typeCardFoodOn : S.typeCardSaleOn)]}
-                  onPress={() => fi('item_type', t.id)}
+                  key={tp.id}
+                  style={[S.typeCard, active && (tp.id === 'food' ? S.typeCardFoodOn : S.typeCardSaleOn)]}
+                  onPress={() => fi('item_type', tp.id)}
                   activeOpacity={0.8}
                 >
-                  <MaterialIcons name={t.iconName} size={22} color={active ? (t.id === 'food' ? '#15803d' : '#0369a1') : '#94a3b8'} style={{ marginBottom: 4 }} />
-                  <Text style={[S.typeLabel, active && { color: t.id === 'food' ? '#15803d' : '#0369a1' }]}>
-                    {t.label}
+                  <MaterialIcons name={tp.iconName} size={22} color={active ? (tp.id === 'food' ? '#15803d' : '#0369a1') : '#94a3b8'} style={{ marginBottom: 4 }} />
+                  <Text style={[S.typeLabel, active && { color: tp.id === 'food' ? '#15803d' : '#0369a1' }]}>
+                    {tp.id === 'food' ? t('admin.menu.food') : t('admin.menu.sale')}
                   </Text>
-                  <Text style={S.typeSub}>{t.sub}</Text>
+                  <Text style={S.typeSub}>{tp.id === 'food' ? t('admin.menu.foodHint') : t('admin.menu.saleHint')}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -1092,14 +1097,14 @@ export default function AdminMenu() {
         </Field>
 
         {/* ── Kitchen Station ── */}
-        <Field label="Kitchen Station" hint="which station prepares this item">
+        <Field label={t('admin.menu.kitchenStation')} hint={t('admin.menu.kitchenStationHint')}>
           {/* Free-text input for custom station names */}
           <View style={S.stationInputRow}>
             <TextInput
               style={S.stationTextInput}
               value={itemForm.kitchen_station || ''}
               onChangeText={v => fi('kitchen_station', v.trim().length > 0 ? v : null)}
-              placeholder="Type station name (or pick below)"
+              placeholder={t('admin.menu.stationPlaceholder')}
               placeholderTextColor="#94a3b8"
               autoCapitalize="none"
             />
@@ -1121,7 +1126,7 @@ export default function AdminMenu() {
             const canAdd = currentVal.length > 0 && !alreadyPreset;
             return (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 4 }}>
-                <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', letterSpacing: 0.6 }}>QUICK PICK</Text>
+                <Text style={{ fontSize: 9, color: '#94a3b8', fontWeight: '700', letterSpacing: 0.6 }}>{t('admin.menu.quickPick').toUpperCase()}</Text>
                 {canAdd && (
                   <TouchableOpacity
                     onPress={addStationToQuickPick}
@@ -1188,7 +1193,7 @@ export default function AdminMenu() {
         </Field>
 
         {/* ── Item Photo ── */}
-        <Field label="Item Photo">
+        <Field label={t('admin.menu.itemPhoto')}>
           <TouchableOpacity
             onPress={showImageOptions}
             activeOpacity={0.8}
@@ -1197,7 +1202,7 @@ export default function AdminMenu() {
             {imageUploading ? (
               <View style={S.imgPickerEmpty}>
                 <ActivityIndicator color={colors.admin} size="large" />
-                <Text style={S.imgPickerHint}>Uploading…</Text>
+                <Text style={S.imgPickerHint}>{t('admin.menu.uploading')}</Text>
               </View>
             ) : itemForm.image_url ? (
               <View>
@@ -1208,7 +1213,7 @@ export default function AdminMenu() {
                 />
                 <View style={S.imgEditBadge}>
                   <MaterialIcons name="edit" size={14} color="#fff" />
-                  <Text style={{ fontSize: 11, color: '#fff', fontWeight: '700', marginLeft: 4 }}>Change</Text>
+                  <Text style={{ fontSize: 11, color: '#fff', fontWeight: '700', marginLeft: 4 }}>{t('admin.menu.changePhoto')}</Text>
                 </View>
                 <TouchableOpacity
                   style={S.imgRemoveBadge}
@@ -1222,8 +1227,8 @@ export default function AdminMenu() {
             ) : (
               <View style={S.imgPickerEmpty}>
                 <MaterialIcons name="add-photo-alternate" size={36} color={colors.admin + '99'} />
-                <Text style={S.imgPickerHint}>Tap to add photo</Text>
-                <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>Gallery or camera</Text>
+                <Text style={S.imgPickerHint}>{t('admin.menu.uploadPhoto')}</Text>
+                <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{t('adminExtra.galleryOrCamera')}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -1234,24 +1239,24 @@ export default function AdminMenu() {
           <View style={S.ingSectionHead}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <MaterialIcons name="receipt" size={16} color="#3730a3" />
-              <Text style={S.ingSectionTitle}>Ingredients</Text>
+              <Text style={S.ingSectionTitle}>{t('admin.menu.ingredients')}</Text>
             </View>
-            <Text style={S.ingSectionSub}>Kitchen usage — auto-deducted from inventory per order</Text>
+            <Text style={S.ingSectionSub}>{t('admin.menu.ingredientsHint')}</Text>
           </View>
 
           {/* Loading indicator while fetching for edit */}
           {ingsFetching ? (
             <View style={S.ingFetchRow}>
               <ActivityIndicator size="small" color={colors.admin} />
-              <Text style={S.ingFetchTxt}>Loading current ingredients...</Text>
+              <Text style={S.ingFetchTxt}>{t('adminExtra.loadingIngredients')}</Text>
             </View>
           ) : (
             <>
               {/* Currently linked ingredients */}
               {formIngs.length === 0 ? (
                 <View style={S.ingEmpty}>
-                  <Text style={S.ingEmptyTxt}>No ingredients linked yet.</Text>
-                  <Text style={S.ingEmptySub}>Add ingredients below to track inventory usage.</Text>
+                  <Text style={S.ingEmptyTxt}>{t('adminExtra.noIngredientsLinked')}</Text>
+                  <Text style={S.ingEmptySub}>{t('adminExtra.addIngredientsBelow')}</Text>
                 </View>
               ) : (
                 <View style={S.ingList}>
@@ -1259,7 +1264,7 @@ export default function AdminMenu() {
                     <View key={ing.ingredient_id} style={S.ingRow}>
                       <View style={S.ingRowLeft}>
                         <Text style={S.ingRowName}>{ing.ingredient_name}</Text>
-                        <Text style={S.ingRowQty}>{ing.quantity} {ing.unit} per dish</Text>
+                        <Text style={S.ingRowQty}>{ing.quantity} {ing.unit} {t('adminExtra.perDish')}</Text>
                       </View>
                       <TouchableOpacity
                         style={S.ingRemoveBtn}
@@ -1276,12 +1281,12 @@ export default function AdminMenu() {
               {/* Add ingredient row */}
               {allIngredients.length === 0 ? (
                 <Text style={S.noCatHint}>
-                  No inventory items found. Add ingredients in the Stock/Warehouse tab first.
+                  {t('adminExtra.noInventoryItems')}
                 </Text>
               ) : (
                 <View style={S.ingAddWrap}>
                   {/* ── Step 1: pick ingredient ── */}
-                  <Text style={S.ingAddLabel}>1. Select ingredient:</Text>
+                  <Text style={S.ingAddLabel}>{t('admin.menu.selectIngredient')}</Text>
                   {/* Search bar for ingredients */}
                   <View style={S.ingSearchRow}>
                     <MaterialIcons name="search" size={16} color="#94a3b8" />
@@ -1289,7 +1294,7 @@ export default function AdminMenu() {
                       style={S.ingSearchInput}
                       value={ingSearch}
                       onChangeText={setIngSearch}
-                      placeholder="Search ingredients..."
+                      placeholder={t('admin.menu.searchIngredients')}
                       placeholderTextColor="#94a3b8"
                       autoCapitalize="none"
                     />
@@ -1327,7 +1332,7 @@ export default function AdminMenu() {
 
                   {/* ── Step 2: quantity per dish (always in inventory's native unit) ── */}
                   <Text style={S.ingAddLabel}>
-                    2. Quantity per dish{pickedIngNativeUnit ? ` (in ${pickedIngNativeUnit})` : ''}:
+                    {t('admin.menu.quantityPerDish')}{pickedIngNativeUnit ? ` (${pickedIngNativeUnit})` : ''}
                   </Text>
                   {pickedIngNativeUnit ? (
                     <Text style={{ fontSize: 11, color: '#f59e0b', marginBottom: 6 }}>
@@ -1339,7 +1344,7 @@ export default function AdminMenu() {
                       style={[S.input, { flex: 1 }]}
                       value={pickedIngQty}
                       onChangeText={setPickedIngQty}
-                      placeholder={pickedIngNativeUnit ? `e.g. 0.05 for 50ml if unit is liter` : 'Select ingredient first'}
+                      placeholder={pickedIngNativeUnit ? t('placeholders.egSubUnit','e.g. 0.05 for 50ml if unit is liter') : 'Select ingredient first'}
                       placeholderTextColor="#94a3b8"
                       keyboardType="decimal-pad"
                       returnKeyType="done"
@@ -1354,7 +1359,7 @@ export default function AdminMenu() {
                       onPress={addFormIng}
                       disabled={!pickedIngId || !pickedIngQty}
                     >
-                      <Text style={S.btnTxt}>+ Add</Text>
+                      <Text style={S.btnTxt}>{t('adminExtra.addBtn')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1365,8 +1370,8 @@ export default function AdminMenu() {
 
         {/* ── Save / Cancel ── */}
         <View style={S.btnRow}>
-          <Btn label={editingItem ? 'Save Changes' : 'Add Item'} onPress={saveItem} loading={saving} />
-          <Btn label="Cancel" onPress={() => setItemSheet(false)} outline />
+          <Btn label={editingItem ? t('common.saveChanges') : t('admin.menu.addItem')} onPress={saveItem} loading={saving} />
+          <Btn label={t('common.cancel')} onPress={() => setItemSheet(false)} outline />
         </View>
       </Sheet>
 
@@ -1376,20 +1381,20 @@ export default function AdminMenu() {
       <Sheet
         visible={catSheet}
         onClose={() => setCatSheet(false)}
-        title={editingCat ? 'Rename Category' : 'New Category'}
+        title={editingCat ? t('admin.menu.editCategory') : t('admin.menu.newCategory')}
       >
-        <Field label="Category Name *">
+        <Field label={t('admin.menu.categoryName')}>
           <TInput
             value={catName}
             onChangeText={setCatName}
-            placeholder="e.g. Starters, Mains, Desserts, Drinks..."
+            placeholder={t('admin.menu.categoryPlaceholder')}
             returnKeyType="done"
             onSubmitEditing={saveCat}
           />
         </Field>
         <View style={S.btnRow}>
-          <Btn label={editingCat ? 'Save' : 'Add Category'} onPress={saveCat} loading={catSaving} />
-          <Btn label="Cancel" onPress={() => setCatSheet(false)} outline />
+          <Btn label={editingCat ? t('common.save') : t('admin.menu.addItem')} onPress={saveCat} loading={catSaving} />
+          <Btn label={t('common.cancel')} onPress={() => setCatSheet(false)} outline />
         </View>
       </Sheet>
 

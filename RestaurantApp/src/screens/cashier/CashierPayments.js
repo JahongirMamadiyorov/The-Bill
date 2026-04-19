@@ -4,11 +4,13 @@ import {
 } from 'react-native';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow } from '../../utils/theme';
 
 const fmt = (n) => Number(n || 0).toLocaleString('uz-UZ') + " so'm";
 
 export default function CashierPayments({ navigation }) {
+  const { t } = useTranslation();
   const [dialog, setDialog] = useState(null);
 
   return (
@@ -17,25 +19,25 @@ export default function CashierPayments({ navigation }) {
       <View style={S.card}>
         <View style={S.emptySection}>
           <MaterialIcons name="credit-card" size={40} color={colors.border} />
-          <Text style={S.emptyTxt}>No active payment sessions</Text>
-          <Text style={S.emptySub}>Orders being paid appear here</Text>
+          <Text style={S.emptyTxt}>{t('cashier.payments.noActivePaymentSessions')}</Text>
+          <Text style={S.emptySub}>{t('cashier.payments.ordersBeingPaidAppearHere')}</Text>
         </View>
       </View>
 
       {/* Quick actions */}
-      <Text style={S.secHead}>Quick Actions</Text>
+      <Text style={S.secHead}>{t('cashier.payments.quickActions')}</Text>
 
       <TouchableOpacity
         style={S.actionCard}
-        onPress={() => setDialog({ title: 'Printed', message: 'Last receipt sent to printer', type: 'info' })}
+        onPress={() => setDialog({ title: t('cashier.payments.printed'), message: t('cashier.payments.lastReceiptSent'), type: 'info' })}
         activeOpacity={0.75}
       >
         <View style={[S.actionIcon, { backgroundColor: colors.primaryLight }]}>
           <MaterialIcons name="print" size={20} color={colors.primary} />
         </View>
         <View style={S.flex}>
-          <Text style={S.actionTitle}>Reprint Last Receipt</Text>
-          <Text style={S.actionSub}>Sends last receipt to printer</Text>
+          <Text style={S.actionTitle}>{t('cashier.payments.reprintLastReceipt')}</Text>
+          <Text style={S.actionSub}>{t('cashier.payments.sendsLastReceipt')}</Text>
         </View>
         <MaterialIcons name="chevron-right" size={20} color={colors.neutralMid} />
       </TouchableOpacity>
@@ -45,8 +47,8 @@ export default function CashierPayments({ navigation }) {
           <MaterialIcons name="point-of-sale" size={20} color={colors.neutralMid} />
         </View>
         <View style={S.flex}>
-          <Text style={S.actionTitle}>Open Cash Drawer</Text>
-          <Text style={S.actionSub}>Hardware not connected</Text>
+          <Text style={S.actionTitle}>{t('cashier.payments.openCashDrawer')}</Text>
+          <Text style={S.actionSub}>{t('cashier.payments.hardwareNotConnected')}</Text>
         </View>
         <MaterialIcons name="chevron-right" size={20} color={colors.neutralMid} />
       </View>

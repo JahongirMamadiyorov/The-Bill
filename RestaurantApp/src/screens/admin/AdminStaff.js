@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { usersAPI, shiftsAPI, staffPaymentsAPI, menuAPI } from '../../api/client';
 import { topInset } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import TimePicker from '../../components/TimePicker';
 
@@ -24,6 +25,44 @@ const ROLE_COLORS = {
   Cashier: { bg: '#DCFCE7', text: '#166534' },
   Cleaner: { bg: '#F1F5F9', text: '#475569' },
 };
+
+// ── Display-label helpers (keep internal IDs; translate display text only) ──
+function roleLabel(role, t) {
+  if (!t) return role;
+  const map = {
+    Waitress: 'roles.waitress',
+    Kitchen: 'roles.kitchen',
+    Cashier: 'roles.cashier',
+    Cleaner: 'roles.cleaner',
+    Admin: 'roles.admin',
+    Owner: 'roles.owner',
+  };
+  const key = map[role];
+  return key ? t(key, role) : role;
+}
+
+function salaryTypeLabel(type, t) {
+  if (!t) return type;
+  const map = {
+    Hourly: 'admin.staff.salaryTypes.hourly',
+    Daily: 'admin.staff.salaryTypes.daily',
+    Weekly: 'admin.staff.salaryTypes.weekly',
+    Monthly: 'admin.staff.salaryTypes.monthly',
+  };
+  const key = map[type];
+  return key ? t(key, type) : type;
+}
+
+function payMethodLabel(method, t) {
+  if (!t) return method;
+  const map = {
+    'Cash': 'admin.staff.paymentMethodsList.cash',
+    'Bank Transfer': 'admin.staff.paymentMethodsList.bankTransfer',
+    'Card': 'admin.staff.paymentMethodsList.card',
+  };
+  const key = map[method];
+  return key ? t(key, method) : method;
+}
 
 const C = {
   primary: '#2563EB',
@@ -316,10 +355,11 @@ const calcPayroll = (member, attendance, from, to, config = {}) => {
 // BASE UI COMPONENTS
 // ══════════════════════════════════════════════════════════════════════════════
 function RoleBadge({ role, small }) {
+  const { t } = useTranslation();
   const c = ROLE_COLORS[role] || { bg: '#F1F5F9', text: '#475569' };
   return (
     <View style={{ backgroundColor: c.bg, borderRadius: 6, paddingHorizontal: small ? 6 : 8, paddingVertical: small ? 2 : 4 }}>
-      <Text style={{ color: c.text, fontSize: small ? 10 : 12, fontWeight: '700' }}>{role}</Text>
+      <Text style={{ color: c.text, fontSize: small ? 10 : 12, fontWeight: '700' }}>{roleLabel(role, t)}</Text>
     </View>
   );
 }
@@ -794,6 +834,7 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
 // PAYROLL PERIOD BAR — quick presets + custom range
 // ══════════════════════════════════════════════════════════════════════════════
 function PayrollPeriodBar({ period, onPeriodChange, onOpenCalendar }) {
+  const { t } = useTranslation();
   const now = new Date();
   const thisMonthFrom = fmtDate(new Date(now.getFullYear(), now.getMonth(), 1));
   const thisMonthTo = TODAY_STR;
@@ -807,8 +848,8 @@ function PayrollPeriodBar({ period, onPeriodChange, onOpenCalendar }) {
   const isCustom = !isThisMonth && !isLastMonth;
 
   const presets = [
-    { key: 'lastMonth', label: 'Last Month', from: lastMonthFrom, to: lastMonthTo },
-    { key: 'thisMonth', label: 'This Month', from: thisMonthFrom, to: thisMonthTo },
+    { key: 'lastMonth', label: t('periods.lastMonth', 'Last Month'), from: lastMonthFrom, to: lastMonthTo },
+    { key: 'thisMonth', label: t('periods.thisMonth', 'This Month'), from: thisMonthFrom, to: thisMonthTo },
   ];
 
   return (
@@ -827,7 +868,7 @@ function PayrollPeriodBar({ period, onPeriodChange, onOpenCalendar }) {
         <TouchableOpacity onPress={onOpenCalendar}
           style={{ flex: 1, backgroundColor: isCustom ? C.primary : C.cardBg, borderRadius: 10, paddingVertical: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
           <MaterialIcons name="date-range" size={14} color={isCustom ? '#fff' : C.textDark} />
-          <Text style={{ fontSize: 12, fontWeight: '700', color: isCustom ? '#fff' : C.textDark }}>Custom</Text>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: isCustom ? '#fff' : C.textDark }}>{t('periods.custom', 'Custom')}</Text>
         </TouchableOpacity>
       </View>
       {/* Current range label */}
@@ -845,6 +886,7 @@ function PayrollPeriodBar({ period, onPeriodChange, onOpenCalendar }) {
 // SUMMARY PANEL
 // ══════════════════════════════════════════════════════════════════════════════
 function SummaryPanel({ staff, attendance, payCalcs, period, allPayments = [], paymentDataByUser = {}, initialOpen = false }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(initialOpen);
 
   const daysInPer = Math.max(1, Math.round((new Date(period.to) - new Date(period.from)) / 86400000) + 1);
@@ -892,7 +934,7 @@ function SummaryPanel({ staff, attendance, payCalcs, period, allPayments = [], p
     <View style={st.summaryCard}>
       {/* ── Header: always visible ── */}
       <TouchableOpacity onPress={() => setOpen(o => !o)} style={st.summaryHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="bar-chart" size={18} color={C.textDark} style={{ marginRight: 6 }} /><Text style={st.summaryTitle}>Period Summary</Text></View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="bar-chart" size={18} color={C.textDark} style={{ marginRight: 6 }} /><Text style={st.summaryTitle}>{t('admin.staff.summary.periodSummary', 'Period Summary')}</Text></View>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {/* When collapsed, show a quick Due/Paid-off indicator */}
           {!open && totalOwed > 0 && (
@@ -914,9 +956,16 @@ function SummaryPanel({ staff, attendance, payCalcs, period, allPayments = [], p
           <Text style={{ color: C.textMuted, fontSize: 12, marginBottom: 12 }}>{periodLabel}</Text>
 
           {/* ── Attendance Summary (unchanged) ── */}
-          <Text style={st.summarySection}>Attendance</Text>
+          <Text style={st.summarySection}>{t('admin.staff.summary.attendance', 'Attendance')}</Text>
           <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-            {['Name', 'Present', 'Late', 'Absent', 'Hours', 'Rate'].map((h, i) => (
+            {[
+              t('admin.staff.summary.name', 'Name'),
+              t('admin.staff.present', 'Present'),
+              t('admin.staff.late', 'Late'),
+              t('admin.staff.absent', 'Absent'),
+              t('admin.staff.summary.hours', 'Hours'),
+              t('admin.staff.summary.rate', 'Rate'),
+            ].map((h, i) => (
               <Text key={h} style={[st.summaryColHdr, { flex: i === 0 ? 2 : 1, textAlign: i === 0 ? 'left' : 'center' }]}>{h}</Text>
             ))}
           </View>
@@ -939,32 +988,32 @@ function SummaryPanel({ staff, attendance, payCalcs, period, allPayments = [], p
             const overallRate = totPossible > 0 ? Math.round((totPresent / totPossible) * 100) : 0;
             return (
               <View style={[st.summaryRow, { backgroundColor: '#F0F9FF', borderRadius: 8, paddingHorizontal: 8, marginTop: 4 }]}>
-                <Text style={[st.summaryCell, { flex: 2, fontWeight: '800', color: C.textDark }]}>Team Avg</Text>
+                <Text style={[st.summaryCell, { flex: 2, fontWeight: '800', color: C.textDark }]}>{t('admin.staff.summary.teamAvg', 'Team Avg')}</Text>
                 <Text style={{ flex: 4, textAlign: 'right', fontSize: 11, fontWeight: '800', color: C.primary }}>
-                  {overallRate}% attendance
+                  {t('admin.staff.summary.attendancePct', '{pct}% attendance').replace('{pct}', overallRate)}
                 </Text>
               </View>
             );
           })()}
 
           {/* ── Payroll Summary ── */}
-          <Text style={[st.summarySection, { marginTop: 16 }]}>Payroll</Text>
+          <Text style={[st.summarySection, { marginTop: 16 }]}>{t('admin.staff.summary.payroll', 'Payroll')}</Text>
 
           {payRows.map(r => (
             <View key={r.m.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
               {/* Line 1: name + net */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.textDark }} numberOfLines={1}>{r.m.name}</Text>
-                <Text style={{ fontSize: 12, fontWeight: '800', color: C.textDark }}>Net: {fmtMoney(r.net)}</Text>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: C.textDark }}>{t('admin.staff.summary.net', 'Net')}: {fmtMoney(r.net)}</Text>
               </View>
               {/* Line 2: role badge + paid | due */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <RoleBadge role={r.m.role} small />
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 11, color: C.success, fontWeight: '700' }}>Paid: {fmtMoney(r.paid)}</Text>
+                  <Text style={{ fontSize: 11, color: C.success, fontWeight: '700' }}>{t('admin.staff.summary.paid', 'Paid')}: {fmtMoney(r.paid)}</Text>
                   <Text style={{ fontSize: 11, color: C.textMuted, marginHorizontal: 5 }}>|</Text>
                   <Text style={{ fontSize: 11, fontWeight: '700', color: r.due > 0 ? C.danger : C.success }}>
-                    Due: {fmtMoney(r.due)}
+                    {t('admin.staff.summary.due', 'Due')}: {fmtMoney(r.due)}
                   </Text>
                 </View>
               </View>
@@ -973,11 +1022,11 @@ function SummaryPanel({ staff, attendance, payCalcs, period, allPayments = [], p
 
           {/* Grand Total block */}
           <View style={{ backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, marginTop: 10 }}>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: C.textDark, marginBottom: 8 }}>Grand Total</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: C.textDark, marginBottom: 8 }}>{t('admin.staff.summary.grandTotal', 'Grand Total')}</Text>
             {[
-              ['Total Owed:', fmtMoney(totalOwed), C.textDark],
-              ['Total Paid:', fmtMoney(totalPaid), C.success],
-              ['Total Due:', fmtMoney(totalDue), totalDue > 0 ? C.danger : C.success],
+              [`${t('admin.staff.summary.totalOwed', 'Total Owed')}:`, fmtMoney(totalOwed), C.textDark],
+              [`${t('admin.staff.summary.totalPaid', 'Total Paid')}:`, fmtMoney(totalPaid), C.success],
+              [`${t('admin.staff.summary.totalDue', 'Total Due')}:`, fmtMoney(totalDue), totalDue > 0 ? C.danger : C.success],
             ].map(([lbl, val, col]) => (
               <View key={lbl} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Text style={{ fontSize: 13, color: C.textMuted }}>{lbl}</Text>
@@ -1013,6 +1062,7 @@ const KITCHEN_STATION_PRESETS = [
 const CUSTOM_PRESETS_KEY = '@kitchen_station_custom_presets';
 
 function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState(BLANK);
   const [customPresets, setCustomPresets] = useState([]);
   const [dialog, setDialog] = useState(null);
@@ -1104,7 +1154,7 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
   };
 
   return (
-    <FullModal visible={visible} onClose={onClose} title={mode === 'add' ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='add' size={20} color='#fff' style={{ marginRight: 6 }} /><Text>Add Staff Member</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='edit' size={20} color='#fff' style={{ marginRight: 6 }} /><Text>Edit Staff Info</Text></View>}>
+    <FullModal visible={visible} onClose={onClose} title={mode === 'add' ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='add' size={20} color='#fff' style={{ marginRight: 6 }} /><Text>{t('admin.staff.addNewStaff')}</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='edit' size={20} color='#fff' style={{ marginRight: 6 }} /><Text>{t('admin.staff.editStaffInfo')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Field label="Full Name *" value={form.name} onChange={set('name')} placeholder="e.g. Aisha Karimova" />
         <ChipRow label="Role *" options={ROLES} selected={form.role} onSelect={(v) => {
@@ -1222,7 +1272,7 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
         <ChipRow label="Salary Type *" options={SALARY_TYPES} selected={form.salaryType} onSelect={set('salaryType')} />
         <Field label={`Rate (so'm) · ${form.salaryType}`} value={form.rate} onChange={set('rate')} placeholder="e.g. 1500000" keyType="numeric" />
         <TouchableOpacity style={st.btnPrimary} onPress={save}>
-          <Text style={st.btnPrimaryTxt}>{mode === 'add' ? 'Add Staff Member' : 'Save Changes'}</Text>
+          <Text style={st.btnPrimaryTxt}>{mode === 'add' ? t('admin.staff.addNewStaff') : t('common.saveChanges')}</Text>
         </TouchableOpacity>
       </ScrollView>
       <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
@@ -1234,6 +1284,7 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
 // EDIT LOGIN MODAL
 // ══════════════════════════════════════════════════════════════════════════════
 function EditLoginModal({ visible, onClose, member, onSave }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -1259,7 +1310,7 @@ function EditLoginModal({ visible, onClose, member, onSave }) {
     <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="lock" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>Edit Login Credentials</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Field label="Email" value={email} onChange={setEmail} placeholder="staff@example.com" keyType="email-address" />
-        <PasswordField label="New Password (optional)" value={password} onChange={setPassword} placeholder="Leave blank to keep current" />
+        <PasswordField label={t('labels.newPasswordOptional', 'New Password (optional)')} value={password} onChange={setPassword} placeholder={t('placeholders.leaveBlankKeepCurrent', 'Leave blank to keep current')} />
         <PasswordField label="Confirm New Password" value={confirmPassword} onChange={setConfirmPassword} placeholder="Re-enter new password" />
         {mismatch && <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 8 }}>Passwords do not match</Text>}
         {match && <Text style={{ color: '#22C55E', fontSize: 12, marginBottom: 8 }}>Passwords match</Text>}
@@ -1532,11 +1583,12 @@ function AttHistoryModal({ visible, onClose, member, attendance }) {
 // PAY NOW MODAL
 // ══════════════════════════════════════════════════════════════════════════════
 function PayNowModal({ visible, onClose, member, calc, paidAlready = 0, periodFrom, periodTo, onPay }) {
+  const { t } = useTranslation();
   const [method, setMethod] = useState('Cash');
   if (!member || !calc) return null;
   const amountDue = Math.max(0, calc.net - paidAlready);
   return (
-    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="payments" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>Pay Now</Text></View>}>
+    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="payments" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>{t('admin.staff.payNow', 'Pay Now')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <View style={st.infoCard}>
           <Text style={{ textAlign: 'center', fontWeight: '800', color: C.textDark, fontSize: 16, marginBottom: 4 }}>{member.name}</Text>
@@ -1548,7 +1600,7 @@ function PayNowModal({ visible, onClose, member, calc, paidAlready = 0, periodFr
           </Text>
           <Divider mb={10} />
           <View style={st.infoRow}>
-            <Text style={st.infoKey}>Net Pay</Text>
+            <Text style={st.infoKey}>{t('admin.staff.payrollDetails.netPay', 'Net Pay')}</Text>
             <Text style={st.infoVal}>{fmtMoney(calc.net)}</Text>
           </View>
           {paidAlready > 0 && (
@@ -1579,6 +1631,7 @@ const PAY_METHOD_OPTIONS = ['cash', 'bank_transfer', 'check', 'other'];
 const PAY_METHOD_LABELS = { cash: 'Cash', bank_transfer: 'Bank Transfer', check: 'Check', other: 'Other' };
 
 function PaymentFormModal({ visible, onClose, payment, memberId, onSave }) {
+  const { t } = useTranslation();
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
   const [date, setDate] = useState(TODAY_STR);
@@ -1621,7 +1674,7 @@ function PaymentFormModal({ visible, onClose, payment, memberId, onSave }) {
           <TouchableOpacity onPress={onClose} style={{ width: 70 }}>
             <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>← Back</Text>
           </TouchableOpacity>
-          <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{payment ? 'Edit Payment' : 'Add Payment'}</Text>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{payment ? t('admin.staff.editPayment', 'Edit Payment') : t('admin.staff.addPayment', 'Add Payment')}</Text>
           <View style={{ width: 70 }} />
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -1661,6 +1714,7 @@ function PaymentFormModal({ visible, onClose, payment, memberId, onSave }) {
 // PAYROLL DETAILS MODAL
 // ══════════════════════════════════════════════════════════════════════════════
 function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInPeriod = 0, effectiveFrom, period, payments, onAddPayment, onEditPayment, onDeletePayment }) {
+  const { t } = useTranslation();
   const [dialog, setDialog] = useState(null);
   if (!member || !calc) return null;
 
@@ -1707,7 +1761,7 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
     : Math.max(0, calc.net - allPeriodPaid);
 
   return (
-    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="bar-chart" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>Payroll Details</Text></View>}>
+    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="bar-chart" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>{t('admin.staff.payrollDetails.title', 'Payroll Details')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Text style={{ fontSize: 20, fontWeight: '800', color: C.textDark, marginBottom: 2 }}>{member.name}</Text>
         <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{period.from} → {period.to}</Text>
@@ -1716,9 +1770,9 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
         <View style={st.infoCard}>
           {/* Salary-type-specific formula rows */}
           {member.salaryType === 'Hourly' && [
-            ['Salary Type', 'Hourly'],
-            ['Hourly Rate', `${fmtMoney(member.rate)} / hr`],
-            ['Hours Worked', `${c.totalHours} hrs`],
+            [t('admin.staff.payrollDetails.salaryType', 'Salary Type'), t('admin.staff.payrollDetails.hourly', 'Hourly')],
+            [t('admin.staff.payrollDetails.hourlyRate', 'Hourly Rate'), `${fmtMoney(member.rate)} / hr`],
+            [t('admin.staff.payrollDetails.hoursWorked', 'Hours Worked'), `${c.totalHours} hrs`],
           ].map(([k, v]) => (
             <View key={k} style={st.infoRow}>
               <Text style={st.infoKey}>{k}</Text>
@@ -1727,9 +1781,9 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
           ))}
 
           {member.salaryType === 'Daily' && [
-            ['Salary Type', 'Daily'],
-            ['Daily Rate', `${fmtMoney(member.rate)} / day`],
-            ['Days Present', String(c.daysWorked)],
+            [t('admin.staff.payrollDetails.salaryType', 'Salary Type'), t('admin.staff.payrollDetails.daily', 'Daily')],
+            [t('admin.staff.payrollDetails.dailyRate', 'Daily Rate'), `${fmtMoney(member.rate)} / day`],
+            [t('admin.staff.payrollDetails.daysPresent', 'Days Present'), String(c.daysWorked)],
           ].map(([k, v]) => (
             <View key={k} style={st.infoRow}>
               <Text style={st.infoKey}>{k}</Text>
@@ -1738,11 +1792,11 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
           ))}
 
           {member.salaryType === 'Weekly' && [
-            ['Salary Type', 'Weekly'],
-            ['Weekly Salary', fmtMoney(member.rate)],
+            [t('admin.staff.payrollDetails.salaryType', 'Salary Type'), t('admin.staff.payrollDetails.weekly', 'Weekly')],
+            [t('admin.staff.payrollDetails.weeklySalary', 'Weekly Salary'), fmtMoney(member.rate)],
             ['Working Days / Week', `${c.workingDays} days`],
-            ['Daily Rate', `${fmtMoney(c.dailyRate)} / day`],
-            ['Days Present', String(c.daysWorked)],
+            [t('admin.staff.payrollDetails.dailyRate', 'Daily Rate'), `${fmtMoney(c.dailyRate)} / day`],
+            [t('admin.staff.payrollDetails.daysPresent', 'Days Present'), String(c.daysWorked)],
           ].map(([k, v]) => (
             <View key={k} style={st.infoRow}>
               <Text style={st.infoKey}>{k}</Text>
@@ -1751,11 +1805,11 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
           ))}
 
           {member.salaryType === 'Monthly' && [
-            ['Salary Type', 'Monthly'],
-            ['Monthly Salary', fmtMoney(member.rate)],
+            [t('admin.staff.payrollDetails.salaryType', 'Salary Type'), t('admin.staff.payrollDetails.monthly', 'Monthly')],
+            [t('admin.staff.payrollDetails.monthlySalary', 'Monthly Salary'), fmtMoney(member.rate)],
             ['Working Days / Month', `${c.workingDays} days`],
-            ['Daily Rate', `${fmtMoney(c.dailyRate)} / day`],
-            ['Days Present', String(c.daysWorked)],
+            [t('admin.staff.payrollDetails.dailyRate', 'Daily Rate'), `${fmtMoney(c.dailyRate)} / day`],
+            [t('admin.staff.payrollDetails.daysPresent', 'Days Present'), String(c.daysWorked)],
           ].map(([k, v]) => (
             <View key={k} style={st.infoRow}>
               <Text style={st.infoKey}>{k}</Text>
@@ -1766,10 +1820,10 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
           {/* Attendance stats row */}
           <View style={{ flexDirection: 'row', marginTop: 6, marginBottom: 2 }}>
             {[
-              ['Present', String(c.presentDays), C.success],
-              ['Absent', String(c.absentDays), C.danger],
-              ['Late', String(c.lateDays), C.warning],
-              ['Excused', String(c.excusedDays), '#7C3AED'],
+              [t('admin.staff.present', 'Present'), String(c.presentDays), C.success],
+              [t('admin.staff.absent', 'Absent'), String(c.absentDays), C.danger],
+              [t('admin.staff.late', 'Late'), String(c.lateDays), C.warning],
+              [t('admin.staff.excused', 'Excused'), String(c.excusedDays), '#7C3AED'],
             ].map(([lbl, val, col], i, arr) => (
               <View key={lbl} style={{ flex: 1, alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 8, paddingVertical: 6, marginRight: i < arr.length - 1 ? 6 : 0 }}>
                 <Text style={{ fontSize: 14, fontWeight: '800', color: col }}>{val}</Text>
@@ -1782,13 +1836,13 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
 
           {/* Calculation result */}
           <View style={st.infoRow}>
-            <Text style={st.infoKey}>Base Pay</Text>
+            <Text style={st.infoKey}>{t('admin.staff.payrollDetails.basePay', 'Base Pay')}</Text>
             <Text style={st.infoVal}>{fmtMoney(c.base)}</Text>
           </View>
 
           <Divider mt={4} mb={8} />
           <View style={st.infoRow}>
-            <Text style={{ fontWeight: '800', color: C.textDark, fontSize: 14 }}>Net Pay</Text>
+            <Text style={{ fontWeight: '800', color: C.textDark, fontSize: 14 }}>{t('admin.staff.payrollDetails.netPay', 'Net Pay')}</Text>
             <Text style={{ fontWeight: '800', fontSize: 20, color: C.primary }}>
               {fmtMoney(c.net)}
             </Text>
@@ -1797,12 +1851,12 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
 
         {/* ── Payments Made ── */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}><MaterialIcons name="payments" size={16} color={C.textDark} style={{ marginRight: 6 }} /><Text style={[st.sectionTitle, { marginTop: 0, marginBottom: 0 }]}>Payments Made</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}><MaterialIcons name="payments" size={16} color={C.textDark} style={{ marginRight: 6 }} /><Text style={[st.sectionTitle, { marginTop: 0, marginBottom: 0 }]}>{t('admin.staff.payrollDetails.paymentsMade', 'Payments Made')}</Text></View>
           <TouchableOpacity
             style={{ backgroundColor: '#DCFCE7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
             onPress={onAddPayment}
           >
-            <Text style={{ color: C.success, fontWeight: '700', fontSize: 13 }}>+ Add</Text>
+            <Text style={{ color: C.success, fontWeight: '700', fontSize: 13 }}>{t('admin.staff.payrollDetails.addPayment', '+ Add')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1831,7 +1885,7 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
 
         {/* Current period payments (from effectiveFrom) — count toward remaining */}
         {currentPayments.length === 0 && settledPayments.length === 0 ? (
-          <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>No payments recorded yet.</Text>
+          <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>{t('admin.staff.payrollDetails.noPayments', 'No payments recorded yet.')}</Text>
         ) : currentPayments.length === 0 ? (
           <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>No new payments for this period.</Text>
         ) : (
@@ -1889,9 +1943,9 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
         </View>
 
         {/* Attendance Records */}
-        <Text style={st.sectionTitle}>Attendance Records</Text>
+        <Text style={st.sectionTitle}>{t('admin.staff.payrollDetails.attendanceRecords', 'Attendance Records')}</Text>
         {c.records.length === 0
-          ? <Text style={{ color: C.textMuted }}>No records in this period.</Text>
+          ? <Text style={{ color: C.textMuted }}>{t('admin.staff.payrollDetails.noRecords', 'No records in this period.')}</Text>
           : [...c.records].sort((a, b) => b.date.localeCompare(a.date)).map(r => {
             const col = STATUS_COLORS[r.status] || STATUS_COLORS.Present;
             const icon = r.status === 'Present' ? <MaterialIcons name='check' size={14} color={C.success} /> : r.status === 'Late' ? <MaterialIcons name='warning' size={14} color={C.warning} /> : r.status === 'Excused' ? <MaterialIcons name='circle' size={8} color={C.textMuted} /> : <MaterialIcons name='close' size={14} color={C.danger} />;
@@ -1963,6 +2017,7 @@ function StaffCard({ member, onPress }) {
 // tick      : ever-incrementing int (1/s) that forces the live-timer to refresh
 // ══════════════════════════════════════════════════════════════════════════════
 function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onClockInLate, onClockOut, onMarkAbsent, onEditAtt }) {
+  const { t } = useTranslation();
   const susp = member.status === 'Suspended';
   const isAdminRole = ['Admin', 'Owner', 'Manager'].includes(member.role);
   const isViewingToday = period.from === TODAY_STR;
@@ -2144,7 +2199,7 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <MaterialIcons name="check" size={13} color={C.success} style={{ marginRight: 4 }} />
-              <Text style={{ color: C.success, fontWeight: '700', fontSize: 13 }}>Clock In</Text>
+              <Text style={{ color: C.success, fontWeight: '700', fontSize: 13 }}>{t('admin.staff.clockIn', 'Clock In')}</Text>
             </View>
           </TouchableOpacity>
           <TouchableOpacity
@@ -2153,7 +2208,7 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <MaterialIcons name="schedule" size={13} color={C.warning} style={{ marginRight: 4 }} />
-              <Text style={{ color: C.warning, fontWeight: '700', fontSize: 13 }}>Late</Text>
+              <Text style={{ color: C.warning, fontWeight: '700', fontSize: 13 }}>{t('admin.staff.late', 'Late')}</Text>
             </View>
           </TouchableOpacity>
           <TouchableOpacity
@@ -2162,7 +2217,7 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <MaterialIcons name="close" size={13} color={C.danger} style={{ marginRight: 4 }} />
-              <Text style={{ color: C.danger, fontWeight: '700', fontSize: 13 }}>Absent</Text>
+              <Text style={{ color: C.danger, fontWeight: '700', fontSize: 13 }}>{t('admin.staff.absent', 'Absent')}</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -2185,10 +2240,10 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
             : (
               <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                 {[
-                  [`${pPresent}d`, 'Present', C.success],
-                  [`${pAbsent}d`, 'Absent', C.danger],
-                  [`${pLate}d`, 'Late', C.warning],
-                  [`${Math.round(pHours)}h`, 'Hours', C.primary],
+                  [`${pPresent}d`, t('admin.staff.present', 'Present'), C.success],
+                  [`${pAbsent}d`, t('admin.staff.absent', 'Absent'), C.danger],
+                  [`${pLate}d`, t('admin.staff.late', 'Late'), C.warning],
+                  [`${Math.round(pHours)}h`, t('admin.staff.summary.hours', 'Hours'), C.primary],
                 ].map(([val, lbl, col]) => (
                   <View key={lbl} style={{ alignItems: 'center' }}>
                     <Text style={{ fontSize: 13, fontWeight: '800', color: col }}>{val}</Text>
@@ -2208,6 +2263,7 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
 // PAYROLL CARD
 // ══════════════════════════════════════════════════════════════════════════════
 function PayrollCard({ member, calc, debtCalc, effectiveFrom, periodFrom, periodTo, paidInPeriod = 0, paidInDisplayPeriod = 0, onPayNow, onDetails }) {
+  const { t } = useTranslation();
   // calc = fullPayCalcs (current period — always has data for display)
   // debtCalc = payCalcs (effectiveFrom-based — kept for display grouping only)
   //
@@ -2241,7 +2297,7 @@ function PayrollCard({ member, calc, debtCalc, effectiveFrom, periodFrom, period
 
       {/* Stats row: Present | Absent | Late | Hours */}
       <View style={{ flexDirection: 'row', marginBottom: 12 }}>
-        {[['Present', String(calc.presentDays), C.success], ['Absent', String(calc.absentDays), C.danger], ['Late', String(calc.lateDays), C.warning], ['Hours', `${calc.totalHours}`, C.primary]].map(([l, v, col]) => (
+        {[[t('admin.staff.present', 'Present'), String(calc.presentDays), C.success], [t('admin.staff.absent', 'Absent'), String(calc.absentDays), C.danger], [t('admin.staff.late', 'Late'), String(calc.lateDays), C.warning], [t('admin.staff.summary.hours', 'Hours'), `${calc.totalHours}`, C.primary]].map(([l, v, col]) => (
           <View key={l} style={{ flex: 1, alignItems: 'center' }}>
             <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '600', marginBottom: 2 }}>{l}</Text>
             <Text style={{ fontSize: 14, fontWeight: '800', color: col }}>{v}</Text>
@@ -2265,14 +2321,14 @@ function PayrollCard({ member, calc, debtCalc, effectiveFrom, periodFrom, period
           onPress={onPayNow}
         >
           <MaterialIcons name="payments" size={13} color={isFullyPaid ? C.textMuted : '#15803D'} style={{ marginRight: 4 }} />
-          <Text style={{ color: isFullyPaid ? C.textMuted : '#15803D', fontWeight: '700', fontSize: 12 }}>Pay Now</Text>
+          <Text style={{ color: isFullyPaid ? C.textMuted : '#15803D', fontWeight: '700', fontSize: 12 }}>{t('admin.staff.payNow', 'Pay Now')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: '#EFF6FF', borderRadius: 8, paddingVertical: 9, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
           onPress={onDetails}
         >
           <MaterialIcons name="bar-chart" size={13} color={C.primary} style={{ marginRight: 4 }} />
-          <Text style={{ color: C.primary, fontWeight: '700', fontSize: 12 }}>Details</Text>
+          <Text style={{ color: C.primary, fontWeight: '700', fontSize: 12 }}>{t('admin.staff.details', 'Details')}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -2283,6 +2339,7 @@ function PayrollCard({ member, calc, debtCalc, effectiveFrom, periodFrom, period
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
 export default function AdminStaff() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState('members');
   const [staff, setStaff] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -3074,15 +3131,15 @@ export default function AdminStaff() {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg }}>
         <ActivityIndicator size="large" color={C.primary} />
-        <Text style={{ color: C.textMuted, marginTop: 14, fontSize: 14 }}>Loading staff…</Text>
+        <Text style={{ color: C.textMuted, marginTop: 14, fontSize: 14 }}>{t('admin.staff.loadingStaff')}</Text>
       </View>
     );
   }
 
   const TABS = [
-    { key: 'members', label: <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='group' size={16} color={tab === 'members' ? C.primary : C.textMid} style={{ marginRight: 4 }} /><Text>Members</Text></View> },
-    { key: 'attendance', label: <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='calendar-today' size={16} color={tab === 'attendance' ? C.primary : C.textMid} style={{ marginRight: 4 }} /><Text>Attendance</Text></View> },
-    { key: 'payroll', label: <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='payments' size={16} color={tab === 'payroll' ? C.primary : C.textMid} style={{ marginRight: 4 }} /><Text>Payroll</Text></View> },
+    { key: 'members',    icon: 'group',          label: t('admin.staff.staffList') },
+    { key: 'attendance', icon: 'calendar-today', label: t('admin.staff.attendanceShifts') },
+    { key: 'payroll',    icon: 'payments',       label: t('admin.staff.payrollPayments') },
   ];
 
   return (
@@ -3091,17 +3148,34 @@ export default function AdminStaff() {
 
       {/* ── Header ── */}
       <View style={st.header}>
-        <Text style={st.headerTitle}>Staff Management</Text>
+        <Text style={st.headerTitle}>{t('admin.staff.title')}</Text>
         <Text style={st.headerSub}>
-          {staff.filter(m => m.status === 'Active').length} active · {staff.length} total
+          {t('admin.staff.activeTotalSummary', {
+            active: staff.filter(m => m.status === 'Active').length,
+            total: staff.length,
+          })}
         </Text>
       </View>
 
       {/* ── Tab bar ── */}
       <View style={st.tabBar}>
-        {TABS.map(t => (
-          <TouchableOpacity key={t.key} style={[st.tab, tab === t.key && st.tabActive]} onPress={() => setTab(t.key)}>
-            <Text style={[st.tabTxt, tab === t.key && st.tabTxtActive]}>{t.label}</Text>
+        {TABS.map(tb => (
+          <TouchableOpacity key={tb.key} style={[st.tab, tab === tb.key && st.tabActive]} onPress={() => setTab(tb.key)}>
+            <MaterialIcons
+              name={tb.icon}
+              size={16}
+              color={tab === tb.key ? C.primary : C.textMid}
+              style={{ marginRight: 4 }}
+            />
+            <Text
+              style={[st.tabTxt, tab === tb.key && st.tabTxtActive]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {tb.label}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -3113,7 +3187,7 @@ export default function AdminStaff() {
             <TextInput
               style={st.searchInput}
               value={search} onChangeText={setSearch}
-              placeholder="Search name or role..."
+              placeholder={t('admin.staff.searchPlaceholder')}
               placeholderTextColor={C.textMuted}
             />
           </View>
@@ -3122,7 +3196,7 @@ export default function AdminStaff() {
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />}
           >
             {filtered.length === 0
-              ? <Text style={{ color: C.textMuted, textAlign: 'center', marginTop: 50 }}>No staff found</Text>
+              ? <Text style={{ color: C.textMuted, textAlign: 'center', marginTop: 50 }}>{t('common.noResults')}</Text>
               : filtered.map(m => (
                 <StaffCard key={m.id} member={m} onPress={() => { setSelMember(m); setShowProfile(true); }} />
               ))
@@ -3350,9 +3424,9 @@ const st = StyleSheet.create({
 
   // Tabs
   tabBar: { flexDirection: 'row', backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.border },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
+  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, paddingHorizontal: 4 },
   tabActive: { borderBottomWidth: 2.5, borderBottomColor: C.primary },
-  tabTxt: { fontSize: 12, fontWeight: '600', color: C.textMuted },
+  tabTxt: { fontSize: 12, fontWeight: '600', color: C.textMuted, flexShrink: 1 },
   tabTxtActive: { color: C.primary, fontWeight: '800' },
 
   // Filter / period bar

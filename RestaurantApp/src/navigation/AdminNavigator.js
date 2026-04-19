@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../utils/theme';
+import { useTranslation } from '../context/LanguageContext';
 
 import AdminDashboard       from '../screens/admin/AdminDashboard';
 import AdminTables          from '../screens/admin/AdminTables';
@@ -18,19 +19,29 @@ import CashierWalkin        from '../screens/cashier/CashierWalkin';
 const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-// MaterialIcons name + label for each tab
+// MaterialIcons name for each tab
 const TAB_CONFIG = {
-  Dashboard: { icon: 'dashboard',        label: 'Home'      },
-  Tables:    { icon: 'table-bar',        label: 'Tables'    },
-  Menu:      { icon: 'restaurant-menu',  label: 'Menu'      },
-  Inventory: { icon: 'inventory-2',      label: 'Inventory' },
-  Orders:    { icon: 'receipt-long',     label: 'Orders'    },
-  Staff:     { icon: 'group',            label: 'Staff'     },
-  Profile:   { icon: 'manage-accounts',  label: 'Profile'   },
+  Dashboard: { icon: 'dashboard'        },
+  Tables:    { icon: 'table-bar'        },
+  Menu:      { icon: 'restaurant-menu'  },
+  Inventory: { icon: 'inventory-2'      },
+  Orders:    { icon: 'receipt-long'     },
+  Staff:     { icon: 'group'            },
+  Profile:   { icon: 'manage-accounts'  },
 };
 
 function AdminTabs() {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const TAB_LABELS = {
+    Dashboard: t('nav.home', 'Home'),
+    Tables:    t('nav.tables', 'Tables'),
+    Menu:      t('nav.menu', 'Menu'),
+    Inventory: t('nav.inventory', 'Inventory'),
+    Orders:    t('nav.orders', 'Orders'),
+    Staff:     t('nav.staff', 'Staff'),
+    Profile:   t('nav.profile', 'Profile'),
+  };
   return (
     <Tab.Navigator
       sceneContainerStyle={{ backgroundColor: '#ffffff' }}
@@ -54,7 +65,7 @@ function AdminTabs() {
             color={color}
           />
         ),
-        tabBarLabel: TAB_CONFIG[route.name]?.label || route.name,
+        tabBarLabel: TAB_LABELS[route.name] || route.name,
       })}
     >
       <Tab.Screen name="Dashboard" component={AdminDashboard} />

@@ -1,11 +1,36 @@
 import axios from 'axios';
+import { Platform, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ─── Change this based on your setup ───
-// For iOS simulator:     http://localhost:3000/api
-// For Android emulator:  http://10.0.2.2:3000/api
-// For real device:       http://YOUR_LOCAL_IP:3000/api  (e.g. http://192.168.1.100:3000/api)
-const API_BASE_URL = 'http://10.0.2.2:3000/api';
+// ─── Backend URL resolution ──────────────────────────────────────────────────
+// The app and the website both talk to the SAME hosted backend so sections,
+// tables, orders, etc. stay in sync across every client via the shared
+// Supabase DB. This also avoids any JWT_SECRET / schema drift between
+// environments.
+//
+// To develop against a local Express server instead of production, set
+// USE_LOCAL_BACKEND = true below and start the backend with `npm run dev`.
+// Then the base URL becomes:
+//   iOS simulator      → http://localhost:3000/api
+//   Android emulator   → http://10.0.2.2:3000/api  (host machine alias)
+//   Real device        → http://<Metro host>:3000/api
+const PROD_API_URL      = 'https://the-bill-backend.onrender.com/api';
+const USE_LOCAL_BACKEND = false;
+
+function resolveLocalApiUrl() {
+  let host = 'localhost';
+  try {
+    const scriptURL = NativeModules?.SourceCode?.scriptURL || '';
+    const m = scriptURL.match(/https?:\/\/([^/:]+)/);
+    if (m && m[1] && m[1] !== 'localhost') host = m[1];
+  } catch (_) { /* fall through */ }
+  if (Platform.OS === 'android' && (host === 'localhost' || host === '127.0.0.1')) {
+    host = '10.0.2.2';
+  }
+  return `http://${host}:3000/api`;
+}
+
+const API_BASE_URL = (__DEV__ && USE_LOCAL_BACKEND) ? resolveLocalApiUrl() : PROD_API_URL;
 
 const api = axios.create({
   baseURL: API_BASE_URL,

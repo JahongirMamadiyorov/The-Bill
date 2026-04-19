@@ -6,6 +6,7 @@ import {
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 
@@ -32,8 +33,6 @@ const fmtDate = (d) => {
 
 const today = new Date();
 const TODAY_STR   = fmtDate(today);
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAY_HDRS    = ['Mo','Tu','We','Th','Fr','Sa','Su'];
 
 const getMonday = (d) => {
   const date = new Date(d);
@@ -42,10 +41,11 @@ const getMonday = (d) => {
 };
 
 const METHOD_ICONS  = { cash: 'payments', card: 'credit-card', 'qr code': 'qr-code', qr: 'qr-code' };
-const REFUND_REASONS = ['Customer Complaint', 'Wrong Order', 'Duplicate Payment', 'Other'];
 
 // ── Calendar Date Picker ───────────────────────────────────────────────────────
-function CalendarPicker({ visible, onClose, period, onChange }) {
+function CalendarPicker({ visible, onClose, period, onChange, t }) {
+  const MONTH_NAMES = t('datePicker.months');
+  const DAY_HDRS    = t('datePicker.days');
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [tempFrom,  setTempFrom]  = useState(period.from);
@@ -97,10 +97,10 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   const presets = [
-    { label: 'Today',      from: TODAY_STR, to: TODAY_STR },
-    { label: 'This Week',  from: fmtDate(getMonday(today)), to: TODAY_STR },
-    { label: 'This Month', from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
-    { label: 'Last Month', from: fmtDate(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)) },
+    { label: t('cashier.history.today'),      from: TODAY_STR, to: TODAY_STR },
+    { label: t('cashier.history.thisWeek'),  from: fmtDate(getMonday(today)), to: TODAY_STR },
+    { label: t('cashier.history.thisMonth'), from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
+    { label: t('cashier.history.lastMonth'), from: fmtDate(new Date(today.getFullYear(), today.getMonth()-1, 1)), to: fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)) },
   ];
 
   return (
@@ -109,7 +109,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
         <View style={C.sheet}>
           <View style={C.header}>
             <MaterialIcons name="calendar-today" size={20} color={colors.primary} />
-            <Text style={C.headerTitle}>Select Period</Text>
+            <Text style={C.headerTitle}>{t('cashier.history.selectPeriod')}</Text>
             <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
               <MaterialIcons name="close" size={22} color={colors.neutralMid} />
             </TouchableOpacity>
@@ -117,18 +117,18 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
           <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
             <View style={{ flexDirection: 'row', marginBottom: 12 }}>
               <TouchableOpacity onPress={() => setStep('from')} style={[C.pill, step === 'from' && C.pillActive]}>
-                <Text style={C.pillLbl}>FROM</Text>
+                <Text style={C.pillLbl}>{t('cashier.history.from')}</Text>
                 <Text style={C.pillVal}>{tempFrom}</Text>
               </TouchableOpacity>
               <View style={{ width: 24, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ color: colors.neutralMid, fontSize: 18 }}>→</Text>
               </View>
               <TouchableOpacity onPress={() => setStep('to')} style={[C.pill, step === 'to' && C.pillActive]}>
-                <Text style={C.pillLbl}>TO</Text>
+                <Text style={C.pillLbl}>{t('cashier.history.to')}</Text>
                 <Text style={C.pillVal}>{tempTo}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={C.hint}>{step === 'from' ? 'Tap a date to set start' : 'Tap a date to set end'}</Text>
+            <Text style={C.hint}>{step === 'from' ? t('cashier.history.tapDateStart') : t('cashier.history.tapDateEnd')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <TouchableOpacity onPress={prevMonth} style={C.arrowBtn}><Text style={C.arrowTxt}>‹</Text></TouchableOpacity>
               <Text style={C.monthTitle}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
@@ -182,7 +182,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
               onPress={() => { onChange({ from: tempFrom, to: tempTo }); onClose(); }}
             >
               <Text style={C.applyTxt}>
-                Apply: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
+                {t('cashier.history.apply')}: {tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
               </Text>
             </TouchableOpacity>
           </ScrollView>
@@ -193,7 +193,7 @@ function CalendarPicker({ visible, onClose, period, onChange }) {
 }
 
 // ── Filter Sheet ───────────────────────────────────────────────────────────────
-function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tableOptions }) {
+function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tableOptions, t }) {
   const [local, setLocal] = useState(filters);
 
   useEffect(() => {
@@ -205,13 +205,13 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
   const clearAll = () => setLocal({ waitress: '', table: '', method: '', status: '' });
 
   const METHODS = [
-    { id: 'cash',    label: 'Cash',    icon: 'payments'    },
-    { id: 'card',    label: 'Card',    icon: 'credit-card' },
+    { id: 'cash',    label: t('paymentMethods.cash'),    icon: 'payments'    },
+    { id: 'card',    label: t('paymentMethods.card'),    icon: 'credit-card' },
     { id: 'qr',      label: 'QR',      icon: 'qr-code'     },
   ];
   const STATUSES = [
-    { id: 'paid',     label: 'Paid'     },
-    { id: 'refunded', label: 'Refunded' },
+    { id: 'paid',     label: t('common.paid')     },
+    { id: 'refunded', label: t('cashier.history.refunded') },
   ];
 
   const activeCount = Object.values(local).filter(Boolean).length;
@@ -222,10 +222,10 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
       <View style={[S.sheet, { maxHeight: '90%' }]}>
         {/* Header */}
         <View style={FS.header}>
-          <Text style={FS.title}>Filters</Text>
+          <Text style={FS.title}>{t('cashier.history.filters')}</Text>
           {activeCount > 0 && (
             <TouchableOpacity onPress={clearAll} style={FS.clearBtn}>
-              <Text style={FS.clearTxt}>Clear all</Text>
+              <Text style={FS.clearTxt}>{t('cashier.history.clearAll')}</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
@@ -235,7 +235,7 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
 
         <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 32 }}>
           {/* Payment Method */}
-          <Text style={FS.sectionLbl}>Payment Method</Text>
+          <Text style={FS.sectionLbl}>{t('cashier.orders.paymentMethod')}</Text>
           <View style={FS.chipRow}>
             {METHODS.map(m => (
               <TouchableOpacity
@@ -250,7 +250,7 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
           </View>
 
           {/* Status */}
-          <Text style={[FS.sectionLbl, { marginTop: spacing.md }]}>Status</Text>
+          <Text style={[FS.sectionLbl, { marginTop: spacing.md }]}>{t('cashier.history.status')}</Text>
           <View style={FS.chipRow}>
             {STATUSES.map(s => (
               <TouchableOpacity
@@ -266,7 +266,7 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
           {/* Waitress */}
           {waitressOptions.length > 0 && (
             <>
-              <Text style={[FS.sectionLbl, { marginTop: spacing.md }]}>Waitress</Text>
+              <Text style={[FS.sectionLbl, { marginTop: spacing.md }]}>{t('cashier.history.waitress')}</Text>
               <View style={FS.chipRow}>
                 {waitressOptions.map(name => (
                   <TouchableOpacity
@@ -284,7 +284,7 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
           {/* Table */}
           {tableOptions.length > 0 && (
             <>
-              <Text style={[FS.sectionLbl, { marginTop: spacing.md }]}>Table</Text>
+              <Text style={[FS.sectionLbl, { marginTop: spacing.md }]}>{t('cashier.history.table')}</Text>
               <View style={FS.chipRow}>
                 {tableOptions.map(name => (
                   <TouchableOpacity
@@ -307,7 +307,7 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
             onPress={() => { onChange(local); onClose(); }}
           >
             <Text style={FS.applyTxt}>
-              {activeCount > 0 ? `Apply ${activeCount} filter${activeCount > 1 ? 's' : ''}` : 'Apply'}
+              {activeCount > 0 ? `${t('cashier.history.apply')} ${activeCount}` : t('cashier.history.apply')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -317,7 +317,7 @@ function FilterSheet({ visible, onClose, filters, onChange, waitressOptions, tab
 }
 
 // ── Order Detail Sheet ─────────────────────────────────────────────────────────
-function OrderDetailSheet({ visible, order, onClose, onRefund }) {
+function OrderDetailSheet({ visible, order, onClose, onRefund, t }) {
   const [fullOrder, setFullOrder] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -358,7 +358,7 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <View style={[OD.badge, isRefunded ? OD.badgeRefund : OD.badgePaid]}>
               <Text style={[OD.badgeTxt, { color: isRefunded ? '#DC2626' : '#16A34A' }]}>
-                {isRefunded ? 'Refunded' : 'Paid'}
+                {isRefunded ? t('cashier.history.refunded') : t('common.paid')}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={10}>
@@ -374,14 +374,14 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
               <View style={OD.infoItem}>
                 <MaterialIcons name="table-restaurant" size={16} color={colors.neutralMid} />
                 <View>
-                  <Text style={OD.infoLbl}>Table</Text>
-                  <Text style={OD.infoVal}>{order.table_name || 'Walk-in'}</Text>
+                  <Text style={OD.infoLbl}>{t('cashier.history.table')}</Text>
+                  <Text style={OD.infoVal}>{order.table_name || t('cashier.orders.walkIn')}</Text>
                 </View>
               </View>
               <View style={OD.infoItem}>
                 <MaterialIcons name="person" size={16} color={colors.neutralMid} />
                 <View>
-                  <Text style={OD.infoLbl}>Waitress</Text>
+                  <Text style={OD.infoLbl}>{t('cashier.history.waitress')}</Text>
                   <Text style={OD.infoVal}>{waitressName}</Text>
                 </View>
               </View>
@@ -390,7 +390,7 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
               <View style={OD.infoItem}>
                 <MaterialIcons name={methodIcon} size={16} color={colors.neutralMid} />
                 <View>
-                  <Text style={OD.infoLbl}>Payment</Text>
+                  <Text style={OD.infoLbl}>{t('cashier.history.payment')}</Text>
                   <Text style={OD.infoVal} style={{ textTransform: 'capitalize' }}>
                     {order.payment_method || '—'}
                   </Text>
@@ -400,7 +400,7 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
                 <View style={OD.infoItem}>
                   <MaterialIcons name="person-outline" size={16} color={colors.neutralMid} />
                   <View>
-                    <Text style={OD.infoLbl}>Customer</Text>
+                    <Text style={OD.infoLbl}>{t('cashier.history.customer')}</Text>
                     <Text style={OD.infoVal}>{order.customer_name}</Text>
                   </View>
                 </View>
@@ -409,11 +409,11 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
           </View>
 
           {/* Items */}
-          <Text style={OD.secHead}>Order Items</Text>
+          <Text style={OD.secHead}>{t('cashier.orders.orderItems')}</Text>
           {loading ? (
             <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />
           ) : items.length === 0 ? (
-            <Text style={{ color: colors.neutralMid, fontSize: 13, paddingVertical: 8 }}>No items found</Text>
+            <Text style={{ color: colors.neutralMid, fontSize: 13, paddingVertical: 8 }}>{t('cashier.orders.noItemsFound')}</Text>
           ) : (
             <View style={OD.itemsCard}>
               {items.map((item, i) => {
@@ -434,23 +434,23 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
           {/* Totals */}
           <View style={OD.totalsCard}>
             <View style={OD.totRow}>
-              <Text style={OD.totLbl}>Subtotal</Text>
+              <Text style={OD.totLbl}>{t('common.subtotal')}</Text>
               <Text style={OD.totVal}>{fmt(subtotal || total)}</Text>
             </View>
             {tax > 0 && (
               <View style={OD.totRow}>
-                <Text style={OD.totLbl}>Tax</Text>
+                <Text style={OD.totLbl}>{t('cashier.orders.tax')}</Text>
                 <Text style={OD.totVal}>{fmt(tax)}</Text>
               </View>
             )}
             {disc > 0 && (
               <View style={OD.totRow}>
-                <Text style={[OD.totLbl, { color: colors.success }]}>Discount</Text>
+                <Text style={[OD.totLbl, { color: colors.success }]}>{t('common.discount')}</Text>
                 <Text style={[OD.totVal, { color: colors.success }]}>−{fmt(disc)}</Text>
               </View>
             )}
             <View style={[OD.totRow, OD.totRowBold]}>
-              <Text style={OD.grandLbl}>Total Paid</Text>
+              <Text style={OD.grandLbl}>{t('cashier.history.totalPaid')}</Text>
               <Text style={OD.grandAmt}>{fmt(total)}</Text>
             </View>
           </View>
@@ -462,7 +462,7 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
               onPress={() => { onClose(); onRefund(order); }}
             >
               <MaterialIcons name="refresh" size={18} color={colors.danger} />
-              <Text style={OD.refundTxt}>Process Refund</Text>
+              <Text style={OD.refundTxt}>{t('cashier.history.processRefund')}</Text>
             </TouchableOpacity>
           )}
         </ScrollView>
@@ -474,6 +474,8 @@ function OrderDetailSheet({ visible, order, onClose, onRefund }) {
 // ── CashierHistory ─────────────────────────────────────────────────────────────
 export default function CashierHistory() {
   const { user } = useAuth();
+  const { t } = useTranslation();
+  const REFUND_REASONS = t('cashier.history.refundReasons');
 
   const defaultPeriod = {
     from: fmtDate(new Date(today.getFullYear(), today.getMonth(), today.getDate())),
@@ -567,18 +569,18 @@ export default function CashierHistory() {
     setRefunding(true);
     try {
       await ordersAPI.updateStatus(refundTarget.id, 'cancelled');
-      setDialog({ title: 'Refund processed', message: 'Admin has been notified.', type: 'success' });
+      setDialog({ title: t('cashier.history.refundProcessed'), message: t('cashier.history.adminNotified'), type: 'success' });
       setRefundTarget(null);
       loadPaid();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Refund failed', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('cashier.history.refundFailed'), type: 'error' });
     } finally { setRefunding(false); }
   };
 
   const FILTER_LABELS = {
     waitress: v => v,
-    table:    v => `Table: ${v}`,
-    method:   v => v === 'qr' ? 'QR Code' : v.charAt(0).toUpperCase() + v.slice(1),
+    table:    v => `${t('cashier.history.table')}: ${v}`,
+    method:   v => v === 'qr' ? t('paymentMethods.qrCode') : v.charAt(0).toUpperCase() + v.slice(1),
     status:   v => v.charAt(0).toUpperCase() + v.slice(1),
   };
 
@@ -620,7 +622,7 @@ export default function CashierHistory() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity onPress={() => setFilters({ waitress: '', table: '', method: '', status: '' })}>
-              <Text style={S.clearAllTxt}>Clear all</Text>
+              <Text style={S.clearAllTxt}>{t('cashier.history.clearAll')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -628,27 +630,27 @@ export default function CashierHistory() {
         {/* ── Summary cards ─────────────────────────────────────────────── */}
         <View style={S.summaryGrid}>
           <View style={S.summaryCard}>
-            <Text style={S.summaryLbl}>Transactions</Text>
+            <Text style={S.summaryLbl}>{t('cashier.history.transactions')}</Text>
             <Text style={S.summaryVal}>{notRefunded.length}</Text>
           </View>
           <View style={S.summaryCard}>
-            <Text style={S.summaryLbl}>Total Revenue</Text>
+            <Text style={S.summaryLbl}>{t('cashier.history.totalRevenue')}</Text>
             <Text style={[S.summaryVal, { color: colors.primary }]}>{fmt(totalRev)}</Text>
           </View>
         </View>
 
         {/* ── By method ─────────────────────────────────────────────────── */}
         <View style={S.methodCard}>
-          <Text style={S.secHead}>By Payment Method</Text>
+          <Text style={S.secHead}>{t('cashier.history.byPaymentMethod')}</Text>
           <View style={S.methodRow}>
             <View style={S.methodItem}>
               <MaterialIcons name="payments"    size={14} color={colors.neutralMid}/>
-              <Text style={S.methodLbl}>Cash</Text>
+              <Text style={S.methodLbl}>{t('paymentMethods.cash')}</Text>
               <Text style={S.methodVal}>{fmt(byCash)}</Text>
             </View>
             <View style={S.methodItem}>
               <MaterialIcons name="credit-card" size={14} color={colors.neutralMid}/>
-              <Text style={S.methodLbl}>Card</Text>
+              <Text style={S.methodLbl}>{t('paymentMethods.card')}</Text>
               <Text style={S.methodVal}>{fmt(byCard)}</Text>
             </View>
             <View style={S.methodItem}>
@@ -658,20 +660,20 @@ export default function CashierHistory() {
             </View>
           </View>
           {totalDisc > 0 && (
-            <Text style={S.discRow}>Total discounts: <Text style={{ color: colors.warning, fontWeight: '700' }}>{fmt(totalDisc)}</Text></Text>
+            <Text style={S.discRow}>{t('cashier.history.totalDiscounts')}: <Text style={{ color: colors.warning, fontWeight: '700' }}>{fmt(totalDisc)}</Text></Text>
           )}
         </View>
 
         {/* ── Transactions list ──────────────────────────────────────────── */}
         <Text style={S.secHead}>
-          Transactions
+          {t('cashier.history.transactions')}
           {activeFilterCount > 0 ? ` (${filtered.length})` : ''}
         </Text>
         {filtered.length === 0 && (
           <View style={S.empty}>
             <MaterialIcons name="history" size={36} color={colors.border}/>
             <Text style={S.emptyTxt}>
-              {activeFilterCount > 0 ? 'No transactions match your filters' : 'No transactions for this period'}
+              {activeFilterCount > 0 ? t('cashier.history.noTransactionsFilter') : t('cashier.history.noTransactionsPeriod')}
             </Text>
           </View>
         )}
@@ -691,14 +693,14 @@ export default function CashierHistory() {
                   <View style={S.txIcon}><MaterialIcons name={icon} size={16} color={colors.neutralMid}/></View>
                   <View>
                     <Text style={S.txId}>{fmtOrderNum(order)}</Text>
-                    <Text style={S.txTable}>{order.table_name || 'Walk-in'}</Text>
+                    <Text style={S.txTable}>{order.table_name || t('cashier.orders.walkIn')}</Text>
                   </View>
                 </View>
                 <View style={S.txRight}>
                   <Text style={S.txAmt}>{fmt(order.total_amount)}</Text>
                   <View style={[S.txBadge, isRefunded ? S.txBadgeRefund : S.txBadgePaid]}>
                     <Text style={[S.txBadgeTxt, isRefunded ? { color: '#DC2626' } : { color: '#16A34A' }]}>
-                      {isRefunded ? 'Refunded' : 'Paid'}
+                      {isRefunded ? t('cashier.history.refunded') : t('common.paid')}
                     </Text>
                   </View>
                 </View>
@@ -719,6 +721,7 @@ export default function CashierHistory() {
         onClose={() => setCalOpen(false)}
         period={period}
         onChange={(p) => { setPeriod(p); setCalOpen(false); }}
+        t={t}
       />
 
       {/* ── Filter sheet ─────────────────────────────────────────────────── */}
@@ -729,6 +732,7 @@ export default function CashierHistory() {
         onChange={(f) => setFilters(f)}
         waitressOptions={waitressOptions}
         tableOptions={tableOptions}
+        t={t}
       />
 
       {/* ── Order detail sheet ────────────────────────────────────────────── */}
@@ -737,29 +741,30 @@ export default function CashierHistory() {
         order={detailOrder}
         onClose={() => setDetailOpen(false)}
         onRefund={(o) => openRefund(o)}
+        t={t}
       />
 
       {/* ── Refund sheet ─────────────────────────────────────────────────── */}
       <Modal visible={!!refundTarget} transparent animationType="slide" onRequestClose={() => setRefundTarget(null)}>
         <TouchableOpacity style={S.mask} onPress={() => setRefundTarget(null)} />
         <View style={S.sheet}>
-          <Text style={S.sheetTitle}>Refund — {fmtOrderNum(refundTarget)}</Text>
+          <Text style={S.sheetTitle}>{t('cashier.history.refund')} — {fmtOrderNum(refundTarget)}</Text>
           {refundTarget && (
             <>
               <View style={S.refundInfo}>
-                <View style={S.infoRow}><Text style={S.infoLbl}>Table</Text><Text style={S.infoVal}>{refundTarget.table_name || 'Walk-in'}</Text></View>
-                <View style={S.infoRow}><Text style={S.infoLbl}>Paid</Text><Text style={S.infoVal}>{fmt(refundTarget.total_amount)}</Text></View>
-                <View style={S.infoRow}><Text style={S.infoLbl}>Method</Text><Text style={S.infoVal}>{refundTarget.payment_method || '—'}</Text></View>
+                <View style={S.infoRow}><Text style={S.infoLbl}>{t('cashier.history.table')}</Text><Text style={S.infoVal}>{refundTarget.table_name || t('cashier.orders.walkIn')}</Text></View>
+                <View style={S.infoRow}><Text style={S.infoLbl}>{t('common.paid')}</Text><Text style={S.infoVal}>{fmt(refundTarget.total_amount)}</Text></View>
+                <View style={S.infoRow}><Text style={S.infoLbl}>{t('cashier.orders.method')}</Text><Text style={S.infoVal}>{refundTarget.payment_method || '—'}</Text></View>
               </View>
-              <Text style={S.inputLabel}>Refund Amount</Text>
+              <Text style={S.inputLabel}>{t('cashier.history.refundAmount')}</Text>
               <TextInput style={S.input} keyboardType="numeric" value={refundAmt} onChangeText={setRefundAmt} />
-              <Text style={[S.inputLabel, { marginTop: spacing.md }]}>Reason</Text>
+              <Text style={[S.inputLabel, { marginTop: spacing.md }]}>{t('cashier.history.reason')}</Text>
               <TouchableOpacity style={S.reasonPicker} onPress={() => setShowReasonPicker(true)}>
                 <Text style={S.reasonVal}>{refundReason}</Text>
                 <MaterialIcons name="expand-more" size={18} color={colors.neutralMid}/>
               </TouchableOpacity>
               <TouchableOpacity style={[S.refundConfirmBtn, refunding && { opacity: 0.6 }]} onPress={confirmRefund} disabled={refunding}>
-                {refunding ? <ActivityIndicator color="#fff"/> : <Text style={S.refundConfirmTxt}>Confirm Refund</Text>}
+                {refunding ? <ActivityIndicator color="#fff"/> : <Text style={S.refundConfirmTxt}>{t('cashier.history.confirmRefund')}</Text>}
               </TouchableOpacity>
             </>
           )}
@@ -770,7 +775,7 @@ export default function CashierHistory() {
       <Modal visible={showReasonPicker} transparent animationType="slide" onRequestClose={() => setShowReasonPicker(false)}>
         <TouchableOpacity style={S.mask} onPress={() => setShowReasonPicker(false)}/>
         <View style={S.sheet}>
-          <Text style={S.sheetTitle}>Select Reason</Text>
+          <Text style={S.sheetTitle}>{t('cashier.orders.selectReason')}</Text>
           {REFUND_REASONS.map(r => (
             <TouchableOpacity key={r} style={S.reasonOpt} onPress={() => { setRefundReason(r); setShowReasonPicker(false); }}>
               <Text style={[S.reasonOptTxt, refundReason === r && { color: colors.primary, fontWeight: '700' }]}>{r}</Text>

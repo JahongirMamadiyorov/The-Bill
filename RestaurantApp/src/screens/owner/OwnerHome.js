@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { reportsAPI, shiftsAPI } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const P   = '#7C3AED';
@@ -25,11 +27,11 @@ const money = v => {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + " so'm";
 };
 
-const greeting = () => {
+const greeting = (t) => {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return t ? t('owner.home.goodMorning') : 'Good morning';
+  if (h < 17) return t ? t('owner.home.goodAfternoon') : 'Good afternoon';
+  return t ? t('owner.home.goodEvening') : 'Good evening';
 };
 
 const fmtDay = d =>
@@ -60,6 +62,8 @@ const SectionTitle = memo(function SectionTitle({ icon, title, badge }) {
 
 // ─── main screen ──────────────────────────────────────────────────────────────
 export default function OwnerHome() {
+  const { restaurant } = useAuth();
+  const { t } = useTranslation();
   const [summary,    setSummary]    = useState(null);
   const [staffList,  setStaffList]  = useState([]);
   const [dash,       setDash]       = useState(null);
@@ -145,7 +149,7 @@ export default function OwnerHome() {
         <MaterialIcons name="error-outline" size={48} color={P} />
         <Text style={st.errorText}>{error}</Text>
         <Pressable style={({ pressed }) => [st.retryBtn, pressed && { opacity: 0.7 }]} onPress={fetchData}>
-          <Text style={st.retryText}>Retry</Text>
+          <Text style={st.retryText}>{t('common.retry')}</Text>
         </Pressable>
       </View>
     );
@@ -166,8 +170,8 @@ export default function OwnerHome() {
         <View style={st.decCircle2} />
         <View style={st.headerTop}>
           <View>
-            <Text style={st.greeting}>{greeting()}</Text>
-            <Text style={st.restaurantName}>The Bill</Text>
+            <Text style={st.greeting}>{greeting(t)}</Text>
+            <Text style={st.restaurantName}>{restaurant?.name || 'The Bill'}</Text>
             <Text style={st.dateText}>{fmtDay(new Date())}</Text>
           </View>
           <Pressable onPress={onRefresh} style={({ pressed }) => [st.refreshBtn, pressed && { opacity: 0.6 }]}>
@@ -177,22 +181,22 @@ export default function OwnerHome() {
 
         {/* Big revenue card inside header */}
         <View style={st.revenueCard}>
-          <Text style={st.revenueLabel}>Today's Revenue</Text>
+          <Text style={st.revenueLabel}>{t('owner.home.todaysRevenue')}</Text>
           <Text style={st.revenueValue}>{money(totalSales)}</Text>
           <View style={st.revenueSubRow}>
             <View style={st.revenueChip}>
               <MaterialIcons name="receipt-long" size={12} color="rgba(255,255,255,0.7)" />
-              <Text style={st.revenueChipText}>{dash?.today_orders ?? 0} orders</Text>
+              <Text style={st.revenueChipText}>{dash?.today_orders ?? 0} {t('owner.home.orders')}</Text>
             </View>
             <View style={st.revenueChip}>
               <MaterialIcons name="trending-up" size={12} color="rgba(255,255,255,0.7)" />
               <Text style={st.revenueChipText}>
-                {netProfit >= 0 ? '+' : ''}{money(netProfit)} net
+                {netProfit >= 0 ? '+' : ''}{money(netProfit)} {t('owner.home.net')}
               </Text>
             </View>
             <View style={st.revenueChip}>
               <MaterialIcons name="payments" size={12} color="rgba(255,255,255,0.7)" />
-              <Text style={st.revenueChipText}>{money(outflow)} out</Text>
+              <Text style={st.revenueChipText}>{money(outflow)} {t('owner.home.out')}</Text>
             </View>
           </View>
         </View>
@@ -203,37 +207,37 @@ export default function OwnerHome() {
         <View style={[st.snapCard, { borderTopColor: '#F97316' }]}>
           <MaterialIcons name="local-fire-department" size={20} color="#F97316" />
           <Text style={st.snapVal}>{totalActive}</Text>
-          <Text style={st.snapLbl}>Active</Text>
+          <Text style={st.snapLbl}>{t('owner.home.active')}</Text>
         </View>
         <View style={[st.snapCard, { borderTopColor: '#16A34A' }]}>
           <MaterialIcons name="event-seat" size={20} color="#16A34A" />
           <Text style={st.snapVal}>{freeTables}/{totalTables}</Text>
-          <Text style={st.snapLbl}>Free Tables</Text>
+          <Text style={st.snapLbl}>{t('owner.home.freeTables')}</Text>
         </View>
         <View style={[st.snapCard, { borderTopColor: '#2563EB' }]}>
           <MaterialIcons name="table-bar" size={20} color="#2563EB" />
           <Text style={st.snapVal}>{openTables}</Text>
-          <Text style={st.snapLbl}>Occupied</Text>
+          <Text style={st.snapLbl}>{t('owner.home.occupied')}</Text>
         </View>
         <View style={[st.snapCard, { borderTopColor: P }]}>
           <MaterialIcons name="people" size={20} color={P} />
           <Text style={st.snapVal}>{staffOnDuty.length}</Text>
-          <Text style={st.snapLbl}>On Duty</Text>
+          <Text style={st.snapLbl}>{t('owner.home.onDuty')}</Text>
         </View>
       </View>
 
       {/* ── Payment breakdown ── */}
       <View style={st.card}>
-        <SectionTitle icon="account-balance-wallet" title="Payment Breakdown" badge="Today" />
-        <PaymentRow label="Cash"   icon="payments"      color="#10B981" value={inflow.cash}   total={inflow.total} />
-        <PaymentRow label="Card"   icon="credit-card"   color="#2563EB" value={inflow.card}   total={inflow.total} />
-        <PaymentRow label="Online" icon="phone-android" color={P}       value={inflow.online} total={inflow.total} />
+        <SectionTitle icon="account-balance-wallet" title={t('owner.home.paymentBreakdown')} badge={t('periods.today')} />
+        <PaymentRow label={t('paymentMethods.cash')}   icon="payments"      color="#10B981" value={inflow.cash}   total={inflow.total} />
+        <PaymentRow label={t('paymentMethods.card')}   icon="credit-card"   color="#2563EB" value={inflow.card}   total={inflow.total} />
+        <PaymentRow label={t('paymentMethods.online')} icon="phone-android" color={P}       value={inflow.online} total={inflow.total} />
       </View>
 
       {/* ── Active orders by type ── */}
       {activeOrders.length > 0 && (
         <View style={st.card}>
-          <SectionTitle icon="receipt" title="Active Orders by Type" />
+          <SectionTitle icon="receipt" title={t('owner.home.activeOrdersByType')} />
           <View style={st.orderTypeRow}>
             {activeOrders.map(o => (
               <View key={o.id} style={st.orderTypeCard}>
@@ -253,7 +257,7 @@ export default function OwnerHome() {
       {/* ── Hourly sales trend ── */}
       {trendHours.length > 0 && (
         <View style={st.card}>
-          <SectionTitle icon="show-chart" title="Sales Trend" badge="Today" />
+          <SectionTitle icon="show-chart" title={t('owner.home.salesTrend')} badge={t('periods.today')} />
           <View style={st.trendChart}>
             {trendHours.map((h, i) => {
               const pct = (parseFloat(h.sales || 0) / maxTrend) * 100;
@@ -272,18 +276,18 @@ export default function OwnerHome() {
             })}
           </View>
           <Text style={st.trendPeak}>
-            Peak: {money(maxTrend)}
+            {t('owner.home.peak')}: {money(maxTrend)}
           </Text>
         </View>
       )}
 
       {/* ── Today's sold items ── */}
       <View style={st.card}>
-        <SectionTitle icon="fastfood" title="Today's Top Items" badge="Today" />
+        <SectionTitle icon="fastfood" title={t('owner.home.todayTopItems')} badge={t('periods.today')} />
         {todaySold.length === 0 ? (
           <View style={st.emptyBox}>
             <MaterialIcons name="no-food" size={32} color="#E5E7EB" />
-            <Text style={st.emptyText}>No items sold yet today</Text>
+            <Text style={st.emptyText}>{t('owner.home.noItemsSoldYet')}</Text>
           </View>
         ) : (
           todaySold.map((item, i) => (
@@ -306,24 +310,24 @@ export default function OwnerHome() {
       {/* ── Warehouse activity today ── */}
       {(warehouse.goodsConsumed > 0 || warehouse.goodsArrived > 0) && (
         <View style={st.card}>
-          <SectionTitle icon="inventory-2" title="Warehouse Today" />
+          <SectionTitle icon="inventory-2" title={t('owner.home.warehouseToday')} />
           <View style={st.whRow}>
             <View style={st.whCard}>
               <MaterialIcons name="remove-circle" size={20} color="#F59E0B" />
               <Text style={st.whVal}>{money(warehouse.goodsConsumed)}</Text>
-              <Text style={st.whLbl}>Consumed</Text>
+              <Text style={st.whLbl}>{t('owner.home.consumed')}</Text>
             </View>
             <View style={st.whDivider} />
             <View style={st.whCard}>
               <MaterialIcons name="add-circle" size={20} color="#10B981" />
               <Text style={st.whVal}>{money(warehouse.goodsArrived)}</Text>
-              <Text style={st.whLbl}>Received</Text>
+              <Text style={st.whLbl}>{t('owner.home.received')}</Text>
             </View>
             <View style={st.whDivider} />
             <View style={st.whCard}>
               <MaterialIcons name="store" size={20} color={P} />
               <Text style={[st.whVal, { fontSize: 11 }]}>{money(warehouse.currentStatus?.totalValue || 0)}</Text>
-              <Text style={st.whLbl}>Stock Value</Text>
+              <Text style={st.whLbl}>{t('owner.home.stockValue')}</Text>
             </View>
           </View>
         </View>
@@ -333,13 +337,13 @@ export default function OwnerHome() {
       <View style={st.card}>
         <SectionTitle
           icon="badge"
-          title="Staff Status"
-          badge={`${staffOnDuty.length} on duty`}
+          title={t('owner.home.staffStatus')}
+          badge={`${staffOnDuty.length} ${t('owner.home.onDutyBadge')}`}
         />
         {staffList.length === 0 ? (
           <View style={st.emptyBox}>
             <MaterialIcons name="people-outline" size={32} color="#E5E7EB" />
-            <Text style={st.emptyText}>No staff data</Text>
+            <Text style={st.emptyText}>{t('owner.home.noStaffData')}</Text>
           </View>
         ) : (
           staffList.map((s, i) => {
@@ -360,12 +364,12 @@ export default function OwnerHome() {
                   <View style={st.staffOnBadge}>
                     <View style={st.staffOnDot} />
                     <Text style={st.staffOnText}>
-                      {parseFloat(s.hours_worked || 0).toFixed(1)}h · since {fmtTime(s.clock_in)}
+                      {parseFloat(s.hours_worked || 0).toFixed(1)}h · {t('owner.home.since')} {fmtTime(s.clock_in)}
                     </Text>
                   </View>
                 ) : (
                   <View style={st.staffOffBadge}>
-                    <Text style={st.staffOffText}>Off</Text>
+                    <Text style={st.staffOffText}>{t('owner.home.off')}</Text>
                   </View>
                 )}
               </View>

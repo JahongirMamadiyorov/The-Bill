@@ -24,6 +24,7 @@ import {
   StyleSheet, Platform, KeyboardAvoidingView, StatusBar,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { useTranslation } from '../context/LanguageContext';
 
 // ─── theme ───────────────────────────────────────────────────────────────────
 const P    = '#7C3AED';   // owner purple
@@ -50,14 +51,20 @@ const getMonday = (d) => {
   return x;
 };
 
-const MONTH_NAMES = [
+const MONTH_NAMES_EN = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ];
-const DAY_HDRS = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+const DAY_HDRS_EN = ['Mo','Tu','We','Th','Fr','Sa','Su'];
 
 // ─── CalendarPicker ──────────────────────────────────────────────────────────
 export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
+  const { t } = useTranslation();
+  const monthNamesT = t('owner.finance.monthNames');
+  const MONTH_NAMES = Array.isArray(monthNamesT) && monthNamesT.length === 12 ? monthNamesT : MONTH_NAMES_EN;
+  const dayHdrsT = t('owner.finance.dayHeaders');
+  const DAY_HDRS = Array.isArray(dayHdrsT) && dayHdrsT.length === 7 ? dayHdrsT : DAY_HDRS_EN;
+
   const [viewYear,  setViewYear]  = useState(_today.getFullYear());
   const [viewMonth, setViewMonth] = useState(_today.getMonth());
   const [tempFrom,  setTempFrom]  = useState(period.from);
@@ -111,10 +118,10 @@ export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   const presets = [
-    { label: 'Today',      from: TODAY_STR, to: TODAY_STR },
-    { label: 'This Week',  from: fmtDate(getMonday(_today)), to: TODAY_STR },
-    { label: 'This Month', from: `${_today.getFullYear()}-${String(_today.getMonth()+1).padStart(2,'0')}-01`, to: TODAY_STR },
-    { label: 'Last Month', from: fmtDate(new Date(_today.getFullYear(), _today.getMonth()-1, 1)), to: fmtDate(new Date(_today.getFullYear(), _today.getMonth(), 0)) },
+    { label: t('owner.finance.today', 'Today'),      from: TODAY_STR, to: TODAY_STR },
+    { label: t('owner.finance.thisWeek', 'This Week'),  from: fmtDate(getMonday(_today)), to: TODAY_STR },
+    { label: t('owner.finance.thisMonth', 'This Month'), from: `${_today.getFullYear()}-${String(_today.getMonth()+1).padStart(2,'0')}-01`, to: TODAY_STR },
+    { label: t('owner.finance.lastMonth', 'Last Month'), from: fmtDate(new Date(_today.getFullYear(), _today.getMonth()-1, 1)), to: fmtDate(new Date(_today.getFullYear(), _today.getMonth(), 0)) },
   ];
 
   const applyLabel = tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`;
@@ -133,11 +140,11 @@ export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
         {/* Header — paddingTop covers status bar area */}
         <View style={[st.modalHeader, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={onClose} style={{ width: 70 }}>
-            <Text style={{ fontSize: 15, color: P, fontWeight: '700' }}>← Back</Text>
+            <Text style={{ fontSize: 15, color: P, fontWeight: '700' }}>← {t('owner.finance.back', 'Back')}</Text>
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
             <MaterialIcons name="calendar-today" size={18} color={P} style={{ marginRight: 6 }} />
-            <Text style={st.modalTitle}>Select Period</Text>
+            <Text style={st.modalTitle}>{t('owner.finance.selectPeriod', 'Select Period')}</Text>
           </View>
           <View style={{ width: 70 }} />
         </View>
@@ -148,21 +155,21 @@ export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
             {/* FROM / TO pills */}
             <View style={{ flexDirection: 'row', marginBottom: 12 }}>
               <TouchableOpacity onPress={() => setStep('from')} style={[st.periodPill, step === 'from' && st.periodPillActive]}>
-                <Text style={{ fontSize: 10, color: TQ, fontWeight: '700', marginBottom: 2 }}>FROM</Text>
+                <Text style={{ fontSize: 10, color: TQ, fontWeight: '700', marginBottom: 2 }}>{t('owner.finance.from', 'FROM')}</Text>
                 <Text style={{ fontSize: 14, fontWeight: '800', color: TX }}>{tempFrom}</Text>
               </TouchableOpacity>
               <View style={{ width: 24, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ color: TM, fontSize: 18 }}>→</Text>
               </View>
               <TouchableOpacity onPress={() => setStep('to')} style={[st.periodPill, step === 'to' && st.periodPillActive]}>
-                <Text style={{ fontSize: 10, color: TQ, fontWeight: '700', marginBottom: 2 }}>TO</Text>
+                <Text style={{ fontSize: 10, color: TQ, fontWeight: '700', marginBottom: 2 }}>{t('owner.finance.to', 'TO')}</Text>
                 <Text style={{ fontSize: 14, fontWeight: '800', color: TX }}>{tempTo}</Text>
               </TouchableOpacity>
             </View>
 
             {/* Hint */}
             <Text style={{ textAlign: 'center', color: TQ, fontSize: 12, marginBottom: 14 }}>
-              {step === 'from' ? '● Tap a date to set start' : '● Tap a date to set end'}
+              {step === 'from' ? '● ' + t('owner.finance.tapStart', 'Tap a date to set start') : '● ' + t('owner.finance.tapEnd', 'Tap a date to set end')}
             </Text>
 
             {/* Month navigation */}
@@ -232,7 +239,7 @@ export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
 
             {/* Quick-select presets */}
             <View style={{ marginTop: 18 }}>
-              <Text style={[st.label, { marginBottom: 8 }]}>Quick Select</Text>
+              <Text style={[st.label, { marginBottom: 8 }]}>{t('owner.finance.quickSelect', 'Quick Select')}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
                 {presets.map((p, i) => (
                   <TouchableOpacity
@@ -253,7 +260,7 @@ export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
             >
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <MaterialIcons name="check" size={18} color="#fff" style={{ marginRight: 4 }} />
-                <Text style={st.btnPrimaryTxt}>Apply  ·  {applyLabel}</Text>
+                <Text style={st.btnPrimaryTxt}>{t('owner.finance.apply', 'Apply')}  ·  {applyLabel}</Text>
               </View>
             </TouchableOpacity>
 
@@ -266,6 +273,7 @@ export function OwnerCalendarPicker({ visible, onClose, period, onChange }) {
 
 // ─── PeriodBar ────────────────────────────────────────────────────────────────
 export function OwnerPeriodBar({ period, onOpen }) {
+  const { t } = useTranslation();
   const isSingle = period.from === period.to;
   const isToday  = period.from === TODAY_STR && period.to === TODAY_STR;
   const label    = isSingle ? period.from : `${period.from}  →  ${period.to}`;
@@ -285,7 +293,7 @@ export function OwnerPeriodBar({ period, onOpen }) {
           style={({ pressed }) => [st.todayBtn, pressed && { opacity: 0.7 }]}
           onPress={onOpen}
         >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Today</Text>
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{t('owner.finance.today', 'Today')}</Text>
         </Pressable>
       )}
     </View>

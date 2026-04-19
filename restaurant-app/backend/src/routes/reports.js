@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // Helper: local date string (avoids UTC shift from .toISOString())
 function localToday() {
@@ -17,19 +17,22 @@ function localFirstOfMonth() {
 router.get('/dashboard', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     const today = localToday();
+    const restaurantId = rid(req);
     const [todaySales, tables, topItems] = await Promise.all([
       db.query(`
         SELECT
           COUNT(*) FILTER (WHERE status='paid' AND paid_at::date=$1)  AS today_orders,
           COALESCE(SUM(total_amount) FILTER (WHERE status='paid' AND paid_at::date=$1), 0) AS today_revenue,
           COUNT(*) FILTER (WHERE status NOT IN ('paid','cancelled'))   AS active_orders
-        FROM orders`, [today]),
+        FROM orders
+        WHERE restaurant_id=$2`, [today, restaurantId]),
       db.query(`
         SELECT
           COUNT(*) FILTER (WHERE status='free')     AS free_tables,
           COUNT(*) FILTER (WHERE status='occupied') AS occupied_tables,
           COUNT(*)                                  AS total_tables
-        FROM restaurant_tables`),
+        FROM restaurant_tables
+        WHERE restaurant_id=$1`, [restaurantId]),
       db.query(`
         SELECT m.name, SUM(oi.quantity) as total_sold,
                ROUND(SUM(oi.quantity * oi.unit_price)::numeric, 2) as total_revenue
@@ -37,7 +40,9 @@ router.get('/dashboard', authenticate, authorize('owner', 'admin'), async (req, 
         JOIN menu_items m ON oi.menu_item_id=m.id
         JOIN orders o ON oi.order_id=o.id
         WHERE o.status='paid' AND o.paid_at >= NOW() - INTERVAL '30 days'
-        GROUP BY m.name ORDER BY total_sold DESC LIMIT 5`),
+          AND m.restaurant_id=$1
+          AND o.restaurant_id=$1
+        GROUP BY m.name ORDER BY total_sold DESC LIMIT 5`, [restaurantId]),
     ]);
 
     const s = todaySales.rows[0];
@@ -58,6 +63,7 @@ router.get('/dashboard', authenticate, authorize('owner', 'admin'), async (req, 
 router.get('/admin-daily-summary', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     const today = localToday();
+    const restaurantId = rid(req);
 
     const [
       salesOverviewRes,
@@ -72,38 +78,39 @@ router.get('/admin-daily-summary', authenticate, authorize('owner', 'admin'), as
       trendRes,
       perfRes
     ] = await Promise.all([
-      db.query(`SELECT COALESCE(SUM(total_amount), 0) as total_sales, COUNT(*)::int as today_orders FROM orders WHERE status = 'paid' AND paid_at::date = $1`, [today]),
+      db.query(`SELECT COALESCE(SUM(total_amount), 0) as total_sales, COUNT(*)::int as today_orders FROM orders WHERE status = 'paid' AND paid_at::date = $1 AND restaurant_id = $2`, [today, restaurantId]),
       db.query(`
-        SELECT m.name, c.name as category, SUM(oi.quantity) as quantity 
-        FROM order_items oi 
-        JOIN menu_items m ON oi.menu_item_id = m.id 
-        LEFT JOIN categories c ON m.category_id = c.id 
-        JOIN orders o ON oi.order_id = o.id 
-        WHERE o.status = 'paid' AND o.paid_at::date = $1
+        SELECT m.name, c.name as category, SUM(oi.quantity) as quantity
+        FROM order_items oi
+        JOIN menu_items m ON oi.menu_item_id = m.id
+        LEFT JOIN categories c ON m.category_id = c.id
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.status = 'paid' AND o.paid_at::date = $1 AND m.restaurant_id = $2 AND o.restaurant_id = $2
         GROUP BY m.name, c.name ORDER BY quantity DESC
-      `, [today]),
+      `, [today, restaurantId]),
       db.query(`
-        SELECT order_type, COUNT(*) as count 
-        FROM orders 
-        WHERE status NOT IN ('paid', 'cancelled') 
+        SELECT order_type, COUNT(*) as count
+        FROM orders
+        WHERE status NOT IN ('paid', 'cancelled') AND restaurant_id = $1
         GROUP BY order_type
-      `),
+      `, [restaurantId]),
       db.query(`
         SELECT COALESCE(NULLIF(payment_method, ''), 'cash') AS payment_method,
                COALESCE(SUM(total_amount), 0) as amount
         FROM orders
-        WHERE status = 'paid' AND paid_at::date = $1
+        WHERE status = 'paid' AND paid_at::date = $1 AND restaurant_id = $2
         GROUP BY COALESCE(NULLIF(payment_method, ''), 'cash')
-      `, [today]),
+      `, [today, restaurantId]),
       db.query(`
         SELECT
           COALESCE((SELECT SUM(amount) FROM expenses
                     WHERE expense_date = $1
-                      AND category != 'cost_of_goods'), 0) AS expenses,
-          COALESCE((SELECT SUM(amount) FROM staff_payments WHERE payment_date = $1), 0) AS salaries,
+                      AND category != 'cost_of_goods'
+                      AND restaurant_id = $2), 0) AS expenses,
+          COALESCE((SELECT SUM(amount) FROM staff_payments WHERE payment_date = $1 AND restaurant_id = $2), 0) AS salaries,
           COALESCE((SELECT SUM(total) FROM supplier_deliveries
-                    WHERE payment_status = 'paid' AND paid_at::date = $1), 0) AS delivery_payments
-      `, [today]),
+                    WHERE payment_status = 'paid' AND paid_at::date = $1 AND restaurant_id = $2), 0) AS delivery_payments
+      `, [today, restaurantId]),
       // goodsConsumed: only order-based consumption (reason starts with 'Auto:').
       // This excludes old manual/test entries from inflating the figure and matches
       // the Kitchen Usage Summary shown in the Inventory Output tab.
@@ -114,39 +121,40 @@ router.get('/admin-daily-summary', authenticate, authorize('owner', 'admin'), as
         WHERE sm.type IN ('OUT', 'WASTE')
           AND sm.reason LIKE 'Auto:%'
           AND sm.created_at::date = $1
-      `, [today]).catch(() => ({ rows: [{ total_value: 0 }] })),
+          AND wi.restaurant_id = $2
+      `, [today, restaurantId]).catch(() => ({ rows: [{ total_value: 0 }] })),
       // goodsArrived: use IN movements with cost captured at receipt time
       db.query(`
         SELECT COALESCE(SUM(sm.quantity * COALESCE(NULLIF(sm.cost_per_unit, 0), wi.cost_per_unit)), 0) as total_value
         FROM stock_movements sm
         JOIN warehouse_items wi ON sm.item_id = wi.id
-        WHERE sm.type = 'IN' AND sm.created_at::date = $1
-      `, [today]).catch(() => ({ rows: [{ total_value: 0 }] })),
-      db.query(`SELECT COUNT(*) as item_count, COALESCE(SUM(quantity_in_stock * cost_per_unit), 0) as total_value FROM warehouse_items`),
+        WHERE sm.type = 'IN' AND sm.created_at::date = $1 AND wi.restaurant_id = $2
+      `, [today, restaurantId]).catch(() => ({ rows: [{ total_value: 0 }] })),
+      db.query(`SELECT COUNT(*) as item_count, COALESCE(SUM(quantity_in_stock * cost_per_unit), 0) as total_value FROM warehouse_items WHERE restaurant_id = $1`, [restaurantId]),
       db.query(`
-        SELECT u.name, 
-               ROUND(COALESCE(EXTRACT(EPOCH FROM (COALESCE(s.clock_out, CURRENT_TIMESTAMP) - s.clock_in))/3600, 0)::numeric, 1) as hours_worked, 
-               COUNT(o.id) as orders_handled 
-        FROM users u 
-        JOIN shifts s ON s.user_id = u.id AND s.clock_in::date = $1 
-        LEFT JOIN orders o ON o.waitress_id = u.id AND o.created_at::date = $1 
-        WHERE u.role = 'waitress' 
+        SELECT u.name,
+               ROUND(COALESCE(EXTRACT(EPOCH FROM (COALESCE(s.clock_out, CURRENT_TIMESTAMP) - s.clock_in))/3600, 0)::numeric, 1) as hours_worked,
+               COUNT(o.id) as orders_handled
+        FROM users u
+        JOIN shifts s ON s.user_id = u.id AND s.clock_in::date = $1 AND s.restaurant_id = $2
+        LEFT JOIN orders o ON o.waitress_id = u.id AND o.created_at::date = $1 AND o.restaurant_id = $2
+        WHERE u.role = 'waitress'
         GROUP BY u.name, s.clock_in, s.clock_out
-      `, [today]),
+      `, [today, restaurantId]),
       db.query(`
-        SELECT to_char(date_trunc('hour', paid_at), 'HH24:00') as time, COALESCE(SUM(total_amount), 0) as sales 
-        FROM orders 
-        WHERE status = 'paid' AND paid_at >= NOW() - INTERVAL '24 HOURS' 
+        SELECT to_char(date_trunc('hour', paid_at), 'HH24:00') as time, COALESCE(SUM(total_amount), 0) as sales
+        FROM orders
+        WHERE status = 'paid' AND paid_at >= NOW() - INTERVAL '24 HOURS' AND restaurant_id = $1
         GROUP BY time ORDER BY time
-      `),
+      `, [restaurantId]),
       db.query(`
-        SELECT m.name, SUM(oi.quantity) as total_sold 
-        FROM order_items oi 
-        JOIN menu_items m ON oi.menu_item_id = m.id 
-        JOIN orders o ON oi.order_id = o.id 
-        WHERE o.status = 'paid' AND o.paid_at >= NOW() - INTERVAL '7 days' 
+        SELECT m.name, SUM(oi.quantity) as total_sold
+        FROM order_items oi
+        JOIN menu_items m ON oi.menu_item_id = m.id
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.status = 'paid' AND o.paid_at >= NOW() - INTERVAL '7 days' AND m.restaurant_id = $1 AND o.restaurant_id = $1
         GROUP BY m.name ORDER BY total_sold DESC LIMIT 5
-      `)
+      `, [restaurantId])
     ]);
 
     const activeOrdersMap = { dine_in: 0, takeaway: 0, delivery: 0, total: 0 };
@@ -205,6 +213,7 @@ router.get('/admin-daily-summary', authenticate, authorize('owner', 'admin'), as
 router.get('/best-sellers', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || localFirstOfMonth();
   const toDate = req.query.to || localToday();
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT m.name, c.name as category,
@@ -214,9 +223,9 @@ router.get('/best-sellers', authenticate, authorize('owner', 'admin'), async (re
        JOIN menu_items m ON oi.menu_item_id=m.id
        LEFT JOIN categories c ON m.category_id=c.id
        JOIN orders o ON oi.order_id=o.id
-       WHERE o.status='paid' AND o.paid_at::date BETWEEN $1 AND $2
+       WHERE o.status='paid' AND o.paid_at::date BETWEEN $1 AND $2 AND m.restaurant_id=$3 AND o.restaurant_id=$3
        GROUP BY m.name, c.name ORDER BY total_sold DESC LIMIT 20`,
-      [fromDate, toDate]
+      [fromDate, toDate, restaurantId]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -226,6 +235,7 @@ router.get('/best-sellers', authenticate, authorize('owner', 'admin'), async (re
 router.get('/waitress-performance', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || localFirstOfMonth();
   const toDate = req.query.to || localToday();
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT u.name,
@@ -233,10 +243,10 @@ router.get('/waitress-performance', authenticate, authorize('owner', 'admin'), a
               ROUND(COALESCE(SUM(o.total_amount),0)::numeric, 2) as total_sales,
               ROUND(COALESCE(AVG(o.total_amount),0)::numeric, 2) as avg_order
        FROM users u
-       LEFT JOIN orders o ON o.waitress_id=u.id AND o.status='paid' AND o.paid_at::date BETWEEN $1 AND $2
-       WHERE u.role='waitress' AND u.is_active=true
+       LEFT JOIN orders o ON o.waitress_id=u.id AND o.status='paid' AND o.paid_at::date BETWEEN $1 AND $2 AND o.restaurant_id=$3
+       WHERE u.role='waitress' AND u.is_active=true AND u.restaurant_id=$3
        GROUP BY u.name ORDER BY total_sales DESC`,
-      [fromDate, toDate]
+      [fromDate, toDate, restaurantId]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -247,6 +257,7 @@ router.get('/waitress-performance', authenticate, authorize('owner', 'admin'), a
 router.get('/cashier-stats', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const from = req.query.from || localFirstOfMonth();
   const to   = req.query.to   || localToday();
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT u.id, u.name,
@@ -256,10 +267,11 @@ router.get('/cashier-stats', authenticate, authorize('owner', 'admin'), async (r
        LEFT JOIN orders o ON o.paid_by = u.id
                           AND o.status  = 'paid'
                           AND o.paid_at::date BETWEEN $1 AND $2
-       WHERE u.role = 'cashier' AND u.is_active = true
+                          AND o.restaurant_id = $3
+       WHERE u.role = 'cashier' AND u.is_active = true AND u.restaurant_id = $3
        GROUP BY u.id, u.name
        ORDER BY total_revenue DESC`,
-      [from, to]
+      [from, to, restaurantId]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -270,6 +282,7 @@ router.get('/cashier-stats', authenticate, authorize('owner', 'admin'), async (r
 router.get('/kitchen-stats', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const from = req.query.from || localFirstOfMonth();
   const to   = req.query.to   || localToday();
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT
@@ -283,8 +296,10 @@ router.get('/kitchen-stats', authenticate, authorize('owner', 'admin'), async (r
        JOIN menu_items  m  ON m.id        = oi.menu_item_id
        WHERE o.status IN ('ready', 'served', 'paid')
          AND o.created_at::date BETWEEN $1 AND $2
+         AND m.restaurant_id = $3
+         AND o.restaurant_id = $3
        GROUP BY COALESCE(m.kitchen_station, 'general')`,
-      [from, to]
+      [from, to, restaurantId]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

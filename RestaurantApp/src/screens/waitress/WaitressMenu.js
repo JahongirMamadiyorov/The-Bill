@@ -11,6 +11,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { useTranslation } from '../../context/LanguageContext';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -41,6 +42,7 @@ const ST = {
 
 // ── Menu item card ────────────────────────────────────────────────────────────
 function MenuItemCard({ item, qty, onAdd, onRemove, onDetail }) {
+  const { t } = useTranslation();
   const avail = item.is_available !== false;
   const imgUri = resolveImgUrl(item.image_url);
   const selected = qty > 0;
@@ -90,7 +92,7 @@ function MenuItemCard({ item, qty, onAdd, onRemove, onDetail }) {
         ) : avail ? (
           <View style={styles.addHint}>
             <MaterialIcons name="add-circle-outline" size={15} color={colors.primary} />
-            <Text style={styles.addHintTxt}>Tap to add</Text>
+            <Text style={styles.addHintTxt}>{t('waitress.menu.tapToAdd', 'Tap to add')}</Text>
           </View>
         ) : null}
       </View>
@@ -98,7 +100,7 @@ function MenuItemCard({ item, qty, onAdd, onRemove, onDetail }) {
       {/* Unavailable overlay */}
       {!avail && (
         <View style={styles.unavailOverlay}>
-          <Text style={styles.unavailOverlayTxt}>Unavailable</Text>
+          <Text style={styles.unavailOverlayTxt}>{t('waitress.menu.unavailable', 'Unavailable')}</Text>
         </View>
       )}
     </TouchableOpacity>
@@ -107,6 +109,7 @@ function MenuItemCard({ item, qty, onAdd, onRemove, onDetail }) {
 
 // ── Item detail bottom sheet ──────────────────────────────────────────────────
 function ItemSheet({ item, qty, onAdd, onRemove, onClose }) {
+  const { t } = useTranslation();
   if (!item) return null;
   const avail = item.is_available !== false;
   return (
@@ -139,7 +142,7 @@ function ItemSheet({ item, qty, onAdd, onRemove, onClose }) {
       {!avail ? (
         <View style={styles.unavailBadge}>
           <MaterialIcons name="block" size={14} color="#DC2626" style={{ marginRight: 4 }} />
-          <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 13 }}>Currently unavailable</Text>
+          <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 13 }}>{t('waitress.menu.currentlyUnavailable', 'Currently unavailable')}</Text>
         </View>
       ) : qty > 0 ? (
         <View style={styles.sheetQtyRow}>
@@ -154,12 +157,12 @@ function ItemSheet({ item, qty, onAdd, onRemove, onClose }) {
       ) : (
         <TouchableOpacity onPress={() => { onAdd(item); onClose(); }} style={styles.addToCartBtn}>
           <MaterialIcons name="add-shopping-cart" size={18} color={colors.white} style={{ marginRight: 8 }} />
-          <Text style={styles.addToCartTxt}>Add to Cart</Text>
+          <Text style={styles.addToCartTxt}>{t('waitress.menu.addToCart', 'Add to Cart')}</Text>
         </TouchableOpacity>
       )}
       <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
         <MaterialIcons name="close" size={18} color={colors.textMuted} />
-        <Text style={{ color: colors.textMuted, fontWeight: '600', marginLeft: 6, fontSize: 14 }}>Close</Text>
+        <Text style={{ color: colors.textMuted, fontWeight: '600', marginLeft: 6, fontSize: 14 }}>{t('common.close', 'Close')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -167,6 +170,7 @@ function ItemSheet({ item, qty, onAdd, onRemove, onClose }) {
 
 // ── Table picker modal ────────────────────────────────────────────────────────
 function TablePickerModal({ visible, onSelect, onClose }) {
+  const { t } = useTranslation();
   const [tables,      setTables]      = useState([]);
   const [loading,     setLoading]     = useState(false);
   const [tableSearch, setTableSearch] = useState('');
@@ -182,28 +186,39 @@ function TablePickerModal({ visible, onSelect, onClose }) {
 
   // Free + occupied only, filtered by search
   const shown = tables
-    .filter(t => t.status === 'free' || t.status === 'occupied')
-    .filter(t => {
+    .filter(tb => tb.status === 'free' || tb.status === 'occupied')
+    .filter(tb => {
       const q = tableSearch.trim().toLowerCase();
       if (!q) return true;
-      const name = String(t.table_number || t.name || '').toLowerCase();
+      const name = String(tb.table_number || tb.name || '').toLowerCase();
       return name.includes(q);
     });
+
+  // Translate status labels
+  const statusLabel = (status) => {
+    switch (status) {
+      case 'free':     return t('waitress.tables.free', 'FREE');
+      case 'occupied': return t('waitress.tables.occupied', 'OCCUPIED');
+      case 'reserved': return t('waitress.tables.reserved', 'RESERVED');
+      case 'cleaning': return t('waitress.tables.cleaning', 'CLEANING');
+      default:         return ST[status]?.label || '';
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.pickerSheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.pickerTitle}>Select Table</Text>
-        <Text style={styles.pickerSub}>Pick a table to send your order to</Text>
+        <Text style={styles.pickerTitle}>{t('cashier.walkin.selectTable', 'Select Table')}</Text>
+        <Text style={styles.pickerSub}>{t('waitress.menu.pickTableToSend', 'Pick a table to send your order to')}</Text>
 
         {/* Search bar */}
         <View style={styles.tableSearchRow}>
           <MaterialIcons name="search" size={18} color={colors.textMuted} style={{ marginRight: 6 }} />
           <TextInput
             style={styles.tableSearchInput}
-            placeholder="Search by table number…"
+            placeholder={t('placeholders.searchTableNumber','Search by table number…')}
             placeholderTextColor={colors.textMuted}
             value={tableSearch}
             onChangeText={setTableSearch}
@@ -223,7 +238,9 @@ function TablePickerModal({ visible, onSelect, onClose }) {
           <View style={{ alignItems: 'center', marginVertical: 32 }}>
             <MaterialIcons name={tableSearch ? 'search-off' : 'table-restaurant'} size={32} color={colors.border} />
             <Text style={{ color: colors.textMuted, marginTop: 8, fontSize: 14 }}>
-              {tableSearch ? `No tables matching "${tableSearch}"` : 'No available tables'}
+              {tableSearch
+                ? t('waitress.menu.noTablesMatching', 'No tables matching "{q}"').replace('{q}', tableSearch)
+                : t('waitress.menu.noAvailableTables', 'No available tables')}
             </Text>
           </View>
         ) : (
@@ -242,10 +259,10 @@ function TablePickerModal({ visible, onSelect, onClose }) {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.tableRowName}>
-                      Table {table.table_number || table.name}
+                      {t('cashier.walkin.table', 'Table')} {table.table_number || table.name}
                     </Text>
                     <Text style={[styles.tableRowStatus, { color: st.color }]}>
-                      {st.label}{table.status === 'occupied' && table.order_total > 0 ? ` · ${fmtMoney(table.order_total)}` : ''}
+                      {statusLabel(table.status)}{table.status === 'occupied' && table.order_total > 0 ? ` · ${fmtMoney(table.order_total)}` : ''}
                     </Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={22} color={colors.border} />
@@ -261,6 +278,7 @@ function TablePickerModal({ visible, onSelect, onClose }) {
 
 // ── Guest count sheet ─────────────────────────────────────────────────────────
 function GuestCountSheet({ visible, table, onConfirm, onClose }) {
+  const { t } = useTranslation();
   const [count, setCount] = useState(2);
   useEffect(() => { if (visible) setCount(2); }, [visible]);
   return (
@@ -268,8 +286,8 @@ function GuestCountSheet({ visible, table, onConfirm, onClose }) {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.pickerSheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.pickerTitle}>Table {table?.table_number || table?.name}</Text>
-        <Text style={styles.pickerSub}>How many guests?</Text>
+        <Text style={styles.pickerTitle}>{t('cashier.walkin.table', 'Table')} {table?.table_number || table?.name}</Text>
+        <Text style={styles.pickerSub}>{t('waitress.menu.howManyGuests', 'How many guests?')}</Text>
         <View style={styles.guestRow}>
           <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))} style={styles.guestBtn}>
             <MaterialIcons name="remove" size={24} color={colors.primary} />
@@ -280,11 +298,11 @@ function GuestCountSheet({ visible, table, onConfirm, onClose }) {
           </TouchableOpacity>
         </View>
         <Text style={{ color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl, fontSize: 13 }}>
-          Select number of guests (1–20)
+          {t('waitress.menu.selectGuestRange', 'Select number of guests (1–20)')}
         </Text>
         <TouchableOpacity onPress={() => onConfirm(count)} style={styles.addToCartBtn}>
           <MaterialIcons name="send" size={18} color={colors.white} style={{ marginRight: 8 }} />
-          <Text style={styles.addToCartTxt}>Send Order</Text>
+          <Text style={styles.addToCartTxt}>{t('waitress.menu.sendOrderBtn', 'Send Order')}</Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -295,6 +313,7 @@ function GuestCountSheet({ visible, table, onConfirm, onClose }) {
 // MAIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 export default function WaitressMenu() {
+  const { t } = useTranslation();
   const [categories, setCategories] = useState([]);
   const [menuItems,  setMenuItems]  = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -378,9 +397,19 @@ export default function WaitressMenu() {
         }
         await ordersAPI.addItems(active[0].id, cart.map(c => ({ menu_item_id: c.menu_item_id, quantity: c.quantity, unit_price: c.price })));
         setCart([]);
-        setDialog({ title: 'Order Sent!', message: `${cartCount} item${cartCount !== 1 ? 's' : ''} added to Table ${table.table_number || table.name}.`, type: 'success' });
+        setDialog({
+          title: t('waitress.menu.orderSent', 'Order Sent!'),
+          message: t('waitress.menu.itemsAddedToTable', '{count} item(s) added to Table {table}.')
+            .replace('{count}', String(cartCount))
+            .replace('{table}', String(table.table_number || table.name)),
+          type: 'success',
+        });
       } catch (e) {
-        setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to send order. Please try again.', type: 'error' });
+        setDialog({
+          title: t('common.error', 'Error'),
+          message: e?.response?.data?.error || t('waitress.menu.failedToSendOrder', 'Failed to send order. Please try again.'),
+          type: 'error',
+        });
       } finally {
         setSending(false);
         setTargetTable(null);
@@ -399,9 +428,19 @@ export default function WaitressMenu() {
         items: cart.map(c => ({ menu_item_id: c.menu_item_id, quantity: c.quantity, unit_price: c.price })),
       });
       setCart([]);
-      setDialog({ title: 'Order Sent!', message: `New order created for Table ${targetTable.table_number || targetTable.name} (${guestCount} guest${guestCount !== 1 ? 's' : ''}).`, type: 'success' });
+      setDialog({
+        title: t('waitress.menu.orderSent', 'Order Sent!'),
+        message: t('waitress.menu.newOrderCreatedFor', 'New order created for Table {table} ({count} guest(s)).')
+          .replace('{table}', String(targetTable.table_number || targetTable.name))
+          .replace('{count}', String(guestCount)),
+        type: 'success',
+      });
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to create order. Please try again.', type: 'error' });
+      setDialog({
+        title: t('common.error', 'Error'),
+        message: e?.response?.data?.error || t('waitress.menu.failedToCreateOrder', 'Failed to create order. Please try again.'),
+        type: 'error',
+      });
     } finally {
       setSending(false);
       setTargetTable(null);
@@ -423,7 +462,7 @@ export default function WaitressMenu() {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.textMuted, marginTop: 12 }}>Loading menu…</Text>
+        <Text style={{ color: colors.textMuted, marginTop: 12 }}>{t('waitress.menu.loadingMenu', 'Loading menu…')}</Text>
       </View>
     );
   }
@@ -433,15 +472,17 @@ export default function WaitressMenu() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       {/* ── Header ── */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Menu</Text>
+        <Text style={styles.headerTitle}>{t('waitress.menu.title', 'Menu')}</Text>
         <Text style={styles.headerSub}>
-          {availCount} items across {totalCatCount} categor{totalCatCount === 1 ? 'y' : 'ies'}
+          {t('waitress.menu.itemsAcrossCategories', '{items} items across {cats} categories')
+            .replace('{items}', String(availCount))
+            .replace('{cats}', String(totalCatCount))}
         </Text>
         <View style={styles.searchRow}>
           <MaterialIcons name="search" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search dishes…"
+            placeholder={t('placeholders.searchDishes','Search dishes…')}
             placeholderTextColor={colors.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -467,7 +508,7 @@ export default function WaitressMenu() {
           onPress={() => setSelCat(null)}
           style={[styles.catChip, !selCat && styles.catChipActive]}
         >
-          <Text style={[styles.catTxt, !selCat && styles.catTxtActive]}>All</Text>
+          <Text style={[styles.catTxt, !selCat && styles.catTxtActive]}>{t('common.all', 'All')}</Text>
           <View style={[styles.catBadge, !selCat && styles.catBadgeActive]}>
             <Text style={[styles.catBadgeTxt, !selCat && styles.catBadgeTxtActive]}>{menuItems.length}</Text>
           </View>
@@ -494,7 +535,9 @@ export default function WaitressMenu() {
               <Text style={styles.cartCountTxt}>{cartCount}</Text>
             </View>
             <View>
-              <Text style={styles.cartSummaryItems}>{cartCount} item{cartCount !== 1 ? 's' : ''} in cart</Text>
+              <Text style={styles.cartSummaryItems}>
+                {t('waitress.menu.itemsInCart', '{count} item(s) in cart').replace('{count}', String(cartCount))}
+              </Text>
               <Text style={styles.cartSummaryTotal}>{fmtMoney(cartTotal)}</Text>
             </View>
           </View>
@@ -535,7 +578,11 @@ export default function WaitressMenu() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <MaterialIcons name={search ? 'search-off' : 'menu-book'} size={48} color={colors.border} />
-            <Text style={styles.emptyTxt}>{search ? `No results for "${search}"` : 'No items found'}</Text>
+            <Text style={styles.emptyTxt}>
+              {search
+                ? t('waitress.menu.noResultsFor', 'No results for "{q}"').replace('{q}', search)
+                : t('waitress.menu.noItemsFound', 'No items found')}
+            </Text>
           </View>
         }
       />
@@ -544,7 +591,9 @@ export default function WaitressMenu() {
       {cartCount > 0 && (
         <View style={styles.floatBar}>
           <View>
-            <Text style={styles.floatBarItems}>{cartCount} item{cartCount !== 1 ? 's' : ''}</Text>
+            <Text style={styles.floatBarItems}>
+              {t('waitress.menu.itemsCount', '{count} item(s)').replace('{count}', String(cartCount))}
+            </Text>
             <Text style={styles.floatBarTotal}>{fmtMoney(cartTotal)}</Text>
           </View>
           <TouchableOpacity
@@ -557,7 +606,7 @@ export default function WaitressMenu() {
               ? <ActivityIndicator size="small" color={colors.white} />
               : <>
                   <MaterialIcons name="table-restaurant" size={18} color={colors.white} style={{ marginRight: 6 }} />
-                  <Text style={styles.sendTableTxt}>Send to Table</Text>
+                  <Text style={styles.sendTableTxt}>{t('waitress.menu.sendToTable', 'Send to Table')}</Text>
                 </>
             }
           </TouchableOpacity>

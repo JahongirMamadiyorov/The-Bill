@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // ── Auto-migration: add cost_per_unit to stock_movements if missing ──────────
 ;(async () => {
@@ -16,6 +16,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 // GET /api/warehouse
 router.get('/', authenticate, authorize('owner', 'admin'), async (req, res) => {
     try {
+        const restaurantId = rid(req);
         const result = await db.query(`
       SELECT w.id, w.name, w.category, w.sku_code, w.unit,
              w.quantity_in_stock, w.min_stock_level, w.cost_per_unit, w.supplier_id,
@@ -23,12 +24,13 @@ router.get('/', authenticate, authorize('owner', 'admin'), async (req, res) => {
              w.created_at, w.updated_at
       FROM warehouse_items w
       LEFT JOIN suppliers s ON w.supplier_id = s.id
+      WHERE w.restaurant_id = $1
       ORDER BY w.name
-    `);
+    `, [restaurantId]);
 
         // Fetch batches for each item
         for (const row of result.rows) {
-            const batches = await db.query('SELECT * FROM stock_batches WHERE item_id=$1 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST', [row.id]);
+            const batches = await db.query('SELECT * FROM stock_batches WHERE item_id=$1 AND restaurant_id=$2 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST', [row.id, restaurantId]);
             row.batches = batches.rows;
         }
 
@@ -39,12 +41,13 @@ router.get('/', authenticate, authorize('owner', 'admin'), async (req, res) => {
 // GET /api/warehouse/low-stock
 router.get('/low-stock', authenticate, authorize('owner', 'admin'), async (req, res) => {
     try {
+        const restaurantId = rid(req);
         const result = await db.query(`
       SELECT id, name, unit, quantity_in_stock, min_stock_level, cost_per_unit
       FROM warehouse_items
-      WHERE quantity_in_stock <= min_stock_level
+      WHERE restaurant_id = $1 AND quantity_in_stock <= min_stock_level
       ORDER BY quantity_in_stock ASC
-    `);
+    `, [restaurantId]);
         res.json(result.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -54,10 +57,11 @@ router.get('/low-stock', authenticate, authorize('owner', 'admin'), async (req, 
 router.post('/', authenticate, authorize('owner', 'admin'), async (req, res) => {
     const { name, category, sku_code, unit, min_stock_level, cost_per_unit, supplier_id } = req.body;
     try {
+        const restaurantId = rid(req);
         const result = await db.query(
-            `INSERT INTO warehouse_items (name, category, sku_code, unit, min_stock_level, low_stock_alert, cost_per_unit, supplier_id) 
-       VALUES ($1, $2, $3, $4, $5, $5, $6, $7) RETURNING *`,
-            [name, category, sku_code, unit, min_stock_level || 5, cost_per_unit || 0, supplier_id]
+            `INSERT INTO warehouse_items (name, category, sku_code, unit, min_stock_level, low_stock_alert, cost_per_unit, supplier_id, restaurant_id)
+       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8) RETURNING *`,
+            [name, category, sku_code, unit, min_stock_level || 5, cost_per_unit || 0, supplier_id, restaurantId]
         );
         res.status(201).json(result.rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -67,12 +71,16 @@ router.post('/', authenticate, authorize('owner', 'admin'), async (req, res) => 
 router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) => {
     const { name, category, sku_code, unit, min_stock_level, cost_per_unit, supplier_id } = req.body;
     try {
+        const restaurantId = rid(req);
         const result = await db.query(
             `UPDATE warehouse_items
        SET name=$1, category=$2, sku_code=$3, unit=$4, min_stock_level=$5, low_stock_alert=$5, cost_per_unit=$6, supplier_id=$7, updated_at=NOW()
-       WHERE id=$8 RETURNING *`,
-            [name, category, sku_code, unit, min_stock_level || 5, cost_per_unit || 0, supplier_id, req.params.id]
+       WHERE id=$8 AND restaurant_id=$9 RETURNING *`,
+            [name, category, sku_code, unit, min_stock_level || 5, cost_per_unit || 0, supplier_id, req.params.id, restaurantId]
         );
+        if (result.rows.length === 0) {
+            return res.status(403).json({ error: 'Item not found or does not belong to this restaurant' });
+        }
         res.json(result.rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -80,7 +88,11 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
 // DELETE /api/warehouse/:id
 router.delete('/:id', authenticate, authorize('owner', 'admin'), async (req, res) => {
     try {
-        await db.query('DELETE FROM warehouse_items WHERE id=$1', [req.params.id]);
+        const restaurantId = rid(req);
+        const result = await db.query('DELETE FROM warehouse_items WHERE id=$1 AND restaurant_id=$2 RETURNING id', [req.params.id, restaurantId]);
+        if (result.rows.length === 0) {
+            return res.status(403).json({ error: 'Item not found or does not belong to this restaurant' });
+        }
         res.json({ message: 'Item deleted' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -95,7 +107,15 @@ router.post('/receive', authenticate, authorize('owner', 'admin'), async (req, r
     }
 
     try {
+        const restaurantId = rid(req);
         await db.query('BEGIN'); // Start transaction
+
+        // Verify item belongs to restaurant
+        const itemCheck = await db.query('SELECT id FROM warehouse_items WHERE id=$1 AND restaurant_id=$2', [item_id, restaurantId]);
+        if (itemCheck.rows.length === 0) {
+            await db.query('ROLLBACK');
+            return res.status(403).json({ error: 'Item not found or does not belong to this restaurant' });
+        }
 
         // 1. Update overall stock (and cost_per_unit if provided)
         if (cost_per_unit !== undefined && cost_per_unit !== null && parseFloat(cost_per_unit) > 0) {
@@ -115,14 +135,14 @@ router.post('/receive', authenticate, authorize('owner', 'admin'), async (req, r
             ? parseFloat(cost_per_unit)
             : parseFloat((await db.query('SELECT cost_per_unit FROM warehouse_items WHERE id=$1', [item_id])).rows[0]?.cost_per_unit || 0);
         await db.query(
-            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit) VALUES ($1, 'IN', $2, $3, $4, $5)`,
-            [item_id, quantity, req.user.id, reason || 'Goods Arrival', effectiveCost]
+            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit, restaurant_id) VALUES ($1, 'IN', $2, $3, $4, $5, $6)`,
+            [item_id, quantity, req.user.id, reason || 'Goods Arrival', effectiveCost, restaurantId]
         );
 
         // 3. Create stock batch (even if expiry_date is null)
         await db.query(
-            `INSERT INTO stock_batches (item_id, quantity_remaining, expiry_date) VALUES ($1, $2, $3)`,
-            [item_id, quantity, expiry_date || null]
+            `INSERT INTO stock_batches (item_id, quantity_remaining, expiry_date, restaurant_id) VALUES ($1, $2, $3, $4)`,
+            [item_id, quantity, expiry_date || null, restaurantId]
         );
 
         await db.query('COMMIT');
@@ -143,11 +163,12 @@ router.post('/consume', authenticate, authorize('owner', 'admin'), async (req, r
     }
 
     try {
+        const restaurantId = rid(req);
         await db.query('BEGIN');
 
         // 1. Check if sufficient stock exists overall
-        const stockRes = await db.query('SELECT quantity_in_stock FROM warehouse_items WHERE id=$1 FOR UPDATE', [item_id]);
-        if (stockRes.rows.length === 0) throw new Error('Item not found');
+        const stockRes = await db.query('SELECT quantity_in_stock, cost_per_unit FROM warehouse_items WHERE id=$1 AND restaurant_id=$2 FOR UPDATE', [item_id, restaurantId]);
+        if (stockRes.rows.length === 0) throw new Error('Item not found or does not belong to this restaurant');
         if (stockRes.rows[0].quantity_in_stock < quantity) throw new Error('Insufficient overall stock');
 
         // 2. FIFO Deduction across batches
@@ -155,8 +176,8 @@ router.post('/consume', authenticate, authorize('owner', 'admin'), async (req, r
 
         // Fetch available batches for this item, ordered by expiry date (oldest first)
         const batchesRes = await db.query(
-            'SELECT id, quantity_remaining FROM stock_batches WHERE item_id=$1 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST FOR UPDATE',
-            [item_id]
+            'SELECT id, quantity_remaining FROM stock_batches WHERE item_id=$1 AND restaurant_id=$2 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST FOR UPDATE',
+            [item_id, restaurantId]
         );
 
         for (const batch of batchesRes.rows) {
@@ -179,8 +200,8 @@ router.post('/consume', authenticate, authorize('owner', 'admin'), async (req, r
         // 4. Log Movement (capture cost at time of consumption)
         const consumeCost = parseFloat(stockRes.rows[0].cost_per_unit || 0);
         await db.query(
-            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit) VALUES ($1, 'OUT', $2, $3, $4, $5)`,
-            [item_id, quantity, req.user.id, reason || 'Kitchen Issue / Consume', consumeCost]
+            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit, restaurant_id) VALUES ($1, 'OUT', $2, $3, $4, $5, $6)`,
+            [item_id, quantity, req.user.id, reason || 'Kitchen Issue / Consume', consumeCost, restaurantId]
         );
 
         await db.query('COMMIT');
@@ -194,7 +215,7 @@ router.post('/consume', authenticate, authorize('owner', 'admin'), async (req, r
 // POST /api/warehouse/:id/adjust (Manual correction or Waste)
 router.post('/:id/adjust', authenticate, authorize('owner', 'admin'), async (req, res) => {
     const { quantity, reason, is_waste } = req.body;
-    // quantity in this context means "absolute amount removed/added" 
+    // quantity in this context means "absolute amount removed/added"
     // For waste, it's typically negative or we treat it as an explicitly defined number to subtract.
     // We'll treat `quantity` as the amount to subtract by default if it's waste.
     const deductQty = parseFloat(quantity);
@@ -204,7 +225,15 @@ router.post('/:id/adjust', authenticate, authorize('owner', 'admin'), async (req
     }
 
     try {
+        const restaurantId = rid(req);
         await db.query('BEGIN');
+
+        // Verify item belongs to restaurant
+        const itemCheck = await db.query('SELECT id FROM warehouse_items WHERE id=$1 AND restaurant_id=$2 FOR UPDATE', [req.params.id, restaurantId]);
+        if (itemCheck.rows.length === 0) {
+            await db.query('ROLLBACK');
+            return res.status(403).json({ error: 'Item not found or does not belong to this restaurant' });
+        }
 
         // Remove from total stock
         await db.query(
@@ -217,24 +246,24 @@ router.post('/:id/adjust', authenticate, authorize('owner', 'admin'), async (req
         const adjustCost = parseFloat(adjustCostRes.rows[0]?.cost_per_unit || 0);
 
         await db.query(
-            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit) VALUES ($1, $2, $3, $4, $5, $6)`,
-            [req.params.id, type, deductQty, req.user.id, reason || 'Stock Adjustment', adjustCost]
+            `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit, restaurant_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [req.params.id, type, deductQty, req.user.id, reason || 'Stock Adjustment', adjustCost, restaurantId]
         );
 
         // If it's waste, log expense
         if (is_waste) {
             await db.query(
-                `INSERT INTO expenses (category, description, amount, expense_date, recorded_by)
-          VALUES ('waste', $1, 0, CURRENT_DATE, $2)`,
-                [reason || 'Stock waste/spoilage', req.user.id]
+                `INSERT INTO expenses (category, description, amount, expense_date, recorded_by, restaurant_id)
+          VALUES ('waste', $1, 0, CURRENT_DATE, $2, $3)`,
+                [reason || 'Stock waste/spoilage', req.user.id, restaurantId]
             );
         }
 
         // Naively deduct from random batches or oldest to sync up batches with total stock
         let remainingToDeduct = deductQty;
         const batchesRes = await db.query(
-            'SELECT id, quantity_remaining FROM stock_batches WHERE item_id=$1 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST FOR UPDATE',
-            [req.params.id]
+            'SELECT id, quantity_remaining FROM stock_batches WHERE item_id=$1 AND restaurant_id=$2 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST FOR UPDATE',
+            [req.params.id, restaurantId]
         );
         for (const batch of batchesRes.rows) {
             if (remainingToDeduct <= 0) break;
@@ -263,20 +292,21 @@ router.post('/audit', authenticate, authorize('owner', 'admin'), async (req, res
     }
 
     try {
+        const restaurantId = rid(req);
         await db.query('BEGIN');
 
         // Create audit record
         const auditRes = await db.query(
-            `INSERT INTO inventory_audits (auditor_id, status) VALUES ($1, 'completed') RETURNING id`,
-            [req.user.id]
+            `INSERT INTO inventory_audits (auditor_id, status, restaurant_id) VALUES ($1, 'completed', $2) RETURNING id`,
+            [req.user.id, restaurantId]
         );
         const auditId = auditRes.rows[0].id;
 
         for (const item of items) {
             const { item_id, actual_qty, reason } = item;
 
-            // Get current stock
-            const stockRes = await db.query('SELECT quantity_in_stock, cost_per_unit FROM warehouse_items WHERE id=$1 FOR UPDATE', [item_id]);
+            // Get current stock and verify ownership
+            const stockRes = await db.query('SELECT quantity_in_stock, cost_per_unit FROM warehouse_items WHERE id=$1 AND restaurant_id=$2 FOR UPDATE', [item_id, restaurantId]);
             if (stockRes.rows.length === 0) continue;
 
             const expectedQty = parseFloat(stockRes.rows[0].quantity_in_stock);
@@ -285,7 +315,7 @@ router.post('/audit', authenticate, authorize('owner', 'admin'), async (req, res
 
             // Log audit item
             await db.query(
-                `INSERT INTO inventory_audit_items (audit_id, item_id, expected_qty, actual_qty, variance, variance_reason) 
+                `INSERT INTO inventory_audit_items (audit_id, item_id, expected_qty, actual_qty, variance, variance_reason)
                  VALUES ($1, $2, $3, $4, $5, $6)`,
                 [auditId, item_id, expectedQty, actual, variance, reason || 'Routine Audit']
             );
@@ -301,8 +331,8 @@ router.post('/audit', authenticate, authorize('owner', 'admin'), async (req, res
 
                 const auditCost = parseFloat(stockRes.rows[0].cost_per_unit || 0);
                 await db.query(
-                    `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit) VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [item_id, type === 'SHRINKAGE' ? 'WASTE' : 'ADJUST', absVariance, req.user.id, `Audit Variance: ${reason || ''}`, auditCost]
+                    `INSERT INTO stock_movements (item_id, type, quantity, user_id, reason, cost_per_unit, restaurant_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [item_id, type === 'SHRINKAGE' ? 'WASTE' : 'ADJUST', absVariance, req.user.id, `Audit Variance: ${reason || ''}`, auditCost, restaurantId]
                 );
 
                 // If negative variance (shrinkage), logically deduct from batches
@@ -311,8 +341,8 @@ router.post('/audit', authenticate, authorize('owner', 'admin'), async (req, res
                 if (variance < 0) {
                     let remainingToDeduct = absVariance;
                     const batchesRes = await db.query(
-                        'SELECT id, quantity_remaining FROM stock_batches WHERE item_id=$1 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST FOR UPDATE',
-                        [item_id]
+                        'SELECT id, quantity_remaining FROM stock_batches WHERE item_id=$1 AND restaurant_id=$2 AND quantity_remaining > 0 ORDER BY expiry_date ASC NULLS LAST FOR UPDATE',
+                        [item_id, restaurantId]
                     );
                     for (const batch of batchesRes.rows) {
                         if (remainingToDeduct <= 0) break;
@@ -326,16 +356,16 @@ router.post('/audit', authenticate, authorize('owner', 'admin'), async (req, res
                     const lossValue = absVariance * parseFloat(stockRes.rows[0].cost_per_unit || 0);
                     if (lossValue > 0) {
                         await db.query(
-                            `INSERT INTO expenses (category, description, amount, expense_date, recorded_by)
-                             VALUES ('shrinkage', $1, $2, CURRENT_DATE, $3)`,
-                            [`Audit Shrinkage for item ${item_id}`, lossValue, req.user.id]
+                            `INSERT INTO expenses (category, description, amount, expense_date, recorded_by, restaurant_id)
+                             VALUES ('shrinkage', $1, $2, CURRENT_DATE, $3, $4)`,
+                            [`Audit Shrinkage for item ${item_id}`, lossValue, req.user.id, restaurantId]
                         );
                     }
                 } else if (variance > 0) {
                     // Add a recovery batch
                     await db.query(
-                        `INSERT INTO stock_batches (item_id, quantity_remaining, cost_price) VALUES ($1, $2, $3)`,
-                        [item_id, absVariance, stockRes.rows[0].cost_per_unit || 0]
+                        `INSERT INTO stock_batches (item_id, quantity_remaining, cost_price, restaurant_id) VALUES ($1, $2, $3, $4)`,
+                        [item_id, absVariance, stockRes.rows[0].cost_per_unit || 0, restaurantId]
                     );
                 }
             }
@@ -354,22 +384,24 @@ router.post('/audit', authenticate, authorize('owner', 'admin'), async (req, res
 // GET /api/warehouse/expiry-alerts — find batches expiring within 14 days, notify admins
 router.get('/expiry-alerts', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
+    const restaurantId = rid(req);
     const result = await db.query(`
       SELECT sb.id, sb.item_id, sb.expiry_date, sb.quantity_remaining,
              wi.name AS item_name, wi.unit,
              EXTRACT(DAY FROM sb.expiry_date - NOW())::int AS days_remaining
       FROM stock_batches sb
       JOIN warehouse_items wi ON sb.item_id = wi.id
-      WHERE sb.quantity_remaining > 0
+      WHERE sb.restaurant_id = $1
+        AND sb.quantity_remaining > 0
         AND sb.expiry_date IS NOT NULL
         AND sb.expiry_date <= NOW() + INTERVAL '14 days'
       ORDER BY sb.expiry_date ASC
-    `);
+    `, [restaurantId]);
     const expiring = result.rows;
 
     if (expiring.length > 0) {
-      // Get all admin/owner users to notify
-      const adminRes = await db.query(`SELECT id FROM users WHERE role IN ('admin', 'owner')`);
+      // Get all admin/owner users for this restaurant to notify
+      const adminRes = await db.query(`SELECT id FROM users WHERE restaurant_id = $1 AND role IN ('admin', 'owner')`, [restaurantId]);
       const adminIds = adminRes.rows.map(r => r.id);
 
       // Group batches by item
@@ -389,13 +421,13 @@ router.get('/expiry-alerts', authenticate, authorize('owner', 'admin'), async (r
         for (const adminId of adminIds) {
           // Only create one notification per item per day to avoid spam
           const existing = await db.query(
-            `SELECT id FROM notifications WHERE user_id=$1 AND title=$2 AND created_at > NOW() - INTERVAL '24 hours'`,
-            [adminId, title]
+            `SELECT id FROM notifications WHERE user_id=$1 AND title=$2 AND restaurant_id=$3 AND created_at > NOW() - INTERVAL '24 hours'`,
+            [adminId, title, restaurantId]
           );
           if (existing.rows.length === 0) {
             await db.query(
-              `INSERT INTO notifications (user_id, title, body, type) VALUES ($1, $2, $3, 'alert')`,
-              [adminId, title, body]
+              `INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1, $2, $3, 'alert', $4)`,
+              [adminId, title, body, restaurantId]
             );
           }
         }
@@ -409,15 +441,16 @@ router.get('/expiry-alerts', authenticate, authorize('owner', 'admin'), async (r
 // GET /api/warehouse/batches/:itemId — stock batches for one item sorted by expiry (FIFO order)
 router.get('/batches/:itemId', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
+    const restaurantId = rid(req);
     const result = await db.query(
       `SELECT id, quantity_remaining, expiry_date, received_at,
               CASE WHEN expiry_date IS NULL THEN NULL
                    ELSE EXTRACT(DAY FROM expiry_date - NOW())::int
               END AS days_remaining
        FROM stock_batches
-       WHERE item_id=$1 AND quantity_remaining > 0
+       WHERE item_id=$1 AND restaurant_id=$2 AND quantity_remaining > 0
        ORDER BY expiry_date ASC NULLS LAST`,
-      [req.params.itemId]
+      [req.params.itemId, restaurantId]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -426,6 +459,7 @@ router.get('/batches/:itemId', authenticate, authorize('owner', 'admin'), async 
 // GET /api/warehouse/movements — stock movement log (OUT entries for Output tab)
 router.get('/movements', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
+    const restaurantId = rid(req);
     const { from, to, type } = req.query;
     let query = `
       SELECT sm.id, sm.type, sm.quantity, sm.reason, sm.created_at,
@@ -435,8 +469,8 @@ router.get('/movements', authenticate, authorize('owner', 'admin'), async (req, 
       FROM stock_movements sm
       JOIN warehouse_items wi ON sm.item_id = wi.id
       LEFT JOIN users u ON sm.user_id = u.id
-      WHERE 1=1`;
-    const params = [];
+      WHERE sm.restaurant_id = $1`;
+    const params = [restaurantId];
     if (type) { params.push(type); query += ` AND sm.type = $${params.length}`; }
     if (from) { params.push(from); query += ` AND sm.created_at::date >= $${params.length}`; }
     if (to)   { params.push(to);   query += ` AND sm.created_at::date <= $${params.length}`; }

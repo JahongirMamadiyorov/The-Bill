@@ -5,52 +5,88 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// Pass --fresh to drop all tables first and start clean
+const freshStart = process.argv.includes('--fresh');
+
 async function migrate() {
+  console.log('--- Multi-Restaurant Schema Migration ---\n');
+
+  if (freshStart) {
+    console.log('[..] Fresh start requested -- dropping all tables...');
+    try {
+      // Drop every table individually to avoid schema permission issues
+      const tables = await pool.query(`
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+      `);
+      if (tables.rows.length > 0) {
+        const names = tables.rows.map(r => `"${r.tablename}"`).join(', ');
+        await pool.query(`DROP TABLE IF EXISTS ${names} CASCADE`);
+      }
+      // Also drop types / enums if any
+      await pool.query(`DROP TYPE IF EXISTS order_status CASCADE`);
+      console.log(`[OK] Dropped ${tables.rows.length} table(s)\n`);
+    } catch (err) {
+      console.error('[!!] Drop failed:', err.message);
+      // Fallback: try schema drop
+      try {
+        await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;');
+        console.log('[OK] Schema reset via fallback\n');
+      } catch (e2) {
+        console.error('[!!] Fallback drop also failed:', e2.message);
+      }
+    }
+  }
+
+  // 1. Apply the consolidated schema (tables + indexes + seed data)
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   try {
     await pool.query(schema);
-    console.log('✅ Schema applied successfully');
+    console.log('[OK] Schema applied successfully');
   } catch (err) {
-    console.error('Migration note:', err.message);
+    if (err.message.includes('already exists') && !freshStart) {
+      console.log('[OK] Schema already up to date');
+    } else {
+      console.error('[!!] Schema error:', err.message);
+      console.error('     Detail:', err.detail || 'none');
+      console.error('     Hint:', err.hint || 'none');
+    }
   }
 
+  // 2. Verify restaurants were seeded
   try {
-    // Seed tax_settings if empty
-    const tax = await pool.query('SELECT COUNT(*) FROM tax_settings');
-    if (parseInt(tax.rows[0].count) === 0) {
-      await pool.query(
-        "INSERT INTO tax_settings (name, rate, is_active) VALUES ('VAT', 0, true)"
-      );
-      console.log('✅ Default tax settings seeded');
+    const res = await pool.query('SELECT id, name, slug FROM restaurants ORDER BY name');
+    if (res.rows.length === 0) {
+      console.warn('[!!] No restaurants found -- check schema.sql seed section');
+    } else {
+      console.log(`[OK] ${res.rows.length} restaurant(s) ready:`);
+      res.rows.forEach(r => console.log(`     - ${r.name} (${r.slug})`));
     }
   } catch (e) {
-    console.log('Seed skip:', e.message);
+    console.error('[!!] Could not verify restaurants:', e.message);
   }
 
+  // 3. Verify super_admin exists
   try {
-    const dbReset = fs.readFileSync(path.join(__dirname, 'migrate_v6_orders.sql'), 'utf8');
-    await pool.query(dbReset);
-    console.log('✅ Migration v6 (orders) applied');
-  } catch (e) { console.log('v6 skip:', e.message); }
+    const sa = await pool.query("SELECT id, name, email FROM users WHERE role = 'super_admin'");
+    if (sa.rows.length > 0) {
+      console.log(`[OK] Super admin: ${sa.rows[0].email}`);
+    } else {
+      console.warn('[!!] No super_admin user found');
+    }
+  } catch (e) {
+    console.error('[!!] Super admin check:', e.message);
+  }
 
+  // 4. Verify core settings exist for each restaurant
   try {
-    const v7 = fs.readFileSync(path.join(__dirname, 'migrate_v7_kitchen.sql'), 'utf8');
-    await pool.query(v7);
-    console.log('✅ Migration v7 (kitchen stations) applied');
-  } catch (e) { console.log('v7 skip:', e.message); }
+    const settings = await pool.query('SELECT restaurant_id FROM restaurant_settings');
+    const tax = await pool.query('SELECT restaurant_id FROM tax_settings');
+    console.log(`[OK] ${settings.rows.length} restaurant_settings row(s), ${tax.rows.length} tax_settings row(s)`);
+  } catch (e) {
+    console.log('[!!] Settings check:', e.message);
+  }
 
-  try {
-    const v8 = fs.readFileSync(path.join(__dirname, 'migrate_v8_finance.sql'), 'utf8');
-    await pool.query(v8);
-    console.log('✅ Migration v8 (finance module) applied');
-  } catch (e) { console.log('v8 skip:', e.message); }
-
-  try {
-    const v9 = fs.readFileSync(path.join(__dirname, 'migrate_v9_sections.sql'), 'utf8');
-    await pool.query(v9);
-    console.log('✅ Migration v9 (table sections) applied');
-  } catch (e) { console.log('v9 skip:', e.message); }
-
+  console.log('\n--- Migration complete ---');
   await pool.end();
 }
 

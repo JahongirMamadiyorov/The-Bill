@@ -3,6 +3,10 @@ import { useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/auth/Login';
 
+// Super Admin pages
+import SuperAdminRestaurants from './pages/super-admin/SuperAdminRestaurants';
+import SuperAdminProfile from './pages/super-admin/SuperAdminProfile';
+
 // Owner pages
 import OwnerHome from './pages/owner/OwnerHome';
 import OwnerSales from './pages/owner/OwnerSales';
@@ -53,13 +57,19 @@ export default function App() {
 
   const defaultRoute = () => {
     if (!isAuthenticated) return '/login';
-    const routes = { owner: '/owner', admin: '/admin', cashier: '/cashier', waitress: '/waitress', kitchen: '/kitchen' };
+    const routes = { super_admin: '/super-admin', owner: '/owner', admin: '/admin', cashier: '/cashier', waitress: '/waitress', kitchen: '/kitchen' };
     return routes[user?.role] || '/login';
   };
 
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to={defaultRoute()} replace /> : <Login />} />
+
+      {/* Super Admin */}
+      <Route path="/super-admin" element={<ProtectedRoute roles={['super_admin']}><Layout /></ProtectedRoute>}>
+        <Route index element={<SuperAdminRestaurants />} />
+        <Route path="profile" element={<SuperAdminProfile />} />
+      </Route>
 
       {/* Owner */}
       <Route path="/owner" element={<ProtectedRoute roles={['owner']}><Layout /></ProtectedRoute>}>

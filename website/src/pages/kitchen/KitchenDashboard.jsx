@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { ChefHat, CheckCircle, Clock, AlertCircle, Circle, FileText } from 'lucide-react';
 import { ordersAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 
 const KitchenDashboard = () => {
+  const { t } = useTranslation();
   const [orders, setOrders] = useState([]);
   const [completedOrders, setCompletedOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,7 @@ const KitchenDashboard = () => {
   };
 
   const getReadyCount = (order) => {
-    return order.items?.filter(i => i.ready).length || 0;
+    return order.items?.filter(i => i.itemReady).length || 0;
   };
 
   const getTotalCount = (order) => {
@@ -87,7 +89,7 @@ const KitchenDashboard = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-          <p className="mt-4 text-gray-600">Loading kitchen orders...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -99,13 +101,13 @@ const KitchenDashboard = () => {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
             <ChefHat className="w-8 h-8" style={{ color: '#EA580C' }} />
-            Kitchen Display System
+            {t('kitchen.dashboard.title')}
           </h1>
           <button
             onClick={fetchAllData}
             className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-medium"
           >
-            Refresh
+            {t('common.refresh')}
           </button>
         </div>
 
@@ -118,19 +120,19 @@ const KitchenDashboard = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <p className="text-gray-600 text-sm font-medium mb-2">Active Orders</p>
+            <p className="text-gray-600 text-sm font-medium mb-2">{t('kitchen.dashboard.activeOrders')}</p>
             <p className="text-4xl font-bold" style={{ color: '#EA580C' }}>{stats.activeOrders}</p>
-            <p className="text-xs text-gray-500 mt-2">In queue</p>
+            <p className="text-xs text-gray-500 mt-2">{t('kitchen.dashboard.inQueue')}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <p className="text-gray-600 text-sm font-medium mb-2">Completed Today</p>
+            <p className="text-gray-600 text-sm font-medium mb-2">{t('kitchen.dashboard.completedToday')}</p>
             <p className="text-4xl font-bold" style={{ color: '#EA580C' }}>{stats.completedToday}</p>
-            <p className="text-xs text-gray-500 mt-2">Orders completed</p>
+            <p className="text-xs text-gray-500 mt-2">{t('kitchen.dashboard.ordersCompleted')}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <p className="text-gray-600 text-sm font-medium mb-2">Avg Cook Time</p>
+            <p className="text-gray-600 text-sm font-medium mb-2">{t('kitchen.dashboard.avgCookTime')}</p>
             <p className="text-4xl font-bold text-gray-900">{stats.avgCookTime}m</p>
-            <p className="text-xs text-gray-500 mt-2">Average duration</p>
+            <p className="text-xs text-gray-500 mt-2">{t('kitchen.dashboard.averageDuration')}</p>
           </div>
         </div>
 
@@ -143,7 +145,7 @@ const KitchenDashboard = () => {
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            Queue ({orders.length})
+            {t('kitchen.dashboard.inQueue')} ({orders.length})
           </button>
           <button
             onClick={() => setActiveTab('history')}
@@ -153,7 +155,7 @@ const KitchenDashboard = () => {
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            History ({completedOrders.length})
+            {t('nav.history')} ({completedOrders.length})
           </button>
         </div>
 
@@ -162,8 +164,8 @@ const KitchenDashboard = () => {
             {orders.length === 0 ? (
               <div className="col-span-full text-center py-16">
                 <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg font-medium">All orders complete!</p>
-                <p className="text-gray-400 text-sm mt-1">Great work, kitchen team!</p>
+                <p className="text-gray-500 text-lg font-medium">{t('kitchen.dashboard.noCompletedOrders')}</p>
+                <p className="text-gray-400 text-sm mt-1">{t('common.done')}</p>
               </div>
             ) : (
               orders.map(order => {
@@ -185,7 +187,7 @@ const KitchenDashboard = () => {
                     </div>
 
                     <div className="bg-gray-50 p-4 rounded-lg mb-5">
-                      <p className="text-xs font-medium text-gray-600 mb-2">Progress</p>
+                      <p className="text-xs font-medium text-gray-600 mb-2">{t('kitchen.dashboard.progress')}</p>
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex-1 bg-gray-300 rounded-full h-2">
                           <div
@@ -211,10 +213,10 @@ const KitchenDashboard = () => {
                               <p className="text-sm text-gray-600">x{item.quantity}</p>
                             </div>
                             <div className="flex items-center gap-2 ml-2">
-                              {item.ready ? (
+                              {item.itemReady ? (
                                 <div className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded font-semibold flex items-center gap-1">
                                   <CheckCircle className="w-3 h-3" />
-                                  Done
+                                  {t('common.done')}
                                 </div>
                               ) : (
                                 <button
@@ -222,7 +224,7 @@ const KitchenDashboard = () => {
                                   disabled={markingReady === `${order.id}-${item.id}`}
                                   className="px-3 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700 disabled:opacity-50 transition font-semibold"
                                 >
-                                  {markingReady === `${order.id}-${item.id}` ? '...' : 'Ready'}
+                                  {markingReady === `${order.id}-${item.id}` ? '...' : t('statuses.ready')}
                                 </button>
                               )}
                             </div>
@@ -247,7 +249,7 @@ const KitchenDashboard = () => {
           <div className="space-y-3">
             {completedOrders.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                <p>No completed orders today</p>
+                <p>{t('kitchen.dashboard.noCompletedOrders')}</p>
               </div>
             ) : (
               completedOrders.map(order => (
@@ -257,12 +259,12 @@ const KitchenDashboard = () => {
                     <p className="text-sm text-gray-600">{order.items?.length || 0} items</p>
                   </div>
                   <div className="text-right mr-4">
-                    <p className="text-sm text-gray-600">Cook Time</p>
+                    <p className="text-sm text-gray-600">{t('kitchen.dashboard.cookTime')}</p>
                     <p className="font-bold text-gray-900">{order.cookTime || '-'}m</p>
                   </div>
                   <div className="flex items-center gap-2 text-green-600 text-sm font-semibold">
                     <CheckCircle className="w-4 h-4" />
-                    Completed
+                    {t('kitchen.dashboard.completedToday')}
                   </div>
                 </div>
               ))

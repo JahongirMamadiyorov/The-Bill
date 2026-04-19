@@ -3,8 +3,10 @@ import { TrendingUp, Calendar, Clock, DollarSign, AlertCircle, ClipboardList } f
 import { reportsAPI, shiftsAPI, staffPaymentsAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
 import DatePicker from '../../components/DatePicker';
+import { useTranslation } from '../../context/LanguageContext';
 
 const WaitressPerformance = () => {
+  const { t } = useTranslation();
   const [performance, setPerformance] = useState(null);
   const [shifts, setShifts] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -52,7 +54,7 @@ const WaitressPerformance = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          <p className="mt-4 text-gray-600">Loading performance data...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -63,7 +65,7 @@ const WaitressPerformance = () => {
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
           <TrendingUp className="w-8 h-8" style={{ color: '#16A34A' }} />
-          Performance
+          {t('waitress.performance.title')}
         </h1>
 
         {error && (
@@ -76,20 +78,20 @@ const WaitressPerformance = () => {
         <div className="bg-white p-6 rounded-lg shadow mb-8">
           <div className="flex flex-col md:flex-row gap-4 items-end">
             <div className="flex-1">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">From Date</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">{t('common.from')}</label>
               <DatePicker
                 value={fromDate}
                 onChange={(v) => setFromDate(v)}
-                placeholder="From"
+                placeholder={t('common.from')}
                 className="w-full"
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">To Date</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">{t('common.to')}</label>
               <DatePicker
                 value={toDate}
                 onChange={(v) => setToDate(v)}
-                placeholder="To"
+                placeholder={t('common.to')}
                 className="w-full"
               />
             </div>
@@ -97,7 +99,7 @@ const WaitressPerformance = () => {
               onClick={fetchData}
               className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
             >
-              Apply
+              {t('common.apply')}
             </button>
           </div>
         </div>
@@ -105,28 +107,28 @@ const WaitressPerformance = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600 text-sm font-medium">Orders Served</p>
+              <p className="text-gray-600 text-sm font-medium">{t('waitress.performance.ordersServed')}</p>
               <ClipboardList className="w-5 h-5" style={{ color: '#16A34A' }} />
             </div>
             <p className="text-4xl font-bold" style={{ color: '#16A34A' }}>{stats.ordersServed || 0}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600 text-sm font-medium">Total Revenue</p>
+              <p className="text-gray-600 text-sm font-medium">{t('waitress.performance.totalRevenue')}</p>
               <DollarSign className="w-5 h-5" style={{ color: '#16A34A' }} />
             </div>
             <p className="text-3xl font-bold" style={{ color: '#16A34A' }}>{money(stats.totalRevenue || 0)}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600 text-sm font-medium">Average Per Order</p>
+              <p className="text-gray-600 text-sm font-medium">{t('waitress.performance.averagePerOrder')}</p>
               <DollarSign className="w-5 h-5 text-gray-600" />
             </div>
             <p className="text-3xl font-bold text-gray-900">{money(stats.averagePerOrder || 0)}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600 text-sm font-medium">Shift Hours</p>
+              <p className="text-gray-600 text-sm font-medium">{t('waitress.performance.shiftHours')}</p>
               <Clock className="w-5 h-5 text-gray-600" />
             </div>
             <p className="text-4xl font-bold text-gray-900">{stats.shiftHours || 0}h</p>
@@ -137,13 +139,13 @@ const WaitressPerformance = () => {
           <div className="bg-white p-8 rounded-lg shadow">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
               <Calendar className="w-5 h-5" style={{ color: '#16A34A' }} />
-              Shift History
+              {t('admin.staff.attendanceShifts')}
             </h2>
             <div className="space-y-3">
               {shifts.length === 0 ? (
                 <div className="text-center py-8">
                   <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-500">No shifts in this period</p>
+                  <p className="text-gray-500">{t('waitress.performance.noShifts')}</p>
                 </div>
               ) : (
                 shifts.map(shift => {
@@ -161,7 +163,7 @@ const WaitressPerformance = () => {
                       </div>
                       <p className="text-sm text-gray-600 flex items-center gap-2">
                         <Clock className="w-4 h-4" />
-                        {clockIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {clockOut ? clockOut.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'In progress'}
+                        {clockIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {clockOut ? clockOut.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('waitress.performance.inProgress')}
                       </p>
                     </div>
                   );
@@ -173,20 +175,20 @@ const WaitressPerformance = () => {
           <div className="bg-white p-8 rounded-lg shadow">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
               <DollarSign className="w-5 h-5" style={{ color: '#16A34A' }} />
-              Payment History
+              {t('cashier.history.title')}
             </h2>
             <div className="space-y-3">
               {payments.length === 0 ? (
                 <div className="text-center py-8">
                   <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-500">No payments in this period</p>
+                  <p className="text-gray-500">{t('waitress.performance.noPayments')}</p>
                 </div>
               ) : (
                 <>
                   {payments.map(payment => (
                     <div key={payment.id} className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="font-semibold text-gray-900">{payment.description || 'Payment'}</p>
+                        <p className="font-semibold text-gray-900">{payment.description || t('waitress.performance.payment')}</p>
                         <p className="font-bold text-lg" style={{ color: '#16A34A' }}>{money(payment.amount)}</p>
                       </div>
                       <p className="text-sm text-gray-600">
@@ -195,7 +197,7 @@ const WaitressPerformance = () => {
                     </div>
                   ))}
                   <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <p className="text-gray-600 text-sm mb-1">Total Payments</p>
+                    <p className="text-gray-600 text-sm mb-1">{t('waitress.performance.totalPayments')}</p>
                     <p className="text-2xl font-bold" style={{ color: '#16A34A' }}>{money(totalPayments)}</p>
                   </div>
                 </>

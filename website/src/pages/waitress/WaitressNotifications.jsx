@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Bell, Check, CheckCheck, AlertCircle, UtensilsCrossed, ClipboardList, CreditCard, AlertTriangle } from 'lucide-react';
 import { notificationsAPI } from '../../api/client';
+import { useTranslation } from '../../context/LanguageContext';
 
 const WaitressNotifications = () => {
+  const { t } = useTranslation();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -104,7 +106,7 @@ const WaitressNotifications = () => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
               <Bell className="w-8 h-8" style={{ color: '#16A34A' }} />
-              Notifications
+              {t('waitress.notifications.title')}
             </h1>
             <p className="text-gray-600 mt-1">{newCount} new · {readCount} read</p>
           </div>
@@ -114,7 +116,7 @@ const WaitressNotifications = () => {
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm flex items-center gap-2 font-medium"
             >
               <CheckCheck className="w-4 h-4" />
-              Mark All Read
+              {t('admin.dashboard.markAllRead')}
             </button>
           )}
         </div>
@@ -135,7 +137,7 @@ const WaitressNotifications = () => {
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            New ({newCount})
+            {t('waitress.notifications.newTab')} ({newCount})
           </button>
           <button
             onClick={() => setActiveTab('read')}
@@ -145,7 +147,7 @@ const WaitressNotifications = () => {
                 : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            Read ({readCount})
+            {t('waitress.notifications.readTab')} ({readCount})
           </button>
         </div>
 
@@ -154,7 +156,7 @@ const WaitressNotifications = () => {
             <div className="text-center py-12 bg-white rounded-lg">
               <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500 text-lg">
-                {activeTab === 'new' ? 'No new notifications' : 'No read notifications'}
+                {activeTab === 'new' ? t('waitress.notifications.noNewNotifications') : t('waitress.notifications.noReadNotifications')}
               </p>
             </div>
           ) : (
@@ -183,7 +185,7 @@ const WaitressNotifications = () => {
                     className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 transition flex items-center gap-1 whitespace-nowrap font-medium"
                   >
                     <Check className="w-4 h-4" />
-                    {markingRead === notification.id ? 'Marking...' : 'Mark Read'}
+                    {markingRead === notification.id ? t('common.processing') : t('waitress.notifications.markRead')}
                   </button>
                 )}
 

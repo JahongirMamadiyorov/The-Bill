@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // ─── Auto-migrate: add columns that may not exist yet ─────────────────────────
 (async () => {
@@ -14,12 +14,13 @@ const { authenticate, authorize } = require('../middleware/auth');
         ADD COLUMN IF NOT EXISTS shift_end        VARCHAR(10),
         ADD COLUMN IF NOT EXISTS salary_type      VARCHAR(20) DEFAULT 'monthly',
         ADD COLUMN IF NOT EXISTS kitchen_station  VARCHAR(50) DEFAULT NULL,
-        ADD COLUMN IF NOT EXISTS commission_rate  DECIMAL(5,2) DEFAULT 0
+        ADD COLUMN IF NOT EXISTS commission_rate  DECIMAL(5,2) DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS restaurant_id    UUID
     `);
     await db.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
     await db.query(`
       ALTER TABLE users ADD CONSTRAINT users_role_check
-        CHECK (role IN ('owner','admin','waitress','kitchen','manager','cashier','cleaner'))
+        CHECK (role IN ('super_admin','owner','admin','cashier','waitress','kitchen','manager','cleaner'))
     `);
   } catch (_) { /* columns / constraint already up to date */ }
 })();
@@ -44,7 +45,8 @@ router.get('/', authenticate, authorize('owner', 'admin'), async (req, res) => {
     const result = await db.query(
       `SELECT id, name, email, phone, role, salary, salary_type, shift_start, shift_end,
               is_active, kitchen_station, commission_rate, created_at
-       FROM users ORDER BY created_at DESC`
+       FROM users WHERE restaurant_id=$1 ORDER BY created_at DESC`,
+      [rid(req)]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -56,8 +58,8 @@ router.get('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
     const result = await db.query(
       `SELECT id, name, email, phone, role, salary, salary_type, shift_start, shift_end,
               is_active, kitchen_station, commission_rate, created_at
-       FROM users WHERE id=$1`,
-      [req.params.id]
+       FROM users WHERE id=$1 AND restaurant_id=$2`,
+      [req.params.id, rid(req)]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
     res.json(result.rows[0]);
@@ -83,19 +85,23 @@ router.post('/', authenticate, authorize('owner', 'admin'), async (req, res) => 
     const hash = await bcrypt.hash(password, 10);
     const result = await db.query(
       `INSERT INTO users
-         (name, email, phone, password_hash, role, salary, salary_type, shift_start, shift_end, kitchen_station)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (name, email, phone, password_hash, role, salary, salary_type, shift_start, shift_end, kitchen_station, restaurant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id, name, email, phone, role, salary, salary_type, shift_start, shift_end, kitchen_station`,
       [name, email, phone, hash, role,
        salary ? parseFloat(salary) : null,
-       resolvedSalaryType, resolvedShiftStart, resolvedShiftEnd, resolvedStation]
+       resolvedSalaryType, resolvedShiftStart, resolvedShiftEnd, resolvedStation, rid(req)]
     );
     if (role === 'waitress') {
-      await db.query('INSERT INTO waitress_permissions (user_id) VALUES ($1)', [result.rows[0].id]);
+      await db.query('INSERT INTO waitress_permissions (user_id, restaurant_id) VALUES ($1, $2)', [result.rows[0].id, rid(req)]);
     }
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'Email already exists' });
+    if (err.code === '23505') {
+      const detail = (err.detail || '').toLowerCase();
+      if (detail.includes('phone')) return res.status(409).json({ error: 'Phone number already exists' });
+      return res.status(409).json({ error: 'Email already exists' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -106,8 +112,8 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
   try {
     // Fetch current row so we never overwrite a NOT NULL column with null
     const cur = await db.query(
-      `SELECT name, phone, role, is_active, salary, salary_type, shift_start, shift_end, kitchen_station, commission_rate FROM users WHERE id=$1`,
-      [req.params.id]
+      `SELECT name, phone, role, is_active, salary, salary_type, shift_start, shift_end, kitchen_station, commission_rate FROM users WHERE id=$1 AND restaurant_id=$2`,
+      [req.params.id, rid(req)]
     );
     if (!cur.rows[0]) return res.status(404).json({ error: 'User not found' });
     const c = cur.rows[0];
@@ -117,7 +123,7 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
        SET name=$1, phone=$2, role=$3, is_active=$4,
            salary=$5, salary_type=$6, shift_start=$7, shift_end=$8,
            kitchen_station=$9, commission_rate=$10, updated_at=NOW()
-       WHERE id=$11
+       WHERE id=$11 AND restaurant_id=$12
        RETURNING id, name, email, phone, role, salary, salary_type, shift_start, shift_end,
                  is_active, kitchen_station, commission_rate`,
       [
@@ -132,6 +138,7 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
         body.kitchen_station  !== undefined ? (body.kitchen_station || null)     : c.kitchen_station,
         body.commission_rate  !== undefined ? parseFloat(body.commission_rate)   : (c.commission_rate || 0),
         req.params.id,
+        rid(req),
       ]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
@@ -148,8 +155,8 @@ router.put('/:id/credentials', authenticate, authorize('owner', 'admin'), async 
     return res.status(400).json({ error: 'Provide at least an email or a new password.' });
 
   try {
-    // Fetch current user row
-    const userRow = await db.query('SELECT id, password_hash FROM users WHERE id=$1', [req.params.id]);
+    // Fetch current user row and verify they belong to this restaurant
+    const userRow = await db.query('SELECT id, password_hash FROM users WHERE id=$1 AND restaurant_id=$2', [req.params.id, rid(req)]);
     if (!userRow.rows[0]) return res.status(404).json({ error: 'User not found' });
 
     // If current password was provided, verify it
@@ -204,8 +211,8 @@ router.delete('/:id', authenticate, authorize('owner', 'admin'), async (req, res
   try {
     const targetId = req.params.id; // keep as-is — works for both integer and UUID PKs
 
-    // Fetch the target user so we can check their role
-    const targetRes = await db.query('SELECT id, role FROM users WHERE id=$1', [targetId]);
+    // Fetch the target user so we can check their role and verify they belong to this restaurant
+    const targetRes = await db.query('SELECT id, role FROM users WHERE id=$1 AND restaurant_id=$2', [targetId, rid(req)]);
     if (!targetRes.rows[0]) return res.status(404).json({ error: 'User not found' });
     const targetRole = targetRes.rows[0].role;
 
@@ -220,7 +227,7 @@ router.delete('/:id', authenticate, authorize('owner', 'admin'), async (req, res
       }
     }
 
-    await db.query('DELETE FROM users WHERE id=$1', [targetId]);
+    await db.query('DELETE FROM users WHERE id=$1 AND restaurant_id=$2', [targetId, rid(req)]);
     res.json({ message: 'User removed' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
 import { usersAPI } from '../../api/client';
+import { useTranslation } from '../../context/LanguageContext';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -230,6 +232,7 @@ function Toast({ msg, visible }) {
 // ════════════════════════════════════════════════════════════════════════════
 export default function AdminProfile() {
   const { user, logout, updateUser } = useAuth();
+  const { t } = useTranslation();
 
   // ── Loading / Refresh
   const [saving, setSaving] = useState(false);
@@ -250,7 +253,8 @@ export default function AdminProfile() {
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimer = useRef(null);
 
-  function showToast(msg = 'Changes saved') {
+  function showToast(msg) {
+    msg = msg || t('adminExtra.changesSaved');
     clearTimeout(toastTimer.current);
     setToastMsg(msg);
     setToastVisible(true);
@@ -297,9 +301,9 @@ export default function AdminProfile() {
       });
       await updateUser({ name: editForm.name, phone: editForm.phone });
       closeSheet();
-      showToast('Profile updated');
+      showToast(t('adminExtra.changesSaved'));
     } catch (e) {
-      setPwError(e?.response?.data?.error || 'Failed to update profile');
+      setPwError(e?.response?.data?.error || t('adminExtra.failedUpdateProfile'));
     } finally {
       setSaving(false);
     }
@@ -314,8 +318,8 @@ export default function AdminProfile() {
 
   async function savePassword() {
     setPwError('');
-    if (pwForm.next.length < 6) return setPwError('New password must be at least 6 characters');
-    if (pwForm.next !== pwForm.confirm) return setPwError('Passwords do not match');
+    if (pwForm.next.length < 6) return setPwError(t('adminExtra.newPwdMin6'));
+    if (pwForm.next !== pwForm.confirm) return setPwError(t('adminExtra.pwdNoMatch'));
     try {
       setSaving(true);
       await usersAPI.updateCredentials(user.id, {
@@ -324,9 +328,9 @@ export default function AdminProfile() {
       });
       setPwForm({ current: '', next: '', confirm: '' });
       closeSheet();
-      showToast('Password changed');
+      showToast(t('adminExtra.changesSaved'));
     } catch (e) {
-      setPwError(e?.response?.data?.error || 'Failed to change password');
+      setPwError(e?.response?.data?.error || t('adminExtra.failedChangePwd'));
     } finally {
       setSaving(false);
     }
@@ -367,40 +371,44 @@ export default function AdminProfile() {
               </View>
               <View style={S.onlineWrap}>
                 <View style={S.onlineDot} />
-                <Text style={S.onlineTxt}>Online</Text>
+                <Text style={S.onlineTxt}>{t('adminExtra.online')}</Text>
               </View>
             </View>
           </View>
         </View>
 
         {/* ════ PROFILE INFO ════ */}
-        <SectionHeader title="Profile Info" />
+        <SectionHeader title={t('admin.profile.profileInformation')} />
         <View style={S.card}>
-          <InfoRow iconName="person" iconBg="#eff6ff" label="Full Name" value={user?.name} onPress={openEditProfile} />
-          <InfoRow iconName="phone" iconBg="#f0fdf4" label="Phone Number" value={user?.phone} onPress={openEditProfile} />
-          <InfoRow iconName="email" iconBg="#fdf4ff" label="Email" value={user?.email} readOnly />
-          <InfoRow iconName="military-tech" iconBg="#f8fafc" label="Role" value="Administrator" readOnly />
-          <InfoRow iconName="calendar-today" iconBg="#f8fafc" label="Member Since" value={fmtDate(user?.created_at)} readOnly />
-          <InfoRow iconName="schedule" iconBg="#f8fafc" label="Last Login" value={fmtDateTime(user?.last_login || new Date())} readOnly />
+          <InfoRow iconName="person" iconBg="#eff6ff" label={t('admin.profile.fullName')} value={user?.name} onPress={openEditProfile} />
+          <InfoRow iconName="phone" iconBg="#f0fdf4" label={t('admin.profile.phoneNumber')} value={user?.phone} onPress={openEditProfile} />
+          <InfoRow iconName="email" iconBg="#fdf4ff" label={t('common.email')} value={user?.email} readOnly />
+          <InfoRow iconName="military-tech" iconBg="#f8fafc" label={t('common.role')} value={t('roles.admin')} readOnly />
+          <InfoRow iconName="calendar-today" iconBg="#f8fafc" label={t('admin.profile.memberSince')} value={fmtDate(user?.created_at)} readOnly />
+          <InfoRow iconName="schedule" iconBg="#f8fafc" label={t('admin.profile.lastLogin')} value={fmtDateTime(user?.last_login || new Date())} readOnly />
         </View>
         <TouchableOpacity style={S.editProfileBtn} onPress={openEditProfile} activeOpacity={0.8}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
             <MaterialIcons name="edit" size={16} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={S.editProfileBtnTxt}>Edit Profile</Text>
+            <Text style={S.editProfileBtnTxt}>{t('admin.profile.editProfile')}</Text>
           </View>
         </TouchableOpacity>
 
         {/* ════ SECURITY ════ */}
-        <SectionHeader title="Security" />
+        <SectionHeader title={t('admin.profile.security')} />
         <View style={S.card}>
-          <TapRow iconName="lock" iconBg="#fff7ed" label="Change Password" sub="Update your login password" onPress={openChangePassword} />
+          <TapRow iconName="lock" iconBg="#fff7ed" label={t('admin.profile.changePassword')} sub={t('admin.profile.updateLoginPassword')} onPress={openChangePassword} />
         </View>
+
+        {/* ════ LANGUAGE ════ */}
+        <SectionHeader title={t('language.title')} />
+        <LanguageSwitcher accentColor={colors.admin} />
 
         {/* ════ SIGN OUT ════ */}
         <TouchableOpacity style={S.signOutBtn} onPress={() => openSheet('signOut')} activeOpacity={0.8}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
             <MaterialIcons name="logout" size={16} color="#dc2626" style={{ marginRight: 6 }} />
-            <Text style={S.signOutTxt}>Sign Out</Text>
+            <Text style={S.signOutTxt}>{t('admin.profile.signOut')}</Text>
           </View>
         </TouchableOpacity>
 
@@ -409,24 +417,24 @@ export default function AdminProfile() {
       {/* ════ BOTTOM SHEETS ════ */}
 
       {/* Edit Profile */}
-      <BottomSheet visible={sheet === 'editProfile'} onClose={closeSheet} title="Edit Profile">
-        <Field label="Full Name" value={editForm.name} onChange={v => setEditForm(f => ({ ...f, name: v }))} placeholder="Your full name" />
+      <BottomSheet visible={sheet === 'editProfile'} onClose={closeSheet} title={t('admin.profile.editProfile')}>
+        <Field label={t('admin.profile.fullName')} value={editForm.name} onChange={v => setEditForm(f => ({ ...f, name: v }))} placeholder={t('adminExtra.yourFullName')} />
         <PhoneField value={editForm.phone} onChange={v => setEditForm(f => ({ ...f, phone: v }))} />
-        <Field label="Email" value={editForm.email} editable={false} placeholder="Email (read-only)" />
+        <Field label={t('common.email')} value={editForm.email} editable={false} placeholder={t('adminExtra.emailReadOnly')} />
         <ErrMsg msg={pwError} />
-        <SaveBtn label="Save Profile" onPress={saveProfile} loading={saving} />
+        <SaveBtn label={t('common.saveChanges')} onPress={saveProfile} loading={saving} />
       </BottomSheet>
 
       {/* Change Password */}
-      <BottomSheet visible={sheet === 'changePassword'} onClose={closeSheet} title="Change Password">
-        <Field label="New Password" value={pwForm.next} onChange={v => setPwForm(f => ({ ...f, next: v }))} placeholder="Min 6 characters" secure />
-        <Field label="Confirm Password" value={pwForm.confirm} onChange={v => setPwForm(f => ({ ...f, confirm: v }))} placeholder="Repeat new password" secure />
+      <BottomSheet visible={sheet === 'changePassword'} onClose={closeSheet} title={t('admin.profile.changePassword')}>
+        <Field label={t('admin.profile.newPassword')} value={pwForm.next} onChange={v => setPwForm(f => ({ ...f, next: v }))} placeholder={t('admin.profile.min6Characters')} secure />
+        <Field label={t('admin.profile.confirmPassword')} value={pwForm.confirm} onChange={v => setPwForm(f => ({ ...f, confirm: v }))} placeholder={t('admin.profile.confirmPassword')} secure />
         <ErrMsg msg={pwError} />
-        <SaveBtn label="Change Password" onPress={savePassword} loading={saving} />
+        <SaveBtn label={t('admin.profile.changePassword')} onPress={savePassword} loading={saving} />
       </BottomSheet>
 
       {/* Avatar Color Picker */}
-      <BottomSheet visible={sheet === 'colorPicker'} onClose={closeSheet} title="Choose Avatar Color">
+      <BottomSheet visible={sheet === 'colorPicker'} onClose={closeSheet} title={t('adminExtra.chooseAvatarColor')}>
         <View style={S.colorGrid}>
           {AVATAR_COLORS.map(c => (
             <TouchableOpacity
@@ -435,7 +443,7 @@ export default function AdminProfile() {
               onPress={async () => {
                 setAvatarColor(c);
                 closeSheet();
-                showToast('Avatar updated');
+                showToast(t('adminExtra.avatarUpdated'));
                 try { await AsyncStorage.setItem('@admin_avatar_color', c); } catch (_) {}
               }}
               activeOpacity={0.8}
@@ -444,20 +452,20 @@ export default function AdminProfile() {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={S.colorHint}>Tap a color to apply</Text>
+        <Text style={S.colorHint}>{t('adminExtra.tapColorToApply')}</Text>
       </BottomSheet>
 
       {/* Sign Out Confirmation */}
-      <BottomSheet visible={sheet === 'signOut'} onClose={closeSheet} title="Sign Out">
+      <BottomSheet visible={sheet === 'signOut'} onClose={closeSheet} title={t('admin.profile.signOut')}>
         <View style={{ alignItems: 'center', paddingVertical: 8 }}>
           <View style={S.signOutIcon}>
             <MaterialIcons name="logout" size={32} color="#dc2626" />
           </View>
-          <Text style={S.signOutConfTitle}>Are you sure?</Text>
-          <Text style={S.signOutConfSub}>You will be signed out of your admin account.</Text>
-          <SaveBtn label="Sign Out" onPress={doSignOut} danger />
+          <Text style={S.signOutConfTitle}>{t('admin.profile.signOutConfirm')}</Text>
+          <Text style={S.signOutConfSub}>{t('admin.profile.signOutSubtitle', "You'll need to sign in again to access the admin panel.")}</Text>
+          <SaveBtn label={t('admin.profile.signOut')} onPress={doSignOut} danger />
           <TouchableOpacity style={S.cancelBtn} onPress={closeSheet} activeOpacity={0.7}>
-            <Text style={S.cancelBtnTxt}>Cancel</Text>
+            <Text style={S.cancelBtnTxt}>{t('common.cancel')}</Text>
           </TouchableOpacity>
         </View>
       </BottomSheet>

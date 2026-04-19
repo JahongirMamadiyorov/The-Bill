@@ -3,8 +3,10 @@ import { User, Clock, TrendingUp, AlertCircle } from 'lucide-react';
 import { shiftsAPI, reportsAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { money } from '../../hooks/useApi';
+import { useTranslation } from '../../context/LanguageContext';
 
 const WaitressProfile = () => {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [shiftStatus, setShiftStatus] = useState(null);
   const [todayStats, setTodayStats] = useState({ orders: 0, revenue: 0 });
@@ -73,7 +75,7 @@ const WaitressProfile = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          <p className="mt-4 text-gray-600">Loading profile...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -88,7 +90,7 @@ const WaitressProfile = () => {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
           <User className="w-8 h-8" style={{ color: '#16A34A' }} />
-          Profile
+          {t('admin.profile.title')}
         </h1>
 
         {error && (
@@ -108,25 +110,25 @@ const WaitressProfile = () => {
                 {initials}
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900">{user?.name || 'Waitress'}</h2>
-                <p className="text-sm text-gray-600">Waitress</p>
+                <h2 className="text-xl font-bold text-gray-900">{user?.name || t('roles.waitress', 'Waitress')}</h2>
+                <p className="text-sm text-gray-600">{t('roles.waitress')}</p>
               </div>
             </div>
 
             <div className="space-y-4 border-t pt-6">
               <div>
-                <p className="text-gray-600 text-sm mb-1">Email</p>
-                <p className="text-lg font-semibold text-gray-900">{user?.email || 'N/A'}</p>
+                <p className="text-gray-600 text-sm mb-1">{t('common.email')}</p>
+                <p className="text-lg font-semibold text-gray-900">{user?.email || t('common.na', 'N/A')}</p>
               </div>
               <div>
-                <p className="text-gray-600 text-sm mb-1">Phone</p>
-                <p className="text-lg font-semibold text-gray-900">{user?.phone || 'N/A'}</p>
+                <p className="text-gray-600 text-sm mb-1">{t('common.phone')}</p>
+                <p className="text-lg font-semibold text-gray-900">{user?.phone || t('common.na', 'N/A')}</p>
               </div>
               <div>
-                <p className="text-gray-600 text-sm mb-1">Role</p>
+                <p className="text-gray-600 text-sm mb-1">{t('common.role')}</p>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#16A34A' }}></div>
-                  <p className="text-lg font-semibold text-gray-900">Waitress</p>
+                  <p className="text-lg font-semibold text-gray-900">{t('roles.waitress')}</p>
                 </div>
               </div>
             </div>
@@ -135,11 +137,11 @@ const WaitressProfile = () => {
           <div className="bg-white p-8 rounded-lg shadow">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
               <Clock className="w-5 h-5" style={{ color: '#16A34A' }} />
-              Shift Status
+              {t('kitchen.profile.shiftStatus')}
             </h2>
             <div className="space-y-4">
               <div>
-                <p className="text-gray-600 text-sm mb-1">Current Status</p>
+                <p className="text-gray-600 text-sm mb-1">{t('waitress.profile.currentStatus')}</p>
                 <div className="flex items-center gap-2">
                   <div
                     className="w-4 h-4 rounded-full animate-pulse"
@@ -148,20 +150,20 @@ const WaitressProfile = () => {
                     }}
                   ></div>
                   <p className="text-lg font-semibold text-gray-900">
-                    {shiftStatus?.active ? 'Clocked In' : 'Clocked Out'}
+                    {shiftStatus?.active ? t('waitress.profile.clockedIn') : t('waitress.profile.clockedOut')}
                   </p>
                 </div>
               </div>
               {shiftStatus?.active && (
                 <div>
-                  <p className="text-gray-600 text-sm mb-1">Clock In Time</p>
+                  <p className="text-gray-600 text-sm mb-1">{t('waitress.profile.clockInTime')}</p>
                   <p className="text-lg font-semibold text-gray-900">
                     {new Date(shiftStatus.clockIn).toLocaleTimeString()}
                   </p>
                 </div>
               )}
               <div>
-                <p className="text-gray-600 text-sm mb-1">Shift Duration</p>
+                <p className="text-gray-600 text-sm mb-1">{t('waitress.profile.shiftDuration')}</p>
                 <p className="text-lg font-semibold text-gray-900">
                   {shiftStatus?.duration ? `${shiftStatus.duration} hours` : 'N/A'}
                 </p>
@@ -175,7 +177,7 @@ const WaitressProfile = () => {
                     : 'bg-green-600 hover:bg-green-700 disabled:opacity-50'
                 }`}
               >
-                {toggling ? 'Processing...' : shiftStatus?.active ? 'Clock Out' : 'Clock In'}
+                {toggling ? t('common.processing') : shiftStatus?.active ? t('waitress.profile.clockOut') : t('waitress.profile.clockIn')}
               </button>
             </div>
           </div>
@@ -184,14 +186,14 @@ const WaitressProfile = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600 text-sm font-medium">Orders Served Today</p>
+              <p className="text-gray-600 text-sm font-medium">{t('waitress.profile.ordersServedToday')}</p>
               <TrendingUp className="w-5 h-5" style={{ color: '#16A34A' }} />
             </div>
             <p className="text-4xl font-bold" style={{ color: '#16A34A' }}>{todayStats.orders}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600 text-sm font-medium">Total Revenue Today</p>
+              <p className="text-gray-600 text-sm font-medium">{t('waitress.profile.totalRevenueToday')}</p>
               <TrendingUp className="w-5 h-5" style={{ color: '#16A34A' }} />
             </div>
             <p className="text-3xl font-bold" style={{ color: '#16A34A' }}>{money(todayStats.revenue)}</p>
@@ -199,16 +201,16 @@ const WaitressProfile = () => {
         </div>
 
         <div className="bg-white p-8 rounded-lg shadow">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Account Settings</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-6">{t('waitress.profile.accountSettings')}</h2>
           <div className="space-y-3">
             <button className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition text-left">
-              Change Password
+              {t('admin.profile.changePassword')}
             </button>
             <button className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition text-left">
-              Notification Preferences
+              {t('nav.notifications')}
             </button>
             <button className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition text-left">
-              View Terms & Conditions
+              {t('common.details')}
             </button>
           </div>
         </div>

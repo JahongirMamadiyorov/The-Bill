@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { tablesAPI, menuAPI, ordersAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -32,16 +33,17 @@ const METHOD_MAP = {
 };
 
 // ── Table status config ────────────────────────────────────────────────────────
-const TABLE_STATUS = {
-  free:     { color: '#16A34A', bg: '#F0FDF4', label: 'Free',     icon: 'check-circle-outline' },
-  occupied: { color: '#D97706', bg: '#FFFBEB', label: 'Occupied', icon: 'people-outline'        },
-  reserved: { color: '#7C3AED', bg: '#F5F3FF', label: 'Reserved', icon: 'event-note'            },
-  cleaning: { color: '#0891B2', bg: '#ECFEFF', label: 'Cleaning', icon: 'cleaning-services'     },
-  closed:   { color: '#DC2626', bg: '#FEF2F2', label: 'Closed',   icon: 'block'                 },
-};
+const getTableStatus = (t) => ({
+  free:     { color: '#16A34A', bg: '#F0FDF4', label: t('statuses.free'),     icon: 'check-circle-outline' },
+  occupied: { color: '#D97706', bg: '#FFFBEB', label: t('statuses.occupied'), icon: 'people-outline'        },
+  reserved: { color: '#7C3AED', bg: '#F5F3FF', label: t('statuses.reserved'), icon: 'event-note'            },
+  cleaning: { color: '#0891B2', bg: '#ECFEFF', label: t('statuses.cleaning'), icon: 'cleaning-services'     },
+  closed:   { color: '#DC2626', bg: '#FEF2F2', label: 'Closed',              icon: 'block'                 },
+});
 
 // ── Mini Table Card ────────────────────────────────────────────────────────────
-function TableCard({ table, onPress }) {
+function TableCard({ table, onPress, t }) {
+  const TABLE_STATUS = getTableStatus(t);
   const cfg    = TABLE_STATUS[table.status] || TABLE_STATUS.free;
   const hasOrder = table.status === 'occupied';
   return (
@@ -63,7 +65,7 @@ function TableCard({ table, onPress }) {
             <Text style={S.tableElapsed}>{elapsed(table.order.created_at)}</Text>
           </>
         ) : (
-          <Text style={S.tableSub}>{table.capacity || '—'} seats</Text>
+          <Text style={S.tableSub}>{table.capacity || '—'} {t('cashier.tables.seats')}</Text>
         )}
       </View>
     </TouchableOpacity>
@@ -117,9 +119,14 @@ function PhoneField({ label = 'PHONE NUMBER', value, onChange }) {
 }
 
 // ── Payment Sheet ─────────────────────────────────────────────────────────────
-const PAY_METHODS = ['Cash', 'Card', 'QR Code', 'Loan'];
+const getPayMethods = (t) => [
+  { id: 'Cash',    label: t('paymentMethods.cash') },
+  { id: 'Card',    label: t('paymentMethods.card') },
+  { id: 'QR Code', label: t('paymentMethods.qrCode') },
+  { id: 'Loan',    label: t('paymentMethods.loan') },
+];
 
-function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
+function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
   const [method,     setMethod]     = useState('Cash');
   const [cashGiven,  setCashGiven]  = useState('');
   const [cardOk,     setCardOk]     = useState(false);
@@ -166,7 +173,7 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
       await ordersAPI.pay(order.id, payload);
       onPaid();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Payment failed', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('cashier.tables.paymentFailed'), type: 'error' });
     } finally { setPaying(false); }
   };
 
@@ -176,14 +183,14 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
       <TouchableOpacity style={S.mask} activeOpacity={1} onPress={onClose} />
       <View style={S.paySheet}>
         <View style={S.sheetHandle} />
-        <Text style={S.sheetTitle}>Collect Payment</Text>
+        <Text style={S.sheetTitle}>{t('cashier.tables.collectPayment')}</Text>
         <Text style={S.sheetSub}>
-          {order.table_name || order.customer_name || 'Walk-in'} · {fmt(total)}
+          {order.table_name || order.customer_name || t('cashier.orders.walkIn')} · {fmt(total)}
         </Text>
 
         <ScrollView showsVerticalScrollIndicator={false}>
           {/* Discount */}
-          <Text style={S.sectionLabel}>DISCOUNT (%)</Text>
+          <Text style={S.sectionLabel}>{t('cashier.tables.discount')}</Text>
           <View style={S.discRow}>
             {[0, 5, 10, 15, 20].map(p => (
               <TouchableOpacity
@@ -198,12 +205,12 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
           {disc > 0 && (
             <View style={S.discSummary}>
               <Text style={S.discSummaryTxt}>Discount: -{fmt(disc)}</Text>
-              <Text style={[S.discSummaryTxt, { fontWeight: '800', color: colors.primary }]}>Total: {fmt(toPay)}</Text>
+              <Text style={[S.discSummaryTxt, { fontWeight: '800', color: colors.primary }]}>{t('common.total')}: {fmt(toPay)}</Text>
             </View>
           )}
 
           {/* Payment method */}
-          <Text style={[S.sectionLabel, { marginTop: 16 }]}>PAYMENT METHOD</Text>
+          <Text style={[S.sectionLabel, { marginTop: 16 }]}>{t('cashier.tables.paymentMethod')}</Text>
           <View style={S.methodRow}>
             {PAY_METHODS.map(m => (
               <TouchableOpacity key={m} style={[S.methodBtn, method === m && S.methodBtnActive]} onPress={() => setMethod(m)}>
@@ -229,7 +236,7 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
               />
               {(parseFloat(cashGiven) || 0) >= toPay && (
                 <View style={S.changeBox}>
-                  <Text style={S.changeLbl}>Change</Text>
+                  <Text style={S.changeLbl}>{t('cashier.tables.change', 'Change')}</Text>
                   <Text style={S.changeAmt}>{fmt(change)}</Text>
                 </View>
               )}
@@ -242,7 +249,7 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
               <View style={[S.checkbox, cardOk && S.checkboxOk]}>
                 {cardOk && <MaterialIcons name="check" size={13} color="#fff" />}
               </View>
-              <Text style={S.confirmLbl}>Payment confirmed on terminal</Text>
+              <Text style={S.confirmLbl}>{t('cashier.tables.paymentConfirmedOnTerminal', 'Payment confirmed on terminal')}</Text>
             </TouchableOpacity>
           )}
 
@@ -251,13 +258,13 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
             <>
               <View style={S.qrBox}>
                 <MaterialIcons name="qr-code-2" size={64} color={colors.border} />
-                <Text style={S.qrLbl}>Customer scans to pay</Text>
+                <Text style={S.qrLbl}>{t('cashier.tables.customerScansToPay', 'Customer scans to pay')}</Text>
               </View>
               <TouchableOpacity style={[S.confirmRow, qrOk && S.confirmRowOk]} onPress={() => setQrOk(!qrOk)}>
                 <View style={[S.checkbox, qrOk && S.checkboxOk]}>
                   {qrOk && <MaterialIcons name="check" size={13} color="#fff" />}
                 </View>
-                <Text style={S.confirmLbl}>QR payment confirmed</Text>
+                <Text style={S.confirmLbl}>{t('cashier.tables.qrPaymentConfirmed', 'QR payment confirmed')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -269,9 +276,9 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
                 <MaterialIcons name="warning-amber" size={16} color="#92400E" />
                 <Text style={S.loanBannerTxt}>Loan records the debt. Money is collected later.</Text>
               </View>
-              <TextInput style={S.input} placeholder="Customer name *" value={loanName} onChangeText={setLoanName} />
+              <TextInput style={S.input} placeholder={t('placeholders.customerNameReq', 'Customer name *')} value={loanName} onChangeText={setLoanName} />
               <PhoneField label="Phone Number" value={loanPhone} onChange={setLoanPhone} />
-              <TextInput style={S.input} placeholder="Due date (YYYY-MM-DD) *" value={loanDue} onChangeText={setLoanDue} />
+              <TextInput style={S.input} placeholder={t('placeholders.dueDateFormat', 'Due date (YYYY-MM-DD) *')} value={loanDue} onChangeText={setLoanDue} />
             </>
           )}
 
@@ -301,6 +308,7 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog }) {
 
 // ── Table Detail Modal ─────────────────────────────────────────────────────────
 function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, navigation, setDialog }) {
+  const { t } = useTranslation();
   const [showPay, setShowPay] = useState(false);
 
   const handlePaid = () => {
@@ -335,7 +343,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
         {billRequested && (
           <View style={S.billBanner}>
             <MaterialIcons name="receipt-long" size={16} color="#7C3AED" />
-            <Text style={S.billBannerTxt}>Bill requested by waitress</Text>
+            <Text style={S.billBannerTxt}>{t('cashier.tables.billRequestedByWaitress', 'Bill requested by waitress')}</Text>
           </View>
         )}
 
@@ -345,27 +353,27 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
               {/* Order summary */}
               <View style={S.orderSummary}>
                 <View style={S.summaryRow}>
-                  <Text style={S.summaryLbl}>Order</Text>
+                  <Text style={S.summaryLbl}>{t('cashier.tables.order', 'Order')}</Text>
                   <Text style={S.summaryVal}>
                     {order.daily_number ? `#${order.daily_number}` : order.id?.slice(-6)}
                   </Text>
                 </View>
                 <View style={S.summaryRow}>
-                  <Text style={S.summaryLbl}>Guests</Text>
+                  <Text style={S.summaryLbl}>{t('cashier.tables.guests', 'Guests')}</Text>
                   <Text style={S.summaryVal}>{order.guest_count || '—'}</Text>
                 </View>
                 <View style={S.summaryRow}>
-                  <Text style={S.summaryLbl}>Waiter</Text>
+                  <Text style={S.summaryLbl}>{t('cashier.tables.waiter', 'Waiter')}</Text>
                   <Text style={S.summaryVal}>{order.waitress_name || 'Cashier'}</Text>
                 </View>
                 <View style={S.summaryRow}>
-                  <Text style={S.summaryLbl}>Time</Text>
+                  <Text style={S.summaryLbl}>{t('cashier.tables.time', 'Time')}</Text>
                   <Text style={S.summaryVal}>{elapsed(order.created_at)}</Text>
                 </View>
               </View>
 
               {/* Items */}
-              <Text style={S.sectionLabel}>ORDER ITEMS</Text>
+              <Text style={S.sectionLabel}>{t('cashier.tables.orderItems', 'ORDER ITEMS')}</Text>
               {(order.items || []).map((item, i) => (
                 <View key={i} style={S.itemRow}>
                   <Text style={S.itemName}>{item.name || item.menu_item_name || '—'}</Text>
@@ -378,7 +386,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
 
               {/* Total */}
               <View style={S.totalRow}>
-                <Text style={S.totalLbl}>Total</Text>
+                <Text style={S.totalLbl}>{t('cashier.tables.total', 'Total')}</Text>
                 <Text style={S.totalAmt}>{fmt(order.total_amount)}</Text>
               </View>
 
@@ -387,7 +395,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
                 {canPay && (
                   <TouchableOpacity style={S.payNowBtn} onPress={() => setShowPay(true)}>
                     <MaterialIcons name="payments" size={18} color="#fff" />
-                    <Text style={S.payNowTxt}>Collect Payment</Text>
+                    <Text style={S.payNowTxt}>{t('cashier.tables.collectPayment', 'Collect Payment')}</Text>
                   </TouchableOpacity>
                 )}
                 {!isPaid && (
@@ -396,7 +404,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
                     onPress={() => { onClose(); onAddItems(table, order); }}
                   >
                     <MaterialIcons name="add" size={18} color={colors.primary} />
-                    <Text style={S.addItemsTxt}>Add Items</Text>
+                    <Text style={S.addItemsTxt}>{t('cashier.tables.addItems', 'Add Items')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -408,8 +416,8 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
               <View style={S.reservedBanner}>
                 <MaterialIcons name="event-note" size={22} color="#7C3AED" />
                 <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={S.reservedBannerTitle}>Table Reserved</Text>
-                  <Text style={S.reservedBannerSub}>Upcoming reservation</Text>
+                  <Text style={S.reservedBannerTitle}>{t('cashier.tables.tableReserved', 'Table Reserved')}</Text>
+                  <Text style={S.reservedBannerSub}>{t('cashier.tables.upcomingReservation', 'Upcoming reservation')}</Text>
                 </View>
               </View>
 
@@ -418,10 +426,10 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
                 { icon: 'person', label: 'Guest Name', value: table.reservationGuest || 'Not specified' },
                 { icon: 'people', label: 'Party Size', value: table.capacity ? `${table.capacity} seats` : '—' },
                 { icon: 'schedule', label: 'Reserved For', value: (() => {
-                  const t = table.reservationTime;
-                  if (!t) return '—';
-                  const d = new Date(t);
-                  if (isNaN(d.getTime())) return t;
+                  const rt = table.reservationTime;
+                  if (!rt) return '—';
+                  const d = new Date(rt);
+                  if (isNaN(d.getTime())) return rt;
                   return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}  ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
                 })() },
                 ...(table.reservationPhone ? [{ icon: 'phone', label: 'Phone', value: table.reservationPhone }] : []),
@@ -450,14 +458,14 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
             /* No active order — free table */
             <View style={S.noOrderWrap}>
               <MaterialIcons name="table-restaurant" size={48} color={colors.border} />
-              <Text style={S.noOrderTxt}>No active order</Text>
-              <Text style={S.noOrderSub}>Start a new order for this table</Text>
+              <Text style={S.noOrderTxt}>{t('cashier.tables.noActiveOrder', 'No active order')}</Text>
+              <Text style={S.noOrderSub}>{t('cashier.tables.startNewOrder', 'Start a new order for this table')}</Text>
               <TouchableOpacity
                 style={S.newOrderBtn}
                 onPress={() => { onClose(); onNewOrder(table); }}
               >
                 <MaterialIcons name="add-circle-outline" size={18} color="#fff" />
-                <Text style={S.newOrderTxt}>New Order</Text>
+                <Text style={S.newOrderTxt}>{t('nav.newOrder', 'New Order')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -470,6 +478,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
         onClose={() => setShowPay(false)}
         onPaid={handlePaid}
         setDialog={setDialog}
+        t={t}
       />
     </Modal>
   );
@@ -480,6 +489,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
 // ══════════════════════════════════════════════════════════════════════════════
 export default function CashierTables({ navigation }) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [tables,     setTables]     = useState([]);
   const [orders,     setOrders]     = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -581,7 +591,7 @@ export default function CashierTables({ navigation }) {
       {/* Header */}
       <View style={S.header}>
         <View>
-          <Text style={S.headerTitle}>Tables</Text>
+          <Text style={S.headerTitle}>{t('nav.tables', 'Tables')}</Text>
           <Text style={S.headerSub}>
             {occupied} occupied · {free} free
             {billReqCount > 0 ? ` · ${billReqCount} awaiting payment` : ''}
@@ -639,7 +649,7 @@ export default function CashierTables({ navigation }) {
         ListEmptyComponent={
           <View style={S.center}>
             <MaterialIcons name="table-restaurant" size={48} color={colors.border} />
-            <Text style={{ color: colors.neutralMid, marginTop: 12, fontSize: 15 }}>No tables found</Text>
+            <Text style={{ color: colors.neutralMid, marginTop: 12, fontSize: 15 }}>{t('cashier.walkin.noTablesFound', 'No tables found')}</Text>
           </View>
         }
       />

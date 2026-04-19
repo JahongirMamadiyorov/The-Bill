@@ -10,8 +10,10 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { ordersAPI, usersAPI, staffPaymentsAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
 
@@ -42,17 +44,19 @@ function QuickStat({ icon, label, value, color = colors.primary, bg = colors.pri
 
 // ── Role badge ────────────────────────────────────────────────────────────────
 function RoleBadge({ role }) {
-  const cfg = {
-    waitress: { label: 'Waitress', color: '#059669', bg: '#D1FAE5' },
-    admin:    { label: 'Admin',    color: '#2563EB', bg: '#DBEAFE' },
-    owner:    { label: 'Owner',    color: '#7C3AED', bg: '#F5F3FF' },
-    cashier:  { label: 'Cashier', color: '#D97706', bg: '#FEF3C7' },
-    kitchen:  { label: 'Kitchen', color: '#EA580C', bg: '#FFEDD5' },
-    bar:      { label: 'Bar',     color: '#7C3AED', bg: '#F5F3FF' },
-  }[role?.toLowerCase()] || { label: role || 'Staff', color: colors.textMuted, bg: colors.background };
+  const { t } = useTranslation();
+  const styleCfg = {
+    waitress: { color: '#059669', bg: '#D1FAE5' },
+    admin:    { color: '#2563EB', bg: '#DBEAFE' },
+    owner:    { color: '#7C3AED', bg: '#F5F3FF' },
+    cashier:  { color: '#D97706', bg: '#FEF3C7' },
+    kitchen:  { color: '#EA580C', bg: '#FFEDD5' },
+    bar:      { color: '#7C3AED', bg: '#F5F3FF' },
+  }[role?.toLowerCase()] || { color: colors.textMuted, bg: colors.background };
+  const label = role ? t(`roles.${role.toLowerCase()}`, role) : t('common.staff', 'Staff');
   return (
-    <View style={{ backgroundColor: cfg.bg, paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.full }}>
-      <Text style={{ color: cfg.color, fontWeight: '700', fontSize: 13 }}>{cfg.label}</Text>
+    <View style={{ backgroundColor: styleCfg.bg, paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.full }}>
+      <Text style={{ color: styleCfg.color, fontWeight: '700', fontSize: 13 }}>{label}</Text>
     </View>
   );
 }
@@ -83,6 +87,7 @@ function wpLocalDisplay(stored) {
 
 // ── Edit Profile modal ────────────────────────────────────────────────────────
 function EditProfileModal({ visible, user, onClose, onSaved }) {
+  const { t } = useTranslation();
   const [name,  setName]  = useState('');
   const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
@@ -97,7 +102,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 
   const save = async () => {
     if (!name.trim()) {
-      setDialog({ title: 'Required', message: 'Name cannot be empty.', type: 'warning' });
+      setDialog({ title: t('waitress.profile.requiredTitle','Required'), message: t('waitress.profile.nameRequired','Name cannot be empty.'), type: 'warning' });
       return;
     }
     setSaving(true);
@@ -106,7 +111,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
       onSaved({ name: name.trim(), phone: phone.trim() });
       onClose();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to update profile.', type: 'error' });
+      setDialog({ title: t('waitress.profile.errorTitle','Error'), message: e?.response?.data?.error || t('waitress.profile.failedUpdateProfile','Failed to update profile.'), type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -117,22 +122,22 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
       <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.editModal}>
           <View style={styles.editModalHeader}>
-            <Text style={styles.editModalTitle}>Edit Profile</Text>
+            <Text style={styles.editModalTitle}>{t('waitress.profile.editProfile','Edit Profile')}</Text>
             <TouchableOpacity onPress={onClose}>
               <MaterialIcons name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.fieldLabel}>Full Name</Text>
+          <Text style={styles.fieldLabel}>{t('waitress.profile.fullName','Full Name')}</Text>
           <TextInput
             style={styles.textInput}
             value={name}
             onChangeText={setName}
-            placeholder="Your full name"
+            placeholder={t('placeholders.yourFullName','Your full name')}
             placeholderTextColor={colors.textMuted}
           />
 
-          <Text style={styles.fieldLabel}>Phone Number</Text>
+          <Text style={styles.fieldLabel}>{t('waitress.profile.phoneNumber','Phone Number')}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, overflow: 'hidden', marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E5E7EB', gap: 6 }}>
               <Text style={{ fontSize: 16 }}>🇺🇿</Text>
@@ -156,7 +161,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
           >
             {saving
               ? <ActivityIndicator size="small" color={colors.white} />
-              : <Text style={styles.saveBtnTxt}>Save Changes</Text>
+              : <Text style={styles.saveBtnTxt}>{t('waitress.profile.saveChanges','Save Changes')}</Text>
             }
           </TouchableOpacity>
 
@@ -172,6 +177,7 @@ function EditProfileModal({ visible, user, onClose, onSaved }) {
 // ════════════════════════════════════════════════════════════════════════════
 export default function WaitressProfile({ navigation }) {
   const { user: authUser, logout, updateUser } = useAuth();
+  const { t } = useTranslation();
   const [user, setUser] = useState(authUser);
   const [orders,      setOrders]      = useState([]);
   const [monthShifts, setMonthShifts] = useState([]);
@@ -214,10 +220,10 @@ export default function WaitressProfile({ navigation }) {
 
   const handleLogout = () => {
     setDialog({
-      title: 'Sign Out',
-      message: 'Are you sure you want to sign out?',
+      title: t('waitress.profile.signOut','Sign Out'),
+      message: t('waitress.profile.signOutConfirm','Are you sure you want to sign out?'),
       type: 'danger',
-      confirmLabel: 'Sign Out',
+      confirmLabel: t('waitress.profile.signOut','Sign Out'),
       onConfirm: () => {
         setDialog(null);
         logout();
@@ -235,7 +241,7 @@ export default function WaitressProfile({ navigation }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const memberSince = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    : 'Unknown';
+    : t('waitress.profile.unknown','Unknown');
 
   const visibleEmail = user?.email && !user.email.endsWith('@staff.local') ? user.email : null;
 
@@ -262,7 +268,7 @@ export default function WaitressProfile({ navigation }) {
           <View style={styles.avatar}>
             <Text style={styles.avatarTxt}>{initials}</Text>
           </View>
-          <Text style={styles.name}>{user?.name || 'Staff'}</Text>
+          <Text style={styles.name}>{user?.name || t('common.staff','Staff')}</Text>
           <RoleBadge role={user?.role} />
           {visibleEmail && <Text style={styles.email}>{visibleEmail}</Text>}
           <Text style={styles.date}>{today}</Text>
@@ -270,11 +276,11 @@ export default function WaitressProfile({ navigation }) {
 
         {/* ── Quick stats row ────────────────────────────────────────────── */}
         <View style={styles.quickRow}>
-          <QuickStat icon="table-restaurant" label="Active Tables" value={tablesActive}   color="#D97706" bg="#FEF3C7" />
+          <QuickStat icon="table-restaurant" label={t('waitress.profile.activeTables','Active Tables')} value={tablesActive}   color="#D97706" bg="#FEF3C7" />
           <View style={styles.quickDivider} />
-          <QuickStat icon="check-circle"     label="Completed"     value={ordersComplete} color="#16A34A" bg="#DCFCE7" />
+          <QuickStat icon="check-circle"     label={t('waitress.profile.completed','Completed')}     value={ordersComplete} color="#16A34A" bg="#DCFCE7" />
           <View style={styles.quickDivider} />
-          <QuickStat icon="payments"         label="Earned (month)" value={fmtMoney(monthEarned)} color={colors.primary} bg={colors.primaryLight} />
+          <QuickStat icon="payments"         label={t('waitress.profile.earnedMonth','Earned (month)')} value={fmtMoney(monthEarned)} color={colors.primary} bg={colors.primaryLight} />
         </View>
 
         {/* ── View Full Performance button ───────────────────────────────── */}
@@ -285,38 +291,43 @@ export default function WaitressProfile({ navigation }) {
             activeOpacity={0.85}
           >
             <MaterialIcons name="bar-chart" size={20} color={colors.white} style={{ marginRight: 8 }} />
-            <Text style={styles.perfBtnTxt}>View Full Performance</Text>
+            <Text style={styles.perfBtnTxt}>{t('waitress.profile.viewFullPerformance','View Full Performance')}</Text>
             <MaterialIcons name="chevron-right" size={20} color="rgba(255,255,255,0.7)" />
           </TouchableOpacity>
         </View>
 
         {/* ── Account Info ───────────────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account Info</Text>
+          <Text style={styles.sectionTitle}>{t('waitress.profile.accountInfo','Account Info')}</Text>
           <View style={styles.infoCard}>
-            <InfoRow icon="person"      label="Full Name"    value={user?.name  || '—'} />
-            <InfoRow icon="badge"       label="Username"     value={user?.username || user?.name || '—'} />
-            {user?.phone && <InfoRow icon="phone" label="Phone" value={user.phone} />}
-            <InfoRow icon="work"        label="Role"         value={user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : '—'} />
-            <InfoRow icon="calendar-today" label="Member Since" value={memberSince} last />
+            <InfoRow icon="person"      label={t('waitress.profile.fullName','Full Name')}    value={user?.name  || '—'} />
+            <InfoRow icon="badge"       label={t('waitress.profile.username','Username')}     value={user?.username || user?.name || '—'} />
+            {user?.phone && <InfoRow icon="phone" label={t('waitress.profile.phone','Phone')} value={user.phone} />}
+            <InfoRow icon="work"        label={t('waitress.profile.role','Role')}             value={user?.role ? t(`roles.${user.role.toLowerCase()}`, user.role.charAt(0).toUpperCase() + user.role.slice(1)) : '—'} />
+            <InfoRow icon="calendar-today" label={t('waitress.profile.memberSince','Member Since')} value={memberSince} last />
           </View>
 
           <TouchableOpacity style={styles.editBtn} onPress={() => setEditOpen(true)} activeOpacity={0.85}>
             <MaterialIcons name="edit" size={16} color={colors.primary} style={{ marginRight: 6 }} />
-            <Text style={styles.editBtnTxt}>Edit Profile</Text>
+            <Text style={styles.editBtnTxt}>{t('waitress.profile.editProfile','Edit Profile')}</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* ── Language ───────────────────────────────────────────────────── */}
+        <View style={{ marginTop: spacing.md }}>
+          <LanguageSwitcher accentColor={colors.waitress} />
         </View>
 
         {/* ── Sign out ───────────────────────────────────────────────────── */}
         <View style={[styles.section, { marginTop: spacing.sm }]}>
           <TouchableOpacity onPress={handleLogout} style={styles.signOutBtn} activeOpacity={0.85}>
             <MaterialIcons name="logout" size={20} color="#DC2626" style={{ marginRight: 10 }} />
-            <Text style={styles.signOutTxt}>Sign Out</Text>
+            <Text style={styles.signOutTxt}>{t('waitress.profile.signOut','Sign Out')}</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={{ textAlign: 'center', color: colors.textMuted, fontSize: 11, marginTop: spacing.xl }}>
-          Restaurant App v1.0 · Waitress Panel
+          {t('waitress.profile.appFooter','Restaurant App v1.0 - Waitress Panel')}
         </Text>
       </ScrollView>
 

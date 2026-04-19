@@ -15,8 +15,10 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { accountingAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 
 // Constants
 const P      = '#7C3AED';
@@ -25,6 +27,7 @@ const PL = '#F5F3FF';
 
 export default function OwnerProfile() {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
 
   // State
   const [settings, setSettings] = useState(null);
@@ -229,7 +232,7 @@ export default function OwnerProfile() {
                 <Text style={styles.inputLabel}>Restaurant Name</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Enter restaurant name"
+                  placeholder={t('placeholders.enterRestaurantName','Enter restaurant name')}
                   value={restName}
                   onChangeText={setRestName}
                   placeholderTextColor="#BDBDBD"
@@ -337,10 +340,10 @@ export default function OwnerProfile() {
                 <>
                   <Divider />
                   <View style={styles.inputSection}>
-                    <Text style={styles.inputLabel}>Tax Name</Text>
+                    <Text style={styles.inputLabel}>{t('labels.taxName', 'Tax Name')}</Text>
                     <TextInput
                       style={styles.textInput}
-                      placeholder="VAT"
+                      placeholder={t('placeholders.vat', 'VAT')}
                       value={taxName}
                       onChangeText={setTaxName}
                       placeholderTextColor="#BDBDBD"
@@ -396,7 +399,7 @@ export default function OwnerProfile() {
         <View style={styles.card}>
           <SettingRow icon="info" label="Version" value="1.0.0" />
           <Divider />
-          <SettingRow icon="badge" label="Role" value={capitalize(user?.role)} />
+          <SettingRow icon="badge" label="Role" value={user?.role ? t(`roles.${user.role}`, capitalize(user.role)) : '—'} />
           <Divider />
           <SettingRow
             icon="fingerprint"
@@ -406,6 +409,11 @@ export default function OwnerProfile() {
         </View>
       </View>
 
+      {/* Language */}
+      <View style={{ marginTop: 16 }}>
+        <LanguageSwitcher accentColor={P} />
+      </View>
+
       {/* Sign Out */}
       <View style={styles.signOutContainer}>
         <TouchableOpacity
@@ -413,7 +421,7 @@ export default function OwnerProfile() {
           style={styles.signOutButton}
         >
           <MaterialIcons name="logout" size={20} color="#DC2626" />
-          <Text style={styles.signOutButtonText}>Sign Out</Text>
+          <Text style={styles.signOutButtonText}>{t('owner.profile.signOut','Sign Out')}</Text>
         </TouchableOpacity>
       </View>
 

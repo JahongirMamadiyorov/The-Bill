@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // ── Auto-migration: loans table ────────────────────────────────────────────────
 ;(async () => {
@@ -9,6 +9,7 @@ const { authenticate } = require('../middleware/auth');
     await db.query(`
       CREATE TABLE IF NOT EXISTS loans (
         id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        restaurant_id  UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
         order_id       UUID REFERENCES orders(id) ON DELETE SET NULL,
         customer_name  TEXT NOT NULL,
         customer_phone TEXT,
@@ -23,6 +24,7 @@ const { authenticate } = require('../middleware/auth');
       )
     `);
     // Add missing columns to existing tables (safe — IF NOT EXISTS)
+    await db.query(`ALTER TABLE loans ADD COLUMN IF NOT EXISTS restaurant_id UUID REFERENCES restaurants(id) ON DELETE CASCADE`);
     await db.query(`ALTER TABLE loans ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`);
     await db.query(`ALTER TABLE loans ADD COLUMN IF NOT EXISTS payment_method TEXT`);
     await db.query(`ALTER TABLE loans ADD COLUMN IF NOT EXISTS notes TEXT`);
@@ -44,9 +46,9 @@ router.get('/', authenticate, async (req, res) => {
       FROM loans l
       LEFT JOIN orders            o ON l.order_id  = o.id
       LEFT JOIN restaurant_tables t ON o.table_id  = t.id
-      WHERE 1=1
+      WHERE l.restaurant_id = $1
     `;
-    const params = [];
+    const params = [rid(req)];
     if (req.query.status) {
       params.push(req.query.status);
       query += ` AND l.status = $${params.length}`;
@@ -67,7 +69,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/loans/stats  — overall summary counts + totals (no date filter — always global)
+// GET /api/loans/stats  — overall summary counts + totals for current restaurant
 router.get('/stats', authenticate, async (req, res) => {
   try {
     const result = await db.query(`
@@ -79,7 +81,8 @@ router.get('/stats', authenticate, async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'active' AND due_date < CURRENT_DATE) AS overdue_count,
         COALESCE(SUM(amount) FILTER (WHERE status = 'active' AND due_date < CURRENT_DATE), 0) AS overdue_total
       FROM loans
-    `);
+      WHERE restaurant_id = $1
+    `, [rid(req)]);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -89,14 +92,16 @@ router.get('/stats', authenticate, async (req, res) => {
 // POST /api/loans/notify-overdue  — send overdue notifications to all admins/owners
 router.post('/notify-overdue', authenticate, async (req, res) => {
   try {
-    // Find all currently overdue active loans
+    const restaurantId = rid(req);
+
+    // Find all currently overdue active loans for this restaurant
     const overdueRes = await db.query(`
       SELECT l.*, o.daily_number
       FROM loans l
       LEFT JOIN orders o ON l.order_id = o.id
-      WHERE l.status = 'active' AND l.due_date < CURRENT_DATE
+      WHERE l.restaurant_id = $1 AND l.status = 'active' AND l.due_date < CURRENT_DATE
       ORDER BY l.due_date ASC
-    `);
+    `, [restaurantId]);
     const overdue = overdueRes.rows;
 
     if (overdue.length === 0) {
@@ -124,8 +129,8 @@ router.post('/notify-overdue', authenticate, async (req, res) => {
     for (const admin of admins) {
       try {
         await db.query(
-          `INSERT INTO notifications (user_id, title, body, type) VALUES ($1, $2, $3, $4)`,
-          [admin.id, title, body, 'loan_overdue']
+          `INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1, $2, $3, $4, $5)`,
+          [admin.id, title, body, 'loan_overdue', restaurantId]
         );
       } catch (_) { /* notifications table may not exist — skip gracefully */ }
     }
@@ -144,9 +149,9 @@ router.patch('/:id/pay', authenticate, async (req, res) => {
       `UPDATE loans
          SET status='paid', paid_at=NOW(), updated_at=NOW(),
              payment_method=COALESCE($2, payment_method)
-       WHERE id=$1
+       WHERE id=$1 AND restaurant_id=$3
        RETURNING *`,
-      [req.params.id, payment_method || null]
+      [req.params.id, payment_method || null, rid(req)]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Loan not found' });
     res.json(result.rows[0]);

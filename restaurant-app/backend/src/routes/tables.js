@@ -1,22 +1,36 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
-// ── Ensure table_sections table exists (runs on every request if needed) ─────
+// ── Ensure table_sections table exists (multi-tenant schema) ────────────────
+// The real schema lives in src/config/schema.sql:
+//   CREATE TABLE table_sections (
+//     id            SERIAL PRIMARY KEY,
+//     restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+//     name          TEXT NOT NULL,
+//     UNIQUE(restaurant_id, name)
+//   );
+// A single-tenant CREATE TABLE here without restaurant_id would clash with the
+// real schema and any seeded INSERTs without restaurant_id would violate the
+// NOT NULL constraint. Per-restaurant defaults are seeded by super-admin when
+// a restaurant is created. Here we only ensure the table exists in dev DBs.
 const ENSURE_SQL = `
   CREATE TABLE IF NOT EXISTS table_sections (
-    id   SERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    id            SERIAL PRIMARY KEY,
+    restaurant_id UUID NOT NULL,
+    name          TEXT NOT NULL,
+    UNIQUE(restaurant_id, name)
   );
-  INSERT INTO table_sections (name)
-  VALUES ('Indoor'),('Outdoor'),('Terrace')
-  ON CONFLICT (name) DO NOTHING;
 `;
 let sectionsTableReady = false;
 async function ensureSectionsTable() {
   if (sectionsTableReady) return;
-  await db.query(ENSURE_SQL);
+  try {
+    await db.query(ENSURE_SQL);
+  } catch (_) {
+    // Table likely already exists with the full schema — that's fine.
+  }
   sectionsTableReady = true;
 }
 // Run once on startup
@@ -26,9 +40,10 @@ ensureSectionsTable().catch(() => {});
 router.get('/sections', authenticate, async (req, res) => {
   try {
     await ensureSectionsTable();
+    const restaurantId = rid(req);
     const [stored, fromTables] = await Promise.all([
-      db.query(`SELECT name FROM table_sections ORDER BY id`),
-      db.query(`SELECT DISTINCT section FROM restaurant_tables WHERE section IS NOT NULL AND section != ''`),
+      db.query(`SELECT name FROM table_sections WHERE restaurant_id = $1 ORDER BY id`, [restaurantId]),
+      db.query(`SELECT DISTINCT section FROM restaurant_tables WHERE restaurant_id = $1 AND section IS NOT NULL AND section != ''`, [restaurantId]),
     ]);
     const set = new Set([
       ...stored.rows.map(r => r.name),
@@ -44,7 +59,8 @@ router.post('/sections', authenticate, authorize('owner', 'admin'), async (req, 
   if (!name || !name.trim()) return res.status(400).json({ error: 'Section name required' });
   try {
     await ensureSectionsTable();
-    await db.query(`INSERT INTO table_sections (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, [name.trim()]);
+    const restaurantId = rid(req);
+    await db.query(`INSERT INTO table_sections (name, restaurant_id) VALUES ($1, $2) ON CONFLICT (restaurant_id, name) DO NOTHING`, [name.trim(), restaurantId]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -53,7 +69,29 @@ router.post('/sections', authenticate, authorize('owner', 'admin'), async (req, 
 router.delete('/sections/:name', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
     await ensureSectionsTable();
-    await db.query(`DELETE FROM table_sections WHERE name = $1`, [req.params.name]);
+    const restaurantId = rid(req);
+    const name = req.params.name;
+
+    // Refuse to drop a section that's still referenced by tables — otherwise
+    // the GET endpoint's UNION fallback would immediately resurrect it from
+    // restaurant_tables and the chip would pop back, making the delete look
+    // broken. Compare case-insensitively so chip-matched names reliably hit.
+    const refs = await db.query(
+      `SELECT COUNT(*)::int AS n FROM restaurant_tables
+       WHERE restaurant_id = $1 AND LOWER(section) = LOWER($2)`,
+      [restaurantId, name]
+    );
+    if ((refs.rows[0]?.n || 0) > 0) {
+      return res.status(409).json({ error: 'Section still has tables. Move or delete them first.' });
+    }
+
+    // Case-insensitive name match so a chip click reliably removes the row
+    // even if its stored casing doesn't match what the UI displayed.
+    await db.query(
+      `DELETE FROM table_sections
+       WHERE restaurant_id = $1 AND LOWER(name) = LOWER($2)`,
+      [restaurantId, name]
+    );
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -61,6 +99,7 @@ router.delete('/sections/:name', authenticate, authorize('owner', 'admin'), asyn
 // GET /api/tables
 router.get('/', authenticate, async (req, res) => {
   try {
+    const restaurantId = rid(req);
     const result = await db.query(`
       SELECT t.*,
              u.name as waitress_name,
@@ -68,13 +107,14 @@ router.get('/', authenticate, async (req, res) => {
                (SELECT SUM(oi.unit_price * oi.quantity)
                 FROM orders o
                 JOIN order_items oi ON oi.order_id = o.id
-                WHERE o.table_id = t.id AND o.status NOT IN ('paid','cancelled')),
+                WHERE o.table_id = t.id AND o.restaurant_id = $1 AND o.status NOT IN ('paid','cancelled')),
                0
              ) AS order_total
       FROM restaurant_tables t
       LEFT JOIN users u ON t.assigned_to = u.id
+      WHERE t.restaurant_id = $1
       ORDER BY t.table_number
-    `);
+    `, [restaurantId]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -83,10 +123,12 @@ router.get('/', authenticate, async (req, res) => {
 router.post('/', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { table_number, capacity, name, section, shape } = req.body;
   try {
+    const restaurantId = rid(req);
+
     // Auto-assign table_number if not provided
     let tNum = table_number;
     if (!tNum) {
-      const maxRes = await db.query('SELECT COALESCE(MAX(table_number), 0) + 1 AS next FROM restaurant_tables');
+      const maxRes = await db.query('SELECT COALESCE(MAX(table_number), 0) + 1 AS next FROM restaurant_tables WHERE restaurant_id = $1', [restaurantId]);
       tNum = maxRes.rows[0].next;
     }
     const tName = name || `Table ${tNum}`;
@@ -95,15 +137,15 @@ router.post('/', authenticate, authorize('owner', 'admin'), async (req, res) => 
     let result;
     try {
       result = await db.query(
-        `INSERT INTO restaurant_tables (table_number, capacity, name, section, shape)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [tNum, capacity || 4, tName, section || 'Indoor', shape || 'Square']
+        `INSERT INTO restaurant_tables (table_number, capacity, name, section, shape, restaurant_id)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [tNum, capacity || 4, tName, section || 'Indoor', shape || 'Square', restaurantId]
       );
     } catch (colErr) {
       // Columns don't exist yet — insert with basic fields only
       result = await db.query(
-        `INSERT INTO restaurant_tables (table_number, capacity) VALUES ($1, $2) RETURNING *`,
-        [tNum, capacity || 4]
+        `INSERT INTO restaurant_tables (table_number, capacity, restaurant_id) VALUES ($1, $2, $3) RETURNING *`,
+        [tNum, capacity || 4, restaurantId]
       );
     }
     res.status(201).json(result.rows[0]);
@@ -116,8 +158,19 @@ router.post('/', authenticate, authorize('owner', 'admin'), async (req, res) => 
 router.put('/merge', authenticate, async (req, res) => {
   const { table_id_1, table_id_2 } = req.body;
   try {
-    await db.query('UPDATE orders SET table_id=$1 WHERE table_id=$2 AND status != $3', [table_id_1, table_id_2, 'paid']);
-    await db.query(`UPDATE restaurant_tables SET status='free', assigned_to=NULL WHERE id=$1`, [table_id_2]);
+    const restaurantId = rid(req);
+
+    // Verify both tables belong to this restaurant
+    const tablesRes = await db.query(
+      `SELECT id FROM restaurant_tables WHERE id IN ($1, $2) AND restaurant_id = $3`,
+      [table_id_1, table_id_2, restaurantId]
+    );
+    if (tablesRes.rows.length !== 2) {
+      return res.status(403).json({ error: 'One or both tables not found in your restaurant' });
+    }
+
+    await db.query('UPDATE orders SET table_id=$1 WHERE table_id=$2 AND restaurant_id=$3 AND status != $4', [table_id_1, table_id_2, restaurantId, 'paid']);
+    await db.query(`UPDATE restaurant_tables SET status='free', assigned_to=NULL WHERE id=$1 AND restaurant_id=$2`, [table_id_2, restaurantId]);
     res.json({ message: 'Tables merged successfully' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -126,20 +179,21 @@ router.put('/merge', authenticate, async (req, res) => {
 router.put('/:id/open', authenticate, async (req, res) => {
   const { guests_count, assigned_to } = req.body || {};
   try {
+    const restaurantId = rid(req);
     const result = await db.query(
       `UPDATE restaurant_tables
        SET status = 'occupied',
            assigned_to = COALESCE($1, assigned_to, $2),
            guests_count = COALESCE($3, guests_count),
            opened_at = NOW()
-       WHERE id = $4 RETURNING *`,
-      [assigned_to || null, req.user.id, guests_count ? parseInt(guests_count) : null, req.params.id]
+       WHERE id = $4 AND restaurant_id = $5 RETURNING *`,
+      [assigned_to || null, req.user.id, guests_count ? parseInt(guests_count) : null, req.params.id, restaurantId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Table not found' });
 
     db.query(
-      "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-      [req.user.id, "Table Opened", `Table ${result.rows[0].table_number} is now occupied.`, "table_status"]
+      "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+      [req.user.id, "Table Opened", `Table ${result.rows[0].table_number} is now occupied.`, "table_status", restaurantId]
     ).catch(() => {});
 
     res.json(result.rows[0]);
@@ -149,6 +203,7 @@ router.put('/:id/open', authenticate, async (req, res) => {
 // PUT /api/tables/:id/close
 router.put('/:id/close', authenticate, async (req, res) => {
   try {
+    const restaurantId = rid(req);
     const result = await db.query(
       `UPDATE restaurant_tables
        SET status = 'free',
@@ -159,14 +214,14 @@ router.put('/:id/close', authenticate, async (req, res) => {
            reservation_phone = NULL,
            reservation_date = NULL,
            reservation_time = NULL
-       WHERE id = $1 RETURNING *`,
-      [req.params.id]
+       WHERE id = $1 AND restaurant_id = $2 RETURNING *`,
+      [req.params.id, restaurantId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Table not found' });
 
     db.query(
-      "INSERT INTO notifications (user_id, title, body, type) VALUES ($1,$2,$3,$4)",
-      [req.user.id, "Table Closed", `Table ${result.rows[0].table_number} is now free.`, "table_status"]
+      "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",
+      [req.user.id, "Table Closed", `Table ${result.rows[0].table_number} is now free.`, "table_status", restaurantId]
     ).catch(() => {});
 
     res.json(result.rows[0]);
@@ -177,10 +232,12 @@ router.put('/:id/close', authenticate, async (req, res) => {
 router.put('/:id/transfer', authenticate, async (req, res) => {
   const { new_waitress_id } = req.body;
   try {
+    const restaurantId = rid(req);
     const result = await db.query(
-      `UPDATE restaurant_tables SET assigned_to = $1 WHERE id = $2 RETURNING *`,
-      [new_waitress_id, req.params.id]
+      `UPDATE restaurant_tables SET assigned_to = $1 WHERE id = $2 AND restaurant_id = $3 RETURNING *`,
+      [new_waitress_id, req.params.id, restaurantId]
     );
+    if (!result.rows.length) return res.status(404).json({ error: 'Table not found' });
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -188,6 +245,7 @@ router.put('/:id/transfer', authenticate, async (req, res) => {
 // PUT /api/tables/:id — generic update (MUST be after all /:id/xxx routes)
 router.put('/:id', authenticate, authorize('owner', 'admin', 'waitress'), async (req, res) => {
   const { id } = req.params;
+  const restaurantId = rid(req);
   const allowed = [
     'name', 'capacity', 'section', 'shape', 'status',
     'assigned_to', 'guests_count',
@@ -204,9 +262,10 @@ router.put('/:id', authenticate, authorize('owner', 'admin', 'waitress'), async 
   }
   if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
   vals.push(id);
+  vals.push(restaurantId);
   try {
     const result = await db.query(
-      `UPDATE restaurant_tables SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE restaurant_tables SET ${sets.join(', ')} WHERE id = $${idx} AND restaurant_id = $${idx + 1} RETURNING *`,
       vals
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Table not found' });
@@ -217,7 +276,9 @@ router.put('/:id', authenticate, authorize('owner', 'admin', 'waitress'), async 
 // DELETE /api/tables/:id
 router.delete('/:id', authenticate, authorize('owner', 'admin'), async (req, res) => {
   try {
-    await db.query('DELETE FROM restaurant_tables WHERE id = $1', [req.params.id]);
+    const restaurantId = rid(req);
+    const result = await db.query('DELETE FROM restaurant_tables WHERE id = $1 AND restaurant_id = $2 RETURNING id', [req.params.id, restaurantId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Table not found' });
     res.json({ message: 'Table deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

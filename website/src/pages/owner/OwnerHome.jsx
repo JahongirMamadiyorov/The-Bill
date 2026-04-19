@@ -8,6 +8,8 @@ import {
 import { reportsAPI, shiftsAPI } from '../../api/client';
 import { money } from '../../hooks/useApi';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 
 const P = '#7C3AED';
 
@@ -20,6 +22,8 @@ const ROLE_COLORS = {
 };
 
 export default function OwnerHome() {
+  const { t } = useTranslation();
+  const { restaurant } = useAuth();
   const [summary, setSummary] = useState(null);
   const [staffList, setStaffList] = useState([]);
   const [dash, setDash] = useState(null);
@@ -28,10 +32,10 @@ export default function OwnerHome() {
 
   const getGreeting = useCallback(() => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }, []);
+    if (hour < 12) return t('greeting.morning');
+    if (hour < 17) return t('greeting.afternoon');
+    return t('greeting.evening');
+  }, [t]);
 
   const fetchData = useCallback(async (silent = false) => {
     try {
@@ -108,7 +112,7 @@ export default function OwnerHome() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+          <p className="text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -125,7 +129,7 @@ export default function OwnerHome() {
           onClick={() => fetchData()}
           className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
         >
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     );
@@ -146,7 +150,7 @@ export default function OwnerHome() {
             <div className="flex items-start justify-between mb-6">
               <div>
                 <p className="text-white/60 text-sm mb-1">{getGreeting()}</p>
-                <h1 className="text-white text-3xl font-extrabold">The Bill</h1>
+                <h1 className="text-white text-3xl font-extrabold">{restaurant?.name || 'The Bill'}</h1>
                 <p className="text-white/50 text-sm mt-1">
                   {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </p>
@@ -154,7 +158,7 @@ export default function OwnerHome() {
               <button
                 onClick={() => fetchData()}
                 className="p-2 rounded-full hover:bg-white/10 transition"
-                title="Refresh"
+                title={t('common.refresh')}
               >
                 <RefreshCw className="w-5 h-5 text-white/70" />
               </button>
@@ -162,20 +166,20 @@ export default function OwnerHome() {
 
             {/* Revenue Card */}
             <div className="rounded-2xl p-6" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
-              <p className="text-white/60 text-xs font-semibold mb-2">Today's Revenue</p>
+              <p className="text-white/60 text-xs font-semibold mb-2">{t('owner.home.todaysRevenue')}</p>
               <p className="text-white text-4xl font-extrabold mb-4">{money(totalSales)}</p>
               <div className="flex flex-wrap gap-2">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white/80" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>
                   <ShoppingBag className="w-3 h-3" />
-                  {todayOrders} orders
+                  {todayOrders} {t('common.items')}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white/80" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>
                   <TrendingUp className="w-3 h-3" />
-                  {netProfit >= 0 ? '+' : ''}{money(netProfit)} net
+                  {netProfit >= 0 ? '+' : ''}{money(netProfit)} {t('common.net')}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white/80" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>
                   <Banknote className="w-3 h-3" />
-                  {money(outflow)} out
+                  {money(outflow)} {t('admin.dashboard.outflow')}
                 </span>
               </div>
             </div>
@@ -190,43 +194,43 @@ export default function OwnerHome() {
           <SnapshotCard
             icon={<Flame className="w-5 h-5 text-orange-500" />}
             value={totalActive}
-            label="ACTIVE"
+            label={t('common.active').toUpperCase()}
             borderColor="#F97316"
           />
           <SnapshotCard
             icon={<Armchair className="w-5 h-5 text-green-600" />}
             value={`${freeTables}/${totalTables}`}
-            label="FREE TABLES"
+            label={t('statuses.free').toUpperCase() + ' ' + t('nav.tables').toUpperCase()}
             borderColor="#16A34A"
           />
           <SnapshotCard
             icon={<UtensilsCrossed className="w-5 h-5 text-blue-600" />}
             value={openTables}
-            label="OCCUPIED"
+            label={t('statuses.occupied').toUpperCase()}
             borderColor="#2563EB"
           />
           <SnapshotCard
             icon={<Users className="w-5 h-5" style={{ color: P }} />}
             value={staffOnDuty.length}
-            label="ON DUTY"
+            label={t('owner.staff.onShift').toUpperCase()}
             borderColor={P}
           />
         </div>
 
         {/* Payment Breakdown */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
-          <SectionHeader icon={<CreditCard className="w-4 h-4" style={{ color: P }} />} title="Payment Breakdown" badge="Today" />
+          <SectionHeader icon={<CreditCard className="w-4 h-4" style={{ color: P }} />} title={t('owner.home.paymentBreakdown')} badge={t('common.today')} />
           <div className="space-y-4">
-            <PaymentRow label="Cash" icon={<Banknote className="w-4 h-4 text-emerald-500" />} color="#10B981" value={inflow.cash} total={inflow.total} />
-            <PaymentRow label="Card" icon={<CreditCard className="w-4 h-4 text-blue-600" />} color="#2563EB" value={inflow.card} total={inflow.total} />
-            <PaymentRow label="Online" icon={<Smartphone className="w-4 h-4" style={{ color: P }} />} color={P} value={inflow.online} total={inflow.total} />
+            <PaymentRow label={t('paymentMethods.cash')} icon={<Banknote className="w-4 h-4 text-emerald-500" />} color="#10B981" value={inflow.cash} total={inflow.total} />
+            <PaymentRow label={t('paymentMethods.card')} icon={<CreditCard className="w-4 h-4 text-blue-600" />} color="#2563EB" value={inflow.card} total={inflow.total} />
+            <PaymentRow label={t('paymentMethods.online')} icon={<Smartphone className="w-4 h-4" style={{ color: P }} />} color={P} value={inflow.online} total={inflow.total} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Active Orders by Type */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <SectionHeader icon={<ShoppingBag className="w-4 h-4" style={{ color: P }} />} title="Active Orders by Type" />
+            <SectionHeader icon={<ShoppingBag className="w-4 h-4" style={{ color: P }} />} title={t('owner.home.activeOrdersByType')} />
             {activeOrders.length > 0 ? (
               <div className="grid grid-cols-3 gap-3">
                 {activeOrders.map(o => {
@@ -253,18 +257,18 @@ export default function OwnerHome() {
             ) : (
               <div className="text-center py-6 text-gray-400">
                 <ShoppingBag className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                <p className="text-sm">No active orders</p>
+                <p className="text-sm">{t('admin.orders.noOrdersFound')}</p>
               </div>
             )}
           </div>
 
           {/* Today's Top Items */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <SectionHeader icon={<ChefHat className="w-4 h-4" style={{ color: P }} />} title="Today's Top Items" badge="Today" />
+            <SectionHeader icon={<ChefHat className="w-4 h-4" style={{ color: P }} />} title={t('owner.home.todayTopItems')} badge={t('common.today')} />
             {todaySold.length === 0 ? (
               <div className="text-center py-6 text-gray-400">
                 <Package className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                <p className="text-sm">No items sold yet today</p>
+                <p className="text-sm">{t('owner.sales.noSalesData')}</p>
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
@@ -301,7 +305,7 @@ export default function OwnerHome() {
         {/* Sales Trend */}
         {trendHours.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
-            <SectionHeader icon={<BarChart3 className="w-4 h-4" style={{ color: P }} />} title="Sales Trend" badge="Today" />
+            <SectionHeader icon={<BarChart3 className="w-4 h-4" style={{ color: P }} />} title={t('owner.home.salesTrend')} badge={t('common.today')} />
             <div className="flex items-end gap-1 h-24 mb-2">
               {trendHours.map((h, i) => {
                 const pct = (parseFloat(h.sales || 0) / maxTrend) * 100;
@@ -331,28 +335,28 @@ export default function OwnerHome() {
         {/* Warehouse Today */}
         {(warehouse.goodsConsumed > 0 || warehouse.goodsArrived > 0) && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
-            <SectionHeader icon={<Package className="w-4 h-4" style={{ color: P }} />} title="Warehouse Today" />
+            <SectionHeader icon={<Package className="w-4 h-4" style={{ color: P }} />} title={t('owner.home.warehouseToday')} />
             <div className="grid grid-cols-3 divide-x divide-gray-100">
               <div className="flex flex-col items-center gap-2 py-2">
                 <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center">
                   <TrendingUp className="w-4 h-4 text-amber-500 rotate-180" />
                 </div>
                 <p className="text-sm font-extrabold text-gray-900">{money(warehouse.goodsConsumed)}</p>
-                <p className="text-[10px] text-gray-400 font-semibold uppercase">Consumed</p>
+                <p className="text-[10px] text-gray-400 font-semibold uppercase">{t('admin.dashboard.goodsConsumed')}</p>
               </div>
               <div className="flex flex-col items-center gap-2 py-2">
                 <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center">
                   <TrendingUp className="w-4 h-4 text-emerald-500" />
                 </div>
                 <p className="text-sm font-extrabold text-gray-900">{money(warehouse.goodsArrived)}</p>
-                <p className="text-[10px] text-gray-400 font-semibold uppercase">Received</p>
+                <p className="text-[10px] text-gray-400 font-semibold uppercase">{t('admin.dashboard.goodsArrived')}</p>
               </div>
               <div className="flex flex-col items-center gap-2 py-2">
                 <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center">
                   <Package className="w-4 h-4 text-purple-600" />
                 </div>
                 <p className="text-sm font-extrabold text-gray-900">{money(warehouse.currentStatus?.totalValue || 0)}</p>
-                <p className="text-[10px] text-gray-400 font-semibold uppercase">Stock Value</p>
+                <p className="text-[10px] text-gray-400 font-semibold uppercase">{t('admin.dashboard.totalStockValue')}</p>
               </div>
             </div>
           </div>
@@ -362,13 +366,13 @@ export default function OwnerHome() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
           <SectionHeader
             icon={<UserCheck className="w-4 h-4" style={{ color: P }} />}
-            title="Staff Status"
-            badge={`${staffOnDuty.length} on duty`}
+            title={t('owner.home.staffStatus')}
+            badge={`${staffOnDuty.length} ${t('owner.staff.onShift').toLowerCase()}`}
           />
           {staffList.length === 0 ? (
             <div className="text-center py-6 text-gray-400">
               <Users className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">No staff data</p>
+              <p className="text-sm">{t('admin.dashboard.noStaffOnShift')}</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -399,7 +403,7 @@ export default function OwnerHome() {
                       </div>
                     ) : (
                       <div className="bg-gray-100 px-3 py-1.5 rounded-xl">
-                        <span className="text-xs text-gray-400 font-semibold">Off</span>
+                        <span className="text-xs text-gray-400 font-semibold">{t('superAdmin.filterInactive')}</span>
                       </div>
                     )}
                   </div>
@@ -411,13 +415,13 @@ export default function OwnerHome() {
 
         {/* Quick Navigation */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <SectionHeader icon={<BarChart3 className="w-4 h-4" style={{ color: P }} />} title="Quick Menu" />
+          <SectionHeader icon={<BarChart3 className="w-4 h-4" style={{ color: P }} />} title={t('owner.home.quickMenu')} />
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <QuickLink to="/owner/sales" icon={<BarChart3 className="w-5 h-5" />} label="Sales Analytics" />
-            <QuickLink to="/owner/staff" icon={<Users className="w-5 h-5" />} label="Staff Management" />
-            <QuickLink to="/owner/inventory" icon={<Package className="w-5 h-5" />} label="Inventory" />
-            <QuickLink to="/owner/finance" icon={<DollarSignIcon className="w-5 h-5" />} label="Finance" />
-            <QuickLink to="/owner/profile" icon={<Clock className="w-5 h-5" />} label="Settings" />
+            <QuickLink to="/owner/sales" icon={<BarChart3 className="w-5 h-5" />} label={t('owner.home.salesAnalytics')} />
+            <QuickLink to="/owner/staff" icon={<Users className="w-5 h-5" />} label={t('owner.home.staffManagement')} />
+            <QuickLink to="/owner/inventory" icon={<Package className="w-5 h-5" />} label={t('owner.home.inventoryLink')} />
+            <QuickLink to="/owner/finance" icon={<DollarSignIcon className="w-5 h-5" />} label={t('owner.home.financeLink')} />
+            <QuickLink to="/owner/profile" icon={<Clock className="w-5 h-5" />} label={t('common.settings')} />
           </div>
         </div>
       </div>

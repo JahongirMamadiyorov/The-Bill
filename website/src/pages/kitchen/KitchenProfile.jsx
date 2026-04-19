@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { User, LogOut, LogIn, AlertCircle, ChefHat } from 'lucide-react';
 import { shiftsAPI, ordersAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 
 const KitchenProfile = () => {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [shiftStatus, setShiftStatus] = useState(null);
   const [todayStats, setTodayStats] = useState({ ordersCooked: 0, avgTime: 0 });
@@ -72,7 +74,7 @@ const KitchenProfile = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
-          <p className="mt-4 text-gray-600">Loading profile...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -83,7 +85,7 @@ const KitchenProfile = () => {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-3">
           <User className="w-8 h-8" style={{ color: '#EA580C' }} />
-          Profile
+          {t('admin.profile.title')}
         </h1>
 
         {error && (
@@ -100,29 +102,29 @@ const KitchenProfile = () => {
                 {user?.name?.charAt(0).toUpperCase() || 'K'}
               </span>
             </div>
-            <h2 className="text-lg font-bold text-gray-900 text-center">{user?.name || 'Kitchen Staff'}</h2>
+            <h2 className="text-lg font-bold text-gray-900 text-center">{user?.name || t('roles.kitchenStaff', 'Kitchen Staff')}</h2>
             <p className="text-sm text-gray-600 text-center mt-2 flex items-center justify-center gap-1">
               <ChefHat className="w-4 h-4" style={{ color: '#EA580C' }} />
-              Kitchen Staff
+              {t('kitchen.profile.title')}
             </p>
           </div>
 
           <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-sm font-medium text-gray-600 mb-4">Contact Information</h3>
+            <h3 className="text-sm font-medium text-gray-600 mb-4">{t('kitchen.profile.contactInformation')}</h3>
             <div className="space-y-4">
               <div>
-                <p className="text-xs text-gray-500 mb-1">Email</p>
-                <p className="text-sm font-medium text-gray-900">{user?.email || 'Not provided'}</p>
+                <p className="text-xs text-gray-500 mb-1">{t('common.email')}</p>
+                <p className="text-sm font-medium text-gray-900">{user?.email || t('common.notProvided', 'Not provided')}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500 mb-1">Station</p>
-                <p className="text-sm font-medium text-gray-900">{user?.station || 'General Kitchen'}</p>
+                <p className="text-xs text-gray-500 mb-1">{t('kitchen.profile.station')}</p>
+                <p className="text-sm font-medium text-gray-900">{user?.station || t('kitchen.profile.generalKitchen')}</p>
               </div>
             </div>
           </div>
 
           <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-sm font-medium text-gray-600 mb-4">Shift Status</h3>
+            <h3 className="text-sm font-medium text-gray-600 mb-4">{t('kitchen.profile.shiftStatus')}</h3>
             <div className="flex items-center gap-3 mb-4">
               <div
                 className="w-4 h-4 rounded-full animate-pulse"
@@ -131,7 +133,7 @@ const KitchenProfile = () => {
                 }}
               ></div>
               <span className="font-semibold text-gray-900">
-                {shiftStatus?.clockedIn ? 'Clocked In' : 'Clocked Out'}
+                {shiftStatus?.clockedIn ? t('admin.staff.clockedIn') : t('admin.staff.clockedOut')}
               </span>
             </div>
             {shiftStatus?.clockedIn && (
@@ -151,12 +153,12 @@ const KitchenProfile = () => {
               {shiftStatus?.clockedIn ? (
                 <>
                   <LogOut className="w-4 h-4" />
-                  {toggling ? 'Clocking Out...' : 'Clock Out'}
+                  {toggling ? t('common.processing') : t('kitchen.profile.clockOut')}
                 </>
               ) : (
                 <>
                   <LogIn className="w-4 h-4" />
-                  {toggling ? 'Clocking In...' : 'Clock In'}
+                  {toggling ? t('common.processing') : t('kitchen.profile.clockIn')}
                 </>
               )}
             </button>
@@ -165,37 +167,37 @@ const KitchenProfile = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <p className="text-gray-600 text-sm font-medium mb-2">Orders Cooked Today</p>
+            <p className="text-gray-600 text-sm font-medium mb-2">{t('kitchen.profile.ordersCookedToday')}</p>
             <p className="text-4xl font-bold" style={{ color: '#EA580C' }}>{todayStats.ordersCooked}</p>
-            <p className="text-xs text-gray-500 mt-2">Successfully completed</p>
+            <p className="text-xs text-gray-500 mt-2">{t('kitchen.dashboard.ordersCompleted')}</p>
           </div>
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-            <p className="text-gray-600 text-sm font-medium mb-2">Average Cook Time</p>
+            <p className="text-gray-600 text-sm font-medium mb-2">{t('kitchen.profile.averageCookTime')}</p>
             <p className="text-4xl font-bold text-gray-900">{todayStats.avgTime}m</p>
-            <p className="text-xs text-gray-500 mt-2">Per order today</p>
+            <p className="text-xs text-gray-500 mt-2">{t('kitchen.dashboard.averageDuration')}</p>
           </div>
         </div>
 
         <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
           <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <ChefHat className="w-5 h-5" style={{ color: '#EA580C' }} />
-            Work Details
+            {t('common.details')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <p className="text-gray-600 text-sm font-medium mb-2">Current Station</p>
-              <p className="text-lg font-semibold text-gray-900">{user?.station || 'General Kitchen'}</p>
+              <p className="text-gray-600 text-sm font-medium mb-2">{t('kitchen.profile.station')}</p>
+              <p className="text-lg font-semibold text-gray-900">{user?.station || t('kitchen.profile.generalKitchen')}</p>
             </div>
             <div>
-              <p className="text-gray-600 text-sm font-medium mb-2">Expertise</p>
-              <p className="text-lg font-semibold text-gray-900">{user?.expertise || 'All-purpose'}</p>
+              <p className="text-gray-600 text-sm font-medium mb-2">{t('common.role')}</p>
+              <p className="text-lg font-semibold text-gray-900">{user?.expertise || t('common.allPurpose', 'All-purpose')}</p>
             </div>
             <div>
-              <p className="text-gray-600 text-sm font-medium mb-2">Experience</p>
+              <p className="text-gray-600 text-sm font-medium mb-2">{t('admin.profile.memberSince')}</p>
               <p className="text-lg font-semibold text-gray-900">{user?.yearsExperience || '-'} years</p>
             </div>
             <div>
-              <p className="text-gray-600 text-sm font-medium mb-2">Certifications</p>
+              <p className="text-gray-600 text-sm font-medium mb-2">{t('common.details')}</p>
               <p className="text-lg font-semibold text-gray-900">
                 {user?.certifications && Array.isArray(user.certifications) ? user.certifications.join(', ') : 'None'}
               </p>

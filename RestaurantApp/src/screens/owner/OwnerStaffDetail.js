@@ -6,6 +6,7 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { reportsAPI, shiftsAPI, staffPaymentsAPI, ordersAPI } from '../../api/client';
 import { OwnerPeriodBar, OwnerCalendarPicker, TODAY_STR } from '../../components/OwnerPeriodPicker';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const P  = '#7C3AED';
@@ -84,6 +85,7 @@ function EmptyState({ icon, text }) {
 
 // ─── main component ───────────────────────────────────────────────────────────
 export default function OwnerStaffDetail({ visible, onClose, member }) {
+  const { t } = useTranslation();
   const [period,     setPeriod]     = useState(DEFAULT_PERIOD);
   const [showPicker, setShowPicker] = useState(false);
 
@@ -263,7 +265,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
               <Pressable onPress={onClose} style={({ pressed }) => [st.backBtn, pressed && { opacity: 0.6 }]}>
                 <MaterialIcons name="arrow-back" size={22} color="#fff" />
               </Pressable>
-              <Text style={st.topBarTitle}>Staff Profile</Text>
+              <Text style={st.topBarTitle}>{t('owner.staffDetail.staffProfile')}</Text>
               <View style={{ width: 44 }} />
             </View>
 
@@ -359,7 +361,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── WAITRESS: Sales Performance ── */}
               {role === 'waitress' && (
-                <SectionCard icon="trending-up" title="Sales Performance">
+                <SectionCard icon="trending-up" title={t('owner.staffDetail.salesPerformance')}>
                   {performance ? (
                     <>
                       <InfoRow label="Total Sales" value={money(totalSales)}
@@ -375,7 +377,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── CASHIER: Transaction Performance ── */}
               {role === 'cashier' && (
-                <SectionCard icon="point-of-sale" title="Cashier Performance">
+                <SectionCard icon="point-of-sale" title={t('owner.staffDetail.cashierPerformance')}>
                   {staffOrders.length > 0 ? (
                     <>
                       <InfoRow label="Transactions Processed" value={String(staffOrders.length)} />
@@ -409,7 +411,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── KITCHEN: Activity ── */}
               {role === 'kitchen' && (
-                <SectionCard icon="soup-kitchen" title="Kitchen Activity">
+                <SectionCard icon="soup-kitchen" title={t('owner.staffDetail.kitchenActivity')}>
                   <InfoRow label="Kitchen Station" value={member.kitchen_station || 'Not assigned'} />
                   {member.shift_start && member.shift_end ? (
                     <InfoRow label="Scheduled Shift" value={`${member.shift_start} – ${member.shift_end}`} />
@@ -438,7 +440,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── ADMIN/MANAGER/OWNER: Work summary ── */}
               {(role === 'admin' || role === 'manager' || role === 'owner') && (
-                <SectionCard icon="manage-accounts" title="Work Summary">
+                <SectionCard icon="manage-accounts" title={t('owner.staffDetail.workSummary')}>
                   {totalHours > 0 || daysWorked > 0 || shiftCount > 0 ? (
                     <>
                       <InfoRow label="Total Hours This Period" value={totalHours > 0 ? `${totalHours.toFixed(1)}h` : '—'} />
@@ -463,7 +465,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── CLEANER: Work summary ── */}
               {role === 'cleaner' && (
-                <SectionCard icon="cleaning-services" title="Work Summary">
+                <SectionCard icon="cleaning-services" title={t('owner.staffDetail.workSummary')}>
                   {totalHours > 0 || daysWorked > 0 || shiftCount > 0 ? (
                     <>
                       <InfoRow label="Total Hours" value={totalHours > 0 ? `${totalHours.toFixed(1)}h` : '—'} />
@@ -496,7 +498,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
               )}
 
               {/* ── Attendance card — all roles ── */}
-              <SectionCard icon="access-time" title="Attendance">
+              <SectionCard icon="access-time" title={t('owner.staffDetail.attendance')}>
                 {daysWorked > 0 || shiftCount > 0 || totalHours > 0 ? (
                   <>
                     {/* Show live "On Duty" status when currently clocked in */}
@@ -518,7 +520,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
               </SectionCard>
 
               {/* ── Payroll — all roles ── */}
-              <SectionCard icon="payments" title="Payroll">
+              <SectionCard icon="payments" title={t('owner.staffDetail.payrollSection')}>
                 {payroll || grossPay > 0 ? (
                   <>
                     {/* ── Rate row (base rate) ── */}
@@ -604,7 +606,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── Payment history — all roles ── */}
               {payments.length > 0 && (
-                <SectionCard icon="account-balance-wallet" title={`Payment History  ·  ${payments.length}`}>
+                <SectionCard icon="account-balance-wallet" title={`${t('owner.staffDetail.paymentHistory')}  ·  ${payments.length}`}>
                   {payments.map((p, i) => (
                     <View key={String(p.id)} style={[st.payRow, i > 0 && st.borderTop]}>
                       <View style={{ flex: 1 }}>
@@ -626,7 +628,7 @@ export default function OwnerStaffDetail({ visible, onClose, member }) {
 
               {/* ── Shift log — all roles ── */}
               {shifts.length > 0 && (
-                <SectionCard icon="list-alt" title={`Shift Log  ·  last ${Math.min(shifts.length, 7)}`}>
+                <SectionCard icon="list-alt" title={`${t('owner.staffDetail.shiftLog')}  ·  ${Math.min(shifts.length, 7)}`}>
                   {shifts.slice(0, 7).map((s, i) => {
                     const hrs = parseFloat(s.hours_worked || 0);
                     const earn = parseFloat(s.earnings || 0);

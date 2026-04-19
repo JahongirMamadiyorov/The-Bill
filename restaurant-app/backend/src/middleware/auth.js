@@ -22,4 +22,7 @@ const authorize = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, authorize };
+// Extract restaurant_id from JWT payload -- use in every route query
+const rid = (req) => req.user.restaurant_id;
+
+module.exports = { authenticate, authorize, rid };

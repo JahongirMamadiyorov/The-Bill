@@ -11,28 +11,29 @@ import { usePrinter } from '../../hooks/usePrinter';
 import { useAuth } from '../../context/AuthContext';
 import DatePicker from '../../components/DatePicker';
 import PhoneInput from '../../components/PhoneInput';
+import { useTranslation } from '../../context/LanguageContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const C = '#0891B2';          // Cashier cyan
 const SUCCESS = '#16A34A';
-const DISC_REASONS = ['Manager Approved', 'Loyalty Customer', 'Complaint Resolution', 'Other'];
-const TABS = ['All Active', 'Restaurant Orders', 'Requested', 'To Go', 'Delivery'];
+// DISC_REASONS loaded from i18n: t('cashier.orders.discountReasons')
+const TAB_KEYS = ['allActive', 'restaurantOrders', 'requested', 'toGo', 'delivery'];
 const METHODS = [
-  { id: 'Cash',    icon: Banknote,  label: 'Cash'    },
-  { id: 'Card',    icon: CreditCard,label: 'Card'    },
-  { id: 'QR Code', icon: QrCode,    label: 'QR Code' },
-  { id: 'Loan',    icon: Wallet,    label: 'Loan'    },
+  { id: 'Cash',    icon: Banknote,  tKey: 'paymentMethods.cash'    },
+  { id: 'Card',    icon: CreditCard,tKey: 'paymentMethods.card'    },
+  { id: 'QR Code', icon: QrCode,    tKey: 'paymentMethods.qrCode' },
+  { id: 'Loan',    icon: Wallet,    tKey: 'paymentMethods.loan'    },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const money = (n) => Number(n || 0).toLocaleString('uz-UZ') + " so'm";
 
-const elapsed = (iso) => {
+const elapsed = (iso, t) => {
   if (!iso) return '—';
   const diff = Math.floor((Date.now() - new Date(iso)) / 60000);
-  if (diff < 1)  return 'just now';
-  if (diff < 60) return `${diff}m ago`;
-  return `${Math.floor(diff / 60)}h ${diff % 60}m ago`;
+  if (diff < 1)  return t('time.justNow');
+  if (diff < 60) return t('time.minAgo', { count: diff });
+  return t('time.hoursAgo', { h: Math.floor(diff / 60), m: diff % 60 });
 };
 
 const fmtOrderNum = (o) => {
@@ -53,23 +54,25 @@ const fmtDate = (d) => {
 };
 
 const STATUS_MAP = {
-  pending:         { label: 'Pending',        bg: '#F3F4F6', color: '#4B5563', dot: '#9CA3AF' },
-  sent_to_kitchen: { label: 'In Kitchen',     bg: '#EFF6FF', color: '#2563EB', dot: '#3B82F6' },
-  preparing:       { label: 'Preparing',      bg: '#FFFBEB', color: '#D97706', dot: '#F59E0B' },
-  ready:           { label: 'Ready',          bg: '#F0FDF4', color: '#16A34A', dot: '#22C55E' },
-  served:          { label: 'Served',         bg: '#EDE9FE', color: '#7C3AED', dot: '#8B5CF6' },
-  bill_requested:  { label: 'Bill Requested', bg: '#FFF7ED', color: '#EA580C', dot: '#F97316' },
+  pending:         { tKey: 'statuses.pending',       bg: '#F3F4F6', color: '#4B5563', dot: '#9CA3AF' },
+  sent_to_kitchen: { tKey: 'statuses.sentToKitchen', bg: '#EFF6FF', color: '#2563EB', dot: '#3B82F6' },
+  preparing:       { tKey: 'statuses.preparing',     bg: '#FFFBEB', color: '#D97706', dot: '#F59E0B' },
+  ready:           { tKey: 'statuses.ready',         bg: '#F0FDF4', color: '#16A34A', dot: '#22C55E' },
+  served:          { tKey: 'statuses.served',        bg: '#EDE9FE', color: '#7C3AED', dot: '#8B5CF6' },
+  bill_requested:  { tKey: 'statuses.billRequested', bg: '#FFF7ED', color: '#EA580C', dot: '#F97316' },
 };
 
 // ─── Small UI pieces ──────────────────────────────────────────────────────────
 function StatusBadge({ status }) {
-  const s = STATUS_MAP[status] || { label: status, bg: '#F3F4F6', color: '#6B7280', dot: '#9CA3AF' };
+  const { t } = useTranslation();
+  const s = STATUS_MAP[status] || { tKey: null, bg: '#F3F4F6', color: '#6B7280', dot: '#9CA3AF' };
+  const label = s.tKey ? t(s.tKey) : status;
   const isBill = status === 'bill_requested';
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap"
       style={{ backgroundColor: s.bg, color: s.color }}>
       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.dot }} />
-      {s.label}{isBill && ' 🔔'}
+      {label}{isBill && ' 🔔'}
     </span>
   );
 }
@@ -85,28 +88,28 @@ function BillToast({ msg, visible }) {
 
 function StatCard({ label, value, sub, color, icon: Icon }) {
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex-1 min-w-0 overflow-hidden"
-      style={{ borderTop: `3px solid ${color}` }}>
-      <div className="flex items-start justify-between mb-1">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
-        {Icon && (
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: color + '1A' }}>
-            <Icon className="w-3.5 h-3.5" style={{ color }} />
-          </div>
-        )}
+    <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex-1 min-w-0 overflow-hidden flex items-center gap-3"
+      style={{ borderLeft: `3px solid ${color}` }}>
+      {Icon && (
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: color + '1A' }}>
+          <Icon className="w-4 h-4" style={{ color }} />
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-tight truncate">{label}</p>
+        <div className="flex items-baseline gap-1">
+          <p className="text-lg font-extrabold leading-none" style={{ color }}>{value}</p>
+          {sub && <p className="text-[10px] text-gray-400 leading-none">{sub}</p>}
+        </div>
       </div>
-      <p className="text-2xl font-extrabold" style={{ color }}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
     </div>
   );
 }
 
 // ─── Loan Date Picker ─────────────────────────────────────────────────────────
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAYS   = ['Mo','Tu','We','Th','Fr','Sa','Su'];
-
 function LoanDatePicker({ value, onChange, onClose }) {
+  const { t } = useTranslation();
   const now = new Date();
   const [yr,  setYr]  = useState(now.getFullYear());
   const [mo,  setMo]  = useState(now.getMonth());
@@ -129,13 +132,13 @@ function LoanDatePicker({ value, onChange, onClose }) {
         <button onClick={prevMo} className="p-1 hover:bg-gray-100 rounded-lg">
           <ChevronLeft className="w-4 h-4 text-gray-600" />
         </button>
-        <span className="text-sm font-bold text-gray-800">{MONTHS[mo]} {yr}</span>
+        <span className="text-sm font-bold text-gray-800">{t('datePicker.months')[mo]} {yr}</span>
         <button onClick={nextMo} className="p-1 hover:bg-gray-100 rounded-lg">
           <ChevronRight className="w-4 h-4 text-gray-600" />
         </button>
       </div>
       <div className="grid grid-cols-7 mb-1">
-        {DAYS.map(d => <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>)}
+        {t('datePicker.days').map(d => <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-y-0.5">
         {cells.map((ds, i) => {
@@ -163,13 +166,14 @@ function LoanDatePicker({ value, onChange, onClose }) {
 
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 function ReceiptModal({ order, payment, restSettings, taxSettings, user, onClose }) {
+  const { t } = useTranslation();
   if (!order || !payment) return null;
   const items = order.items || order.orderItems || [];
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <h3 className="font-bold text-gray-900">Receipt Preview</h3>
+          <h3 className="font-bold text-gray-900">{t('cashier.orders.receiptPreview')}</h3>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg">
             <X className="w-4 h-4 text-gray-500" />
           </button>
@@ -179,10 +183,10 @@ function ReceiptModal({ order, payment, restSettings, taxSettings, user, onClose
           {/* Header */}
           <div className="text-center mb-4 pb-4 border-b border-dashed border-gray-200">
             <p className="font-extrabold text-gray-900 text-base">
-              {restSettings?.restaurantName || 'The Bill Restaurant'}
+              {restSettings?.restaurantName || t('common.brandRestaurant', 'The Bill Restaurant')}
             </p>
             <p className="text-sm text-gray-500 mt-0.5">
-              {fmtOrderNum(order)} · {order.tableName || order.customerName || 'Walk-in'}
+              {fmtOrderNum(order)} · {order.tableName || order.customerName || t('cashier.orders.walkIn')}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">{fmtDate(new Date())}</p>
           </div>
@@ -204,28 +208,28 @@ function ReceiptModal({ order, payment, restSettings, taxSettings, user, onClose
           {/* Totals */}
           <div className="border-t border-dashed border-gray-200 pt-3 space-y-1">
             <div className="flex justify-between text-sm text-gray-500">
-              <span>Subtotal</span><span>{money(payment.subtotal)}</span>
+              <span>{t('common.subtotal')}</span><span>{money(payment.subtotal)}</span>
             </div>
             {payment.tax > 0 && (
               <div className="flex justify-between text-sm text-gray-500">
-                <span>Tax ({taxSettings?.taxRate ?? 0}%)</span>
+                <span>{t('cashier.orders.tax')} ({taxSettings?.taxRate ?? 0}%)</span>
                 <span>{money(payment.tax)}</span>
               </div>
             )}
             {payment.svc > 0 && (
               <div className="flex justify-between text-sm text-gray-500">
-                <span>Service ({restSettings?.serviceChargeRate ?? 0}%)</span>
+                <span>{t('cashier.orders.service')} ({restSettings?.serviceChargeRate ?? 0}%)</span>
                 <span>{money(payment.svc)}</span>
               </div>
             )}
             {payment.discount > 0 && (
               <div className="flex justify-between text-sm" style={{ color: SUCCESS }}>
-                <span>Discount{payment.discReason ? ` (${payment.discReason})` : ''}</span>
+                <span>{t('common.discount')}{payment.discReason ? ` (${payment.discReason})` : ''}</span>
                 <span>−{money(payment.discount)}</span>
               </div>
             )}
             <div className="flex justify-between font-extrabold text-base pt-2 border-t border-gray-200">
-              <span>Total</span>
+              <span>{t('common.total')}</span>
               <span style={{ color: C }}>{money(payment.total)}</span>
             </div>
           </div>
@@ -234,41 +238,41 @@ function ReceiptModal({ order, payment, restSettings, taxSettings, user, onClose
           <div className="border-t border-dashed border-gray-200 mt-3 pt-3 space-y-1">
             {payment.change > 0 && (
               <div className="flex justify-between text-sm" style={{ color: C }}>
-                <span>Change</span><span>{money(payment.change)}</span>
+                <span>{t('cashier.orders.change')}</span><span>{money(payment.change)}</span>
               </div>
             )}
             <div className="flex justify-between text-sm text-gray-500">
-              <span>Method</span><span className="font-medium text-gray-800">{payment.method}</span>
+              <span>{t('cashier.orders.paymentMethod')}</span><span className="font-medium text-gray-800">{payment.method}</span>
             </div>
             {payment.method === 'Split' && Array.isArray(payment.splitPayments) && (
               <div className="mt-1 space-y-0.5">
                 {payment.splitPayments.map((sp, i) => (
                   <div key={i} className="flex justify-between text-xs text-gray-400 pl-4">
-                    <span>Part {i+1} ({sp.method})</span>
+                    <span>{t('cashier.orders.part')} {i+1} ({sp.method})</span>
                     <span>{money(sp.amount)}</span>
                   </div>
                 ))}
               </div>
             )}
             <div className="flex justify-between text-sm text-gray-500">
-              <span>Cashier</span><span className="font-medium text-gray-800">{user?.name || 'Cashier'}</span>
+              <span>{t('roles.cashier')}</span><span className="font-medium text-gray-800">{user?.name || t('roles.cashier')}</span>
             </div>
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-4 italic">
-            {restSettings?.receiptHeader || 'Thank you for dining with us!'}
+            {restSettings?.receiptHeader || t('cashier.orders.thankYou')}
           </p>
         </div>
 
         <div className="p-4 border-t border-gray-200 flex gap-3">
           <button onClick={onClose}
             className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition">
-            Skip
+            {t('cashier.orders.skip')}
           </button>
           <button onClick={onClose}
             className="flex-[2] py-2.5 rounded-xl text-white font-semibold text-sm flex items-center justify-center gap-2 transition"
             style={{ backgroundColor: C }}>
-            <Printer className="w-4 h-4" />Print Receipt
+            <Printer className="w-4 h-4" />{t('cashier.orders.printReceipt')}
           </button>
         </div>
       </div>
@@ -278,6 +282,7 @@ function ReceiptModal({ order, payment, restSettings, taxSettings, user, onClose
 
 // ─── Order Details + Payment Panel ───────────────────────────────────────────
 function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   // Full order data
@@ -309,7 +314,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
   useEffect(() => {
     ordersAPI.getById(order.id)
       .then(d => setFull(d))
-      .catch(() => setErr('Could not load order'))
+      .catch(() => setErr(t('cashier.orders.couldNotLoadOrder')))
       .finally(() => setLoading(false));
   }, [order.id]);
 
@@ -376,7 +381,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
       setShowPayModal(false);
       onPaid({ order: { ...(full || order) }, payment: { method: payForm.paymentMethod, total: getTotalToPay(payForm), discount: discAmt } });
     } catch (e) {
-      setErr(e?.error || e?.message || 'Payment failed. Please try again.');
+      setErr(e?.error || e?.message || t('cashier.orders.paymentFailed'));
     } finally {
       setPaying(false);
     }
@@ -393,8 +398,8 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
   const isToGo  = (full?.orderType || order.orderType) === 'to_go' || (full?.orderType || order.orderType) === 'takeaway';
   const isDeli  = (full?.orderType || order.orderType) === 'delivery';
   const dname   = isToGo || isDeli
-    ? (full?.customerName || order.customerName || 'Walk-in')
-    : (full?.tableName    || order.tableName    || 'Walk-in');
+    ? (full?.customerName || order.customerName || t('cashier.orders.walkIn'))
+    : (full?.tableName    || order.tableName    || t('cashier.orders.walkIn'));
 
   // Partial-ready
   const readyCount = items.filter(i => i.itemReady).length;
@@ -407,7 +412,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
 
   // ── Print handler ─────────────────────────────────────────────────────────
   const handlePrintCheck = () => {
-    const restaurantName = restSettings?.restaurantName || 'The Bill Restaurant';
+    const restaurantName = restSettings?.restaurantName || t('common.brandRestaurant', 'The Bill Restaurant');
     const receiptInner = `
       <div class="center">
         <div class="rest-name">${restaurantName}</div>
@@ -421,15 +426,15 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
         return `<div class="row"><span class="row-label">${it.name || it.menuItemName || '—'} × ${q}</span><span>${money(p * q)}</span></div>`;
       }).join('')}
       <div class="dashed"></div>
-      <div class="row"><span>Subtotal</span><span>${money(orderTotal)}</span></div>
-      ${discAmt > 0 ? `<div class="row green"><span>Discount${pf.discReason ? ` (${pf.discReason})` : ''}</span><span>−${money(discAmt)}</span></div>` : ''}
+      <div class="row"><span>${t('common.subtotal')}</span><span>${money(orderTotal)}</span></div>
+      ${discAmt > 0 ? `<div class="row green"><span>${t('common.discount')}${pf.discReason ? ` (${pf.discReason})` : ''}</span><span>−${money(discAmt)}</span></div>` : ''}
       <div class="dashed"></div>
-      <div class="row total-row"><span>TOTAL</span><span>${money(totalToPay)}</span></div>
+      <div class="row total-row"><span>${t('cashier.orders.receiptTotal')}</span><span>${money(totalToPay)}</span></div>
       <div class="dashed"></div>
-      <div class="row"><span>Method</span><span>${(pf.paymentMethod || 'cash').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</span></div>
-      ${pf.paymentMethod === 'cash' && change > 0 ? `<div class="row"><span>Change</span><span>${money(change)}</span></div>` : ''}
+      <div class="row"><span>${t('cashier.orders.method')}</span><span>${(pf.paymentMethod || 'cash').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</span></div>
+      ${pf.paymentMethod === 'cash' && change > 0 ? `<div class="row"><span>${t('cashier.orders.change')}</span><span>${money(change)}</span></div>` : ''}
       <div class="dashed"></div>
-      <div class="center footer">${restSettings?.receiptHeader || 'Thank you for dining with us!'}</div>`;
+      <div class="center footer">${restSettings?.receiptHeader || t('cashier.orders.thankYou')}</div>`;
     printReceipt({
       restaurantName,
       orderNum: fmtOrderNum(order),
@@ -446,16 +451,16 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
       total: money(totalToPay),
       method: (pf.paymentMethod || 'cash').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
       change: change > 0 ? money(change) : undefined,
-      footer: restSettings?.receiptHeader || 'Thank you for dining with us!',
+      footer: restSettings?.receiptHeader || t('cashier.orders.thankYou'),
       browserHtml: receiptInner,
     });
   };
 
   const PAY_METHODS = [
-    { key: 'cash',    label: 'Cash',    Icon: Banknote   },
-    { key: 'card',    label: 'Card',    Icon: CreditCard },
-    { key: 'qr_code', label: 'QR Code', Icon: Grid3X3    },
-    { key: 'loan',    label: 'Loan',    Icon: User       },
+    { key: 'cash',    label: t('paymentMethods.cash'),    Icon: Banknote   },
+    { key: 'card',    label: t('paymentMethods.card'),    Icon: CreditCard },
+    { key: 'qr_code', label: t('paymentMethods.qrCode'), Icon: Grid3X3    },
+    { key: 'loan',    label: t('paymentMethods.loan'),    Icon: User       },
   ];
 
   return (
@@ -468,7 +473,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
           <ArrowLeft className="w-5 h-5 text-gray-700" />
         </button>
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-400 font-medium">Order Details</p>
+          <p className="text-xs text-gray-400 font-medium">{t('cashier.orders.orderDetails')}</p>
           <p className="text-base font-bold text-gray-900 truncate">{dname} — {fmtOrderNum(order)}</p>
         </div>
         <StatusBadge status={order.status} />
@@ -484,16 +489,16 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
               <div className="flex items-center gap-2 p-3 rounded-xl border border-orange-200 bg-orange-50">
                 <Flame className="w-4 h-4 text-orange-600 flex-shrink-0" />
                 <p className="text-sm font-semibold text-orange-700">
-                  Prep in progress — {readyCount}/{items.length} items kitchen-ready
+                  {t('statuses.preparing')} — {readyCount}/{items.length} {t('common.items')}
                 </p>
               </div>
             )}
 
             {/* Items */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Order Items</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">{t('cashier.orders.orderItems')}</p>
               {items.length === 0
-                ? <p className="text-sm text-gray-400">No items</p>
+                ? <p className="text-sm text-gray-400">{t('common.noResults')}</p>
                 : items.map((it, i) => {
                     const p     = it.unitPrice || it.price || 0;
                     const q     = it.quantity  || it.qty  || 1;
@@ -514,10 +519,10 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
               {/* Totals */}
               <div className="mt-4 pt-4 border-t border-dashed border-gray-200 space-y-1">
                 <div className="flex justify-between text-sm text-gray-500">
-                  <span>Subtotal</span><span>{money(orderTotal)}</span>
+                  <span>{t('common.subtotal')}</span><span>{money(orderTotal)}</span>
                 </div>
                 <div className="flex justify-between font-extrabold text-base pt-2 border-t border-gray-200">
-                  <span className="text-gray-900">Total</span>
+                  <span className="text-gray-900">{t('common.total')}</span>
                   <span style={{ color: C }}>{money(orderTotal)}</span>
                 </div>
               </div>
@@ -525,14 +530,14 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
 
             {/* Order meta */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Order Info</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">{t('cashier.orders.orderDetails')}</p>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><span className="text-gray-400">Type: </span><span className="font-medium text-gray-800">{isDeli ? 'Delivery' : isToGo ? 'To Go' : 'Dine-In'}</span></div>
-                <div><span className="text-gray-400">Created: </span><span className="font-medium text-gray-800">{elapsed(full?.createdAt || order.createdAt)}</span></div>
-                {full?.waitressName && <div><span className="text-gray-400">Server: </span><span className="font-medium text-gray-800">{full.waitressName}</span></div>}
-                {full?.guestCount > 0 && <div><span className="text-gray-400">Guests: </span><span className="font-medium text-gray-800">{full.guestCount}</span></div>}
-                {(isToGo || isDeli) && full?.customerPhone && <div className="col-span-2"><span className="text-gray-400">Phone: </span><span className="font-medium text-gray-800">{full.customerPhone}</span></div>}
-                {isDeli && full?.deliveryAddress && <div className="col-span-2"><span className="text-gray-400">Address: </span><span className="font-medium text-gray-800">{full.deliveryAddress}</span></div>}
+                <div><span className="text-gray-400">{t('admin.menu.itemType')}: </span><span className="font-medium text-gray-800">{isDeli ? t('orderTypes.delivery') : isToGo ? t('orderTypes.toGo') : t('orderTypes.dineIn')}</span></div>
+                <div><span className="text-gray-400">{t('common.date')}: </span><span className="font-medium text-gray-800">{elapsed(full?.createdAt || order.createdAt, t)}</span></div>
+                {full?.waitressName && <div><span className="text-gray-400">{t('roles.waitress')}: </span><span className="font-medium text-gray-800">{full.waitressName}</span></div>}
+                {full?.guestCount > 0 && <div><span className="text-gray-400">{t('admin.newOrder.guests')}: </span><span className="font-medium text-gray-800">{full.guestCount}</span></div>}
+                {(isToGo || isDeli) && full?.customerPhone && <div className="col-span-2"><span className="text-gray-400">{t('common.phone')}: </span><span className="font-medium text-gray-800">{full.customerPhone}</span></div>}
+                {isDeli && full?.deliveryAddress && <div className="col-span-2"><span className="text-gray-400">{t('admin.newOrder.deliveryAddress')}: </span><span className="font-medium text-gray-800">{full.deliveryAddress}</span></div>}
               </div>
             </div>
           </>
@@ -545,13 +550,13 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
           to="/cashier/new-order"
           state={{ existingOrderId: order.id, existingOrder: order }}
           className="flex items-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition flex-shrink-0">
-          <Plus className="w-4 h-4" />Add Items
+          <Plus className="w-4 h-4" />{t('cashier.orders.addItems')}
         </Link>
         <button
           onClick={() => setShowPayModal(true)}
           className="flex-1 py-3 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 transition"
           style={{ backgroundColor: C }}>
-          <DollarSign className="w-4 h-4" />Proceed to Payment
+          <DollarSign className="w-4 h-4" />{t('cashier.orders.proceedToPayment')}
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
@@ -566,10 +571,10 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
       const orderItems  = items;
 
       const PMETHODS = [
-        { key: 'cash',    label: 'Cash',    Icon: Banknote   },
-        { key: 'card',    label: 'Card',    Icon: CreditCard },
-        { key: 'qr_code', label: 'QR Code', Icon: Grid3X3    },
-        { key: 'loan',    label: 'Loan',    Icon: User       },
+        { key: 'cash',    label: t('paymentMethods.cash'),    Icon: Banknote   },
+        { key: 'card',    label: t('paymentMethods.card'),    Icon: CreditCard },
+        { key: 'qr_code', label: t('paymentMethods.qrCode'), Icon: Grid3X3    },
+        { key: 'loan',    label: t('paymentMethods.loan'),    Icon: User       },
       ];
 
       return (
@@ -587,7 +592,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                   <CreditCard className="w-5 h-5" style={{ color: C }} />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">Collect Payment</h2>
+                  <h2 className="text-lg font-bold text-gray-900">{t('cashier.orders.processPayment')}</h2>
                   <p className="text-sm text-gray-500">{fmtOrderNum(order)} · {dname}</p>
                 </div>
               </div>
@@ -605,7 +610,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
 
                 {/* Payment Method */}
                 <div>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Payment Method</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t('cashier.orders.paymentMethod')}</p>
                   <div className="grid grid-cols-4 gap-3">
                     {PMETHODS.map(({ key, label, Icon }) => (
                       <button
@@ -627,7 +632,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                 {/* Amount Received — Cash only */}
                 {pf.paymentMethod === 'cash' && (
                   <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Amount Received</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.amountReceived')}</p>
                     <input
                       type="number" min="0" step="1000"
                       value={pf.amountReceived || ''}
@@ -635,7 +640,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500"
                     />
                     <div className={`mt-2 rounded-xl px-4 py-3 flex items-center justify-between ${chg > 0 ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
-                      <span className={`text-sm font-medium ${chg > 0 ? 'text-green-600' : 'text-gray-400'}`}>Change to give back</span>
+                      <span className={`text-sm font-medium ${chg > 0 ? 'text-green-600' : 'text-gray-400'}`}>{t('cashier.orders.changeToGive')}</span>
                       <span className={`text-xl font-bold ${chg > 0 ? 'text-green-600' : 'text-gray-500'}`}>{money(chg)}</span>
                     </div>
                   </div>
@@ -645,7 +650,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                 <div className="grid grid-cols-2 gap-5">
                   {/* Discount */}
                   <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Discount (Optional)</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.applyDiscount')}</p>
                     <div className="flex gap-2 mb-2">
                       {['percentage', 'fixed'].map(t => (
                         <button key={t}
@@ -682,8 +687,8 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                           onChange={e => setPayForm({ ...pf, discReason: e.target.value })}
                           className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-gray-700"
                         >
-                          <option value="">Reason (optional)</option>
-                          {DISC_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                          <option value="">{t('cashier.orders.selectReason')}</option>
+                          {t('cashier.orders.discountReasons').map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                       </div>
                     )}
@@ -691,7 +696,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
 
                   {/* Split Bill */}
                   <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Split Bill (Optional)</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.splitBill')}</p>
                     <div className="flex gap-2">
                       {[2, 3, 4].map(n => (
                         <button key={n}
@@ -703,7 +708,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                             color: pf.splitWays === n ? C : '#6B7280',
                           }}
                         >
-                          {n} ways
+                          {n} {t('cashier.orders.ways')}
                         </button>
                       ))}
                     </div>
@@ -718,7 +723,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                         <div key={idx}
                           className={`rounded-xl border-2 p-3 transition-all ${part.confirmed ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-bold text-gray-700">Part {idx + 1}</span>
+                            <span className="text-sm font-bold text-gray-700">{t('cashier.orders.part')} {idx + 1}</span>
                             <label className="flex items-center gap-1.5 cursor-pointer select-none">
                               <input type="checkbox" checked={part.confirmed}
                                 onChange={e => {
@@ -728,7 +733,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                                 }}
                                 className="w-4 h-4 accent-green-500"
                               />
-                              <span className={`text-xs font-semibold ${part.confirmed ? 'text-green-600' : 'text-gray-400'}`}>Paid</span>
+                              <span className={`text-xs font-semibold ${part.confirmed ? 'text-green-600' : 'text-gray-400'}`}>{t('common.paid')}</span>
                             </label>
                           </div>
                           <div className="relative mb-2">
@@ -772,7 +777,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                               <input type="text"
                                 value={part.loanName}
                                 onChange={e => { const u=[...splitParts]; u[idx]={...u[idx],loanName:e.target.value}; setSplitParts(u); }}
-                                placeholder="Customer name"
+                                placeholder={t('cashier.orders.customerName')}
                                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none"
                               />
                               <PhoneInput
@@ -795,7 +800,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                       const isValid = Math.abs(splitTotal - totalToPay) < 1;
                       return (
                         <div className="flex items-center justify-between mt-3 px-1">
-                          <span className="text-xs font-bold text-gray-400 uppercase">Split Total</span>
+                          <span className="text-xs font-bold text-gray-400 uppercase">{t('cashier.orders.splitBill')} {t('common.total')}</span>
                           <span className={`text-sm font-bold ${isValid ? 'text-green-600' : 'text-red-500'}`}>
                             {money(splitTotal)} / {money(totalToPay)}
                           </span>
@@ -810,22 +815,22 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                   <div className="space-y-3">
                     <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-amber-700 font-medium">Order marked paid. Debt tracked until customer returns.</p>
+                      <p className="text-xs text-amber-700 font-medium">{t('cashier.orders.loanNotice')}</p>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Customer Name</p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.customerName')}</p>
                         <input type="text" value={pf.loanName}
                           onChange={e => setPayForm({ ...pf, loanName: e.target.value })}
-                          placeholder="Name..."
+                          placeholder={t('cashier.orders.namePlaceholder')}
                           className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none" />
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Phone</p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('common.phone')}</p>
                         <PhoneInput value={pf.loanPhone} onChange={v => setPayForm({ ...pf, loanPhone: v })} size="md" />
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Return Date</p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.expectedReturn')}</p>
                         <DatePicker value={pf.loanDueDate} onChange={v => setPayForm({ ...pf, loanDueDate: v })} size="sm" />
                       </div>
                     </div>
@@ -834,11 +839,11 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
 
                 {/* Notes */}
                 <div>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Notes (Optional)</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('common.notes')}</p>
                   <textarea
                     value={pf.notes}
                     onChange={e => setPayForm({ ...pf, notes: e.target.value })}
-                    placeholder="Add payment notes..."
+                    placeholder={t('cashier.orders.addPaymentNotes')}
                     rows={2}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none resize-none"
                   />
@@ -858,18 +863,18 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                   {/* Order Items */}
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Order Items</p>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('cashier.orders.orderItems')}</p>
                       <span className="text-xs font-semibold" style={{ color: C }}>
-                        {orderItems.reduce((s, i) => s + (i.quantity || i.qty || 1), 0)} items
+                        {orderItems.reduce((s, i) => s + (i.quantity || i.qty || 1), 0)} {t('common.items')}
                       </span>
                     </div>
                     <div className="divide-y divide-gray-50">
                       {orderItems.length === 0 ? (
-                        <p className="text-sm text-gray-400 text-center py-4">No items</p>
+                        <p className="text-sm text-gray-400 text-center py-4">{t('common.noResults')}</p>
                       ) : orderItems.map((item, idx) => (
                         <div key={idx} className="px-4 py-2.5 flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{item.name || item.menuItemName || 'Item'}</p>
+                            <p className="text-sm font-medium text-gray-900 truncate">{item.name || item.menuItemName || t('cashier.orders.item')}</p>
                             <p className="text-xs text-gray-400">{money(item.unitPrice || item.price || 0)} × {item.quantity || item.qty || 1}</p>
                           </div>
                           <span className="text-sm font-semibold text-gray-900 ml-3">
@@ -883,19 +888,19 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                   {/* Totals */}
                   <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Subtotal</span>
+                      <span className="text-sm text-gray-500">{t('common.subtotal')}</span>
                       <span className="text-sm font-semibold text-gray-900">{money(orderTotal)}</span>
                     </div>
                     {discountAmt > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-green-600">
-                          Discount{pf.discReason ? ` · ${pf.discReason}` : ''}
+                          {t('common.discount')}{pf.discReason ? ` · ${pf.discReason}` : ''}
                         </span>
                         <span className="text-sm font-semibold text-green-600">-{money(discountAmt)}</span>
                       </div>
                     )}
                     <div className="border-t border-gray-200 pt-3 flex items-center justify-between">
-                      <span className="text-base font-bold text-gray-900">Total</span>
+                      <span className="text-base font-bold text-gray-900">{t('common.total')}</span>
                       <span className="text-2xl font-bold" style={{ color: C }}>{money(totalToPay)}</span>
                     </div>
                   </div>
@@ -908,16 +913,16 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                     })()}
                     <div className="flex-1">
                       <span className="text-sm font-bold text-gray-900 capitalize">
-                        {pf.paymentMethod?.replace('_', ' ') || 'Cash'}
+                        {pf.paymentMethod?.replace('_', ' ') || t('payment.cash', 'Cash')}
                       </span>
-                      {pf.splitWays && <span className="text-xs text-gray-400 ml-2">· Split {pf.splitWays} ways</span>}
+                      {pf.splitWays && <span className="text-xs text-gray-400 ml-2">· {pf.splitWays} {t('cashier.orders.ways')}</span>}
                     </div>
                   </div>
 
                   {/* Cash change */}
                   {pf.paymentMethod === 'cash' && chg > 0 && (
                     <div className="bg-green-50 rounded-xl p-4 border border-green-200 flex items-center justify-between">
-                      <span className="text-sm font-medium text-green-700">Change</span>
+                      <span className="text-sm font-medium text-green-700">{t('cashier.orders.change')}</span>
                       <span className="text-xl font-bold text-green-700">{money(chg)}</span>
                     </div>
                   )}
@@ -933,7 +938,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                     style={{ borderColor: '#E5E7EB', color: '#374151', backgroundColor: '#F9FAFB' }}
                   >
                     {isPrinting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                    {isPrinting ? 'Printing…' : 'Print Check'}
+                    {isPrinting ? t('common.processing') : t('cashier.orders.printReceipt')}
                   </button>
 
                   {/* Printer IP config */}
@@ -942,14 +947,14 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                       <Printer className="w-3 h-3" />
                       {printerIp
                         ? <span style={{ color: '#374151', fontWeight: 500 }}>{printerIp}</span>
-                        : <span>No printer IP set — using browser print</span>}
+                        : <span>{t('cashier.orders.noPrinterIp')}</span>}
                     </span>
                     <button
                       onClick={() => { setShowPrinterCfg(v => !v); setPrinterIpDraft(printerIp); }}
                       className="text-xs font-semibold hover:underline"
                       style={{ color: C }}
                     >
-                      {showPrinterCfg ? 'Cancel' : (printerIp ? 'Change' : 'Set IP')}
+                      {showPrinterCfg ? t('common.cancel') : (printerIp ? t('common.edit') : t('common.settings'))}
                     </button>
                   </div>
                   {showPrinterCfg && (
@@ -959,7 +964,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                         value={printerIpDraft}
                         onChange={e => setPrinterIpDraft(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') { setPrinterIp(printerIpDraft.trim()); setShowPrinterCfg(false); } }}
-                        placeholder="192.168.1.100"
+                        placeholder={t('placeholders.ipAddress', '192.168.1.100')}
                         className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2"
                         style={{ '--tw-ring-color': C }}
                         autoFocus
@@ -969,7 +974,7 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                         className="px-4 py-2 text-xs font-bold text-white rounded-lg"
                         style={{ backgroundColor: C }}
                       >
-                        Save
+                        {t('common.save')}
                       </button>
                     </div>
                   )}
@@ -982,13 +987,13 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
                     {paying
                       ? <Loader2 className="w-5 h-5 animate-spin" />
                       : <Check className="w-4 h-4 text-green-400" />}
-                    {' '}Confirm Payment · {money(totalToPay)}
+                    {' '}{t('cashier.orders.confirmPayment')} · {money(totalToPay)}
                   </button>
                   <button
                     onClick={() => setShowPayModal(false)}
                     className="w-full py-2 text-gray-400 font-medium text-sm hover:text-gray-600 transition-colors"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                 </div>
               </div>
@@ -1003,12 +1008,13 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid }) 
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function CashierOrders() {
-  const { user } = useAuth();
+  const { t } = useTranslation();
+  const { user, restaurant } = useAuth();
 
   const [orders,    setOrders]    = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
-  const [activeTab, setActiveTab] = useState('Restaurant Orders');
+  const [activeTab, setActiveTab] = useState('restaurantOrders');
   const [selected,  setSelected]  = useState(null);  // order being viewed/paid
 
   // Stats
@@ -1017,7 +1023,7 @@ export default function CashierOrders() {
   // Settings
   const [taxSettings,  setTaxSettings]  = useState({ taxRate: 0, taxEnabled: false });
   const [restSettings, setRestSettings] = useState({
-    restaurantName:       'The Bill Restaurant',
+    restaurantName:       restaurant?.name || t('common.brandRestaurant', 'The Bill Restaurant'),
     receiptHeader:        'Thank you for dining with us!',
     serviceChargeRate:    0,
     serviceChargeEnabled: false,
@@ -1068,7 +1074,7 @@ export default function CashierOrders() {
       }
       prevBillIds.current = new Set(requested.map(o => o.id));
     } catch (e) {
-      if (!silent) setError(e?.error || e?.message || 'Failed to load orders');
+      if (!silent) setError(e?.error || e?.message || t('alerts.failedLoadOrders', 'Failed to load orders'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -1138,11 +1144,11 @@ export default function CashierOrders() {
   const requestedCount = orders.filter(o => o.status === 'bill_requested').length;
 
   const filtered = orders.filter(o => {
-    if (activeTab === 'Restaurant Orders') return o.orderType === 'dine_in' || !o.orderType;
-    if (activeTab === 'Requested')         return o.status === 'bill_requested';
-    if (activeTab === 'To Go')             return o.orderType === 'to_go' || o.orderType === 'takeaway';
-    if (activeTab === 'Delivery')          return o.orderType === 'delivery';
-    return true; // All Active
+    if (activeTab === 'restaurantOrders') return o.orderType === 'dine_in' || !o.orderType;
+    if (activeTab === 'requested')        return o.status === 'bill_requested';
+    if (activeTab === 'toGo')             return o.orderType === 'to_go' || o.orderType === 'takeaway';
+    if (activeTab === 'delivery')         return o.orderType === 'delivery';
+    return true; // allActive
   });
 
   // ── Render list ───────────────────────────────────────────────────────────
@@ -1158,39 +1164,47 @@ export default function CashierOrders() {
               <DollarSign className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold text-gray-900">Order Processing</h1>
-              <p className="text-sm text-gray-500">{orders.length} active order{orders.length !== 1 ? 's' : ''}</p>
+              <h1 className="text-2xl font-extrabold text-gray-900">{t('cashier.orders.title')}</h1>
+              <p className="text-sm text-gray-500">{t('cashier.orders.activeOrderCount', { count: orders.length })}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => fetchOrders()}
               className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-xl border border-gray-200 hover:border-gray-300 font-medium text-sm transition shadow-sm">
-              <RefreshCw className="w-4 h-4" />Refresh
+              <RefreshCw className="w-4 h-4" />{t('common.refresh')}
             </button>
             <Link to="/cashier/new-order"
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold text-sm shadow-sm transition"
               style={{ backgroundColor: C }}>
-              <Plus className="w-4 h-4" />New Order
+              <Plus className="w-4 h-4" />{t('nav.newOrder')}
             </Link>
           </div>
         </div>
 
         {/* Stats */}
-        <div className="flex gap-4 mb-6">
-          <StatCard label="Pending"    value={stats.pending}    color="#D97706" icon={ShoppingBag} />
-          <StatCard label="Done Today" value={stats.doneToday}  color={SUCCESS}  icon={CheckCircle2} />
-          <StatCard label="Revenue"    value={`${Math.round(stats.revenue / 1000)}K`} sub="so'm" color={C} icon={TrendingUp} />
+        <div className="flex gap-3 mb-4">
+          <StatCard label={t('cashier.orders.pendingCount')}    value={stats.pending}    color="#D97706" icon={ShoppingBag} />
+          <StatCard label={t('cashier.orders.doneToday')} value={stats.doneToday}  color={SUCCESS}  icon={CheckCircle2} />
+          <StatCard label={t('cashier.orders.revenue')}    value={`${Math.round(stats.revenue / 1000)}K`} sub={t('common.currency')} color={C} icon={TrendingUp} />
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 mb-5 overflow-x-auto pb-1 scrollbar-hide">
-          {TABS.map(tab => (
+        <div
+          className="flex items-center gap-2.5 mb-5 overflow-x-auto pb-1 scrollbar-hide"
+          style={{ overscrollBehaviorX: 'contain' }}
+          onWheel={(e) => {
+            if (e.deltaY !== 0 && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+        >
+          {TAB_KEYS.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition flex-shrink-0"
-              style={{ backgroundColor: activeTab === tab ? C : '#F3F4F6', color: activeTab === tab ? '#fff' : '#6B7280' }}>
-              {tab}
-              {tab === 'Requested' && requestedCount > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full text-xs font-bold text-white text-center leading-none flex items-center justify-center"
+              className="flex items-center gap-2 px-6 py-3 rounded-xl text-base font-semibold whitespace-nowrap transition flex-shrink-0 shadow-sm"
+              style={{ backgroundColor: activeTab === tab ? C : '#FFFFFF', color: activeTab === tab ? '#fff' : '#374151', border: activeTab === tab ? 'none' : '1px solid #E5E7EB' }}>
+              {t(`cashier.orders.${tab}`)}
+              {tab === 'requested' && requestedCount > 0 && (
+                <span className="min-w-[20px] h-[20px] px-1.5 rounded-full text-xs font-bold text-white text-center leading-none flex items-center justify-center"
                   style={{ backgroundColor: activeTab === tab ? 'rgba(255,255,255,0.3)' : '#EF4444' }}>
                   {requestedCount}
                 </span>
@@ -1215,13 +1229,8 @@ export default function CashierOrders() {
           <div className="flex flex-col items-center justify-center py-32 text-gray-400">
             <ShoppingBag className="w-14 h-14 mb-3 opacity-30" />
             <p className="text-base font-semibold">
-              {activeTab === 'Restaurant Orders' ? 'No dine-in orders'
-               : activeTab === 'Requested'      ? 'No bill requests yet'
-               : activeTab === 'To Go'           ? 'No to-go orders'
-               : activeTab === 'Delivery'        ? 'No delivery orders'
-               : 'No active orders'}
+              {t('admin.orders.noOrdersFound')}
             </p>
-            <p className="text-sm mt-1 text-gray-400">New orders appear automatically</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -1230,11 +1239,11 @@ export default function CashierOrders() {
               const count   = parseInt(order.itemCount) || (order.items?.length ?? 0);
               const isToGo  = order.orderType === 'to_go' || order.orderType === 'takeaway';
               const isDeli  = order.orderType === 'delivery';
-              const typeLabel = isDeli ? 'Delivery' : isToGo ? 'To Go' : 'Dine-In';
+              const typeLabel = isDeli ? t('orderTypes.delivery') : isToGo ? t('orderTypes.toGo') : t('orderTypes.dineIn');
               const typeColor = isDeli ? '#8B5CF6' : isToGo ? '#10B981' : '#6B7280';
               const dname   = (isToGo || isDeli)
-                ? (order.customerName || 'Walk-in')
-                : (order.tableName || 'Walk-in');
+                ? (order.customerName || t('cashier.orders.walkIn'))
+                : (order.tableName || t('cashier.orders.walkIn'));
 
               const cardItems   = order.items || [];
               const cardReady   = cardItems.filter(i => i.itemReady).length;
@@ -1276,16 +1285,16 @@ export default function CashierOrders() {
                       </span>
                       <span className="flex items-center gap-1">
                         <User className="w-3.5 h-3.5" />
-                        {(isToGo || isDeli) ? (order.customerPhone || 'No phone') : (order.waitressName || 'Counter')}
+                        {(isToGo || isDeli) ? (order.customerPhone || t('cashier.orders.noPhone')) : (order.waitressName || t('cashier.orders.counter'))}
                       </span>
                       <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />{elapsed(order.createdAt)}
+                        <Clock className="w-3.5 h-3.5" />{elapsed(order.createdAt, t)}
                       </span>
                     </div>
 
                     {/* Total */}
                     <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Total</span>
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">{t('common.total')}</span>
                       <span className="text-xl font-extrabold" style={{ color: C }}>{money(grand)}</span>
                     </div>
                   </div>
@@ -1294,7 +1303,7 @@ export default function CashierOrders() {
                   <div className="flex border-t border-gray-100">
                     <button onClick={() => setSelected(order)}
                       className="flex-1 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
-                      View Details
+                      {t('common.details')}
                     </button>
                     {isActionable && (
                       <>
@@ -1302,7 +1311,7 @@ export default function CashierOrders() {
                         <button onClick={() => setSelected(order)}
                           className="flex-1 py-3 text-sm font-bold text-white flex items-center justify-center gap-1.5 transition"
                           style={{ backgroundColor: C }}>
-                          <DollarSign className="w-3.5 h-3.5" />Pay Now
+                          <DollarSign className="w-3.5 h-3.5" />{t('cashier.orders.processPayment')}
                         </button>
                       </>
                     )}

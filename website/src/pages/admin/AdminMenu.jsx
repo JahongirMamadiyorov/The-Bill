@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from '../../context/LanguageContext';
 import { useApi, money } from '../../hooks/useApi';
 import { menuAPI, warehouseAPI } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -18,25 +19,30 @@ const resolveImgUrl = (url) => {
     .replace('https://10.0.2.2:', 'https://localhost:');
 };
 
-// ── Item Types ────────────────────────────────────────────────────────────────
-const ITEM_TYPES = [
-  { id: 'food', Icon: ChefHat,  label: 'Food', sub: 'Sends order to kitchen',  activeBg: 'bg-green-50',  activeBorder: 'border-green-400', activeText: 'text-green-700',  activeIcon: 'text-green-600' },
-  { id: 'sale', Icon: Wine,     label: 'Sale', sub: 'Drinks & bar items',       activeBg: 'bg-blue-50',   activeBorder: 'border-blue-400',  activeText: 'text-blue-700',   activeIcon: 'text-blue-600'  },
+// ── Item Types (needs t for labels) ──────────────────────────────────────────
+const getItemTypes = (t) => [
+  { id: 'food', Icon: ChefHat,  label: t('admin.menu.food'), sub: t('admin.menu.foodHint'),  activeBg: 'bg-green-50',  activeBorder: 'border-green-400', activeText: 'text-green-700',  activeIcon: 'text-green-600' },
+  { id: 'sale', Icon: Wine,     label: t('admin.menu.sale'), sub: t('admin.menu.saleHint'),  activeBg: 'bg-blue-50',   activeBorder: 'border-blue-400',  activeText: 'text-blue-700',   activeIcon: 'text-blue-600'  },
 ];
 
-// ── Kitchen Stations ──────────────────────────────────────────────────────────
-const KITCHEN_STATIONS = [
-  { id: '',       Icon: LayoutGrid, label: 'All',    sub: 'Everyone sees',  bg: 'bg-gray-50',    border: 'border-gray-200',   text: 'text-gray-600'  },
-  { id: 'salad',  Icon: Leaf,       label: 'Salad',  sub: 'Salad only',     bg: 'bg-green-50',   border: 'border-green-200',  text: 'text-green-700' },
-  { id: 'grill',  Icon: Flame,      label: 'Grill',  sub: 'Grill only',     bg: 'bg-orange-50',  border: 'border-orange-200', text: 'text-orange-700'},
-  { id: 'bar',    Icon: Wine,       label: 'Bar',    sub: 'Bar only',       bg: 'bg-blue-50',    border: 'border-blue-200',   text: 'text-blue-700'  },
-  { id: 'pastry', Icon: Cake,       label: 'Pastry', sub: 'Pastry only',    bg: 'bg-purple-50',  border: 'border-purple-200', text: 'text-purple-700'},
-  { id: 'cold',   Icon: Snowflake,  label: 'Cold',   sub: 'Cold kitchen',   bg: 'bg-cyan-50',    border: 'border-cyan-200',   text: 'text-cyan-700'  },
-  { id: 'hot',    Icon: Flame,      label: 'Hot',    sub: 'Hot kitchen',    bg: 'bg-red-50',     border: 'border-red-200',    text: 'text-red-700'   },
+// ── Kitchen Stations (needs t for labels) ───────────────────────────────────
+const getKitchenStations = (t) => [
+  { id: '',       Icon: LayoutGrid, label: t('common.all'),  sub: '',               bg: 'bg-gray-50',    border: 'border-gray-200',   text: 'text-gray-600'  },
+  { id: 'salad',  Icon: Leaf,       label: 'Salad',          sub: 'Salad',          bg: 'bg-green-50',   border: 'border-green-200',  text: 'text-green-700' },
+  { id: 'grill',  Icon: Flame,      label: 'Grill',          sub: 'Grill',          bg: 'bg-orange-50',  border: 'border-orange-200', text: 'text-orange-700'},
+  { id: 'bar',    Icon: Wine,       label: t('admin.menu.barBadge'),   sub: t('admin.menu.barBadge'),    bg: 'bg-blue-50',    border: 'border-blue-200',   text: 'text-blue-700'  },
+  { id: 'pastry', Icon: Cake,       label: 'Pastry',         sub: 'Pastry',         bg: 'bg-purple-50',  border: 'border-purple-200', text: 'text-purple-700'},
+  { id: 'cold',   Icon: Snowflake,  label: 'Cold',           sub: 'Cold',           bg: 'bg-cyan-50',    border: 'border-cyan-200',   text: 'text-cyan-700'  },
+  { id: 'hot',    Icon: Flame,      label: 'Hot',            sub: 'Hot',            bg: 'bg-red-50',     border: 'border-red-200',    text: 'text-red-700'   },
 ];
 
 export default function AdminMenu() {
   const { call } = useApi();
+  const { t } = useTranslation();
+
+  // Build config arrays inside component so they have access to t()
+  const ITEM_TYPES = useMemo(() => getItemTypes(t), [t]);
+  const KITCHEN_STATIONS = useMemo(() => getKitchenStations(t), [t]);
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [categories,    setCategories]    = useState([]);
@@ -87,7 +93,7 @@ export default function AdminMenu() {
     return [
       ...KITCHEN_STATIONS,
       ...[...fromItems, ...fromDb].map(s => ({
-        id: s, label: s, sub: 'Custom station', custom: true,
+        id: s, label: s, sub: t('admin.menu.customStation'), custom: true,
         bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700',
         Icon: UtensilsCrossed,
       })),
@@ -108,18 +114,18 @@ export default function AdminMenu() {
   };
   const removeStationPreset = (name) => {
     setDialog({
-      title: 'Delete Station?',
-      message: `Remove "${name}" from quick picks? This won't affect existing menu items.`,
+      title: t('admin.menu.deleteStationTitle'),
+      message: t('admin.menu.deleteStationMessage', { name }),
       type: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t('common.delete'),
       onConfirm: async () => {
         setDialog(null);
         setCustomStations(prev => prev.filter(s => s.toLowerCase() !== name.toLowerCase()));
         try {
           await menuAPI.deleteStation(name);
         } catch (err) {
-          const msg = err?.error || err?.message || 'Failed to delete station';
-          setDialog({ title: 'Cannot Delete Station', message: msg, type: 'warning' });
+          const msg = err?.error || err?.message || t('alerts.failedDeleteStation', 'Failed to delete station');
+          setDialog({ title: t('admin.menu.cannotDeleteStation'), message: msg, type: 'warning' });
           fetchStations();
         }
       },
@@ -376,10 +382,10 @@ export default function AdminMenu() {
       // Interceptor already unwraps r.data, so res IS the response body directly
       const url = res?.fullUrl || res?.url;
       if (url) setItemForm(f => ({ ...f, imageUrl: url }));
-      else setDialog({ title: 'Upload Issue', message: 'Upload succeeded but no URL was returned. Please try again.', type: 'warning' });
+      else setDialog({ title: t('admin.menu.uploadIssueTitle'), message: t('admin.menu.uploadIssueMessage'), type: 'warning' });
     } catch (err) {
       console.error('Image upload failed', err);
-      setDialog({ title: 'Upload Failed', message: err?.error || err?.message || 'Unknown error', type: 'error' });
+      setDialog({ title: t('admin.menu.uploadFailedTitle'), message: err?.error || err?.message || t('common.error'), type: 'error' });
     } finally {
       setImageUploading(false);
       e.target.value = ''; // reset so same file can be re-picked
@@ -434,7 +440,7 @@ export default function AdminMenu() {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">Loading menu…</p>
+          <p className="text-gray-500 text-sm">{t('admin.menu.loadingMenu')}</p>
         </div>
       </div>
     );
@@ -456,23 +462,23 @@ export default function AdminMenu() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Menu Management</h1>
-              <p className="text-sm text-gray-400 mt-0.5">Categories & items</p>
+              <h1 className="text-2xl font-bold text-gray-900">{t("admin.menu.title")}</h1>
+              <p className="text-sm text-gray-400 mt-0.5">{t("admin.menu.subtitle")}</p>
             </div>
             {/* Stats chips */}
             <div className="hidden md:flex items-center gap-2 ml-4">
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full">
                 <Layers size={13} className="text-gray-500" />
-                <span className="text-xs font-semibold text-gray-600">{totalItems} items</span>
+                <span className="text-xs font-semibold text-gray-600">{t("admin.menu.totalItems", {count: totalItems})}</span>
               </div>
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 rounded-full border border-green-100">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                <span className="text-xs font-semibold text-green-700">{availableCount} available</span>
+                <span className="text-xs font-semibold text-green-700">{t("admin.menu.available", {count: availableCount})}</span>
               </div>
               {totalItems - availableCount > 0 && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 rounded-full border border-red-100">
                   <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                  <span className="text-xs font-semibold text-red-600">{totalItems - availableCount} unavailable</span>
+                  <span className="text-xs font-semibold text-red-600">{t("admin.menu.unavailable", {count: totalItems - availableCount})}</span>
                 </div>
               )}
             </div>
@@ -482,7 +488,7 @@ export default function AdminMenu() {
             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
           >
             <Plus size={16} />
-            Add Item
+            {t('admin.menu.addItem')}
           </button>
         </div>
       </div>
@@ -495,11 +501,11 @@ export default function AdminMenu() {
         {/* ── LEFT SIDEBAR: Categories ── */}
         <div className="w-64 bg-white border-r border-gray-100 flex flex-col flex-shrink-0">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <span className="text-sm font-bold text-gray-700">Categories</span>
+            <span className="text-sm font-bold text-gray-700">{t("admin.menu.categories")}</span>
             <button
               onClick={() => openCategoryModal()}
               className="w-7 h-7 bg-blue-600 text-white rounded-lg flex items-center justify-center hover:bg-blue-700 transition-colors"
-              title="Add category"
+              title={t('admin.menu.addCategory')}
             >
               <Plus size={14} />
             </button>
@@ -515,7 +521,7 @@ export default function AdminMenu() {
                   : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
-              <span className="text-sm font-semibold">All Items</span>
+              <span className="text-sm font-semibold">{t("admin.menu.allItems")}</span>
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
                 selectedCat === null ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'
               }`}>{totalItems}</span>
@@ -543,14 +549,14 @@ export default function AdminMenu() {
                   <div className={`px-3 pb-2.5 flex gap-1.5 ${isActive ? 'flex' : 'hidden group-hover:flex'}`}>
                     <button
                       onClick={(e) => { e.stopPropagation(); moveCategory(cat, 'up'); }}
-                      title="Move up"
+                      title={t('admin.menu.moveUp')}
                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-600 transition-colors border border-indigo-200"
                     >
                       <ArrowUp size={14} strokeWidth={2.5} />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); moveCategory(cat, 'down'); }}
-                      title="Move down"
+                      title={t('admin.menu.moveDown')}
                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-600 transition-colors border border-indigo-200"
                     >
                       <ArrowDown size={14} strokeWidth={2.5} />
@@ -559,13 +565,13 @@ export default function AdminMenu() {
                       onClick={(e) => { e.stopPropagation(); openCategoryModal(cat); }}
                       className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-100"
                     >
-                      <Edit2 size={11} /> Edit
+                      <Edit2 size={11} /> {t('common.edit')}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteId(cat.id); setDeleteType('category'); }}
                       className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
                     >
-                      <Trash2 size={11} /> Delete
+                      <Trash2 size={11} /> {t('common.delete')}
                     </button>
                   </div>
                 </div>
@@ -583,7 +589,7 @@ export default function AdminMenu() {
             >
               <span className="text-sm font-semibold flex items-center gap-1.5">
                 <ToggleLeft size={14} />
-                Inactive
+                {t('admin.menu.inactive')}
               </span>
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
                 selectedCat === 'inactive' ? 'bg-red-200 text-red-700' : 'bg-red-100 text-red-400'
@@ -601,7 +607,7 @@ export default function AdminMenu() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
               <input
                 type="text"
-                placeholder={`Search ${selectedCat === 'inactive' ? 'inactive' : selectedCat ? categories.find(c => c.id === selectedCat)?.name ?? '' : 'all'} items…`}
+                placeholder={selectedCat === 'inactive' ? t('admin.menu.searchInactiveItems') : selectedCat ? t('admin.menu.searchCategoryItems', { name: categories.find(c => c.id === selectedCat)?.name ?? '' }) : t('admin.menu.searchAllItems')}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm transition"
@@ -618,11 +624,11 @@ export default function AdminMenu() {
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors whitespace-nowrap"
               >
                 <Plus size={14} />
-                Add to {categories.find(c => c.id === selectedCat)?.name}
+                {t('admin.menu.addToCategory', { name: categories.find(c => c.id === selectedCat)?.name })}
               </button>
             )}
             {searchQuery && (
-              <span className="text-xs text-gray-400 whitespace-nowrap">{filteredItems.length} found</span>
+              <span className="text-xs text-gray-400 whitespace-nowrap">{t('admin.menu.foundCount', { count: filteredItems.length })}</span>
             )}
           </div>
 
@@ -634,17 +640,17 @@ export default function AdminMenu() {
                   <UtensilsCrossed size={28} className="text-gray-300" />
                 </div>
                 <p className="text-gray-600 font-semibold">
-                  {searchQuery ? 'No items match your search' : 'No items yet'}
+                  {searchQuery ? t('admin.menu.noItemsMatchSearch') : t('admin.menu.noItemsYet')}
                 </p>
                 <p className="text-sm text-gray-400 mt-1 mb-4">
-                  {searchQuery ? 'Try a different search term' : 'Add your first item to get started'}
+                  {searchQuery ? t('admin.menu.tryDifferentSearch') : t('admin.menu.addFirstItem')}
                 </p>
                 {!searchQuery && (
                   <button
                     onClick={() => openItemModal()}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors"
                   >
-                    <Plus size={15} /> Add Item
+                    <Plus size={15} /> {t('admin.menu.addItem')}
                   </button>
                 )}
               </div>
@@ -672,7 +678,7 @@ export default function AdminMenu() {
                         )}
                         {!item.isAvailable && (
                           <div className="absolute top-2 left-2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-md uppercase tracking-wide">
-                            Inactive
+                            {t('admin.menu.inactive')}
                           </div>
                         )}
                       </div>
@@ -715,12 +721,12 @@ export default function AdminMenu() {
                             </span>
                           )}
                           {item.isAvailable
-                            ? <span className="px-2 py-0.5 bg-green-50 text-green-600 text-xs font-semibold rounded-full">Available</span>
-                            : <span className="px-2 py-0.5 bg-red-50 text-red-500 text-xs font-semibold rounded-full">Unavailable</span>
+                            ? <span className="px-2 py-0.5 bg-green-50 text-green-600 text-xs font-semibold rounded-full">{t("admin.menu.availableBadge")}</span>
+                            : <span className="px-2 py-0.5 bg-red-50 text-red-500 text-xs font-semibold rounded-full">{t("admin.menu.unavailableBadge")}</span>
                           }
                           {(item.itemType || item.item_type) === 'sale'
-                            ? <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-full flex items-center gap-1"><Wine size={10} /> Bar</span>
-                            : <span className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full flex items-center gap-1"><ChefHat size={10} /> Kitchen</span>
+                            ? <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-full flex items-center gap-1"><Wine size={10} /> {t('admin.menu.barBadge')}</span>
+                            : <span className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full flex items-center gap-1"><ChefHat size={10} /> {t('admin.menu.kitchenBadge')}</span>
                           }
                           {(item.kitchenStation || item.kitchen_station || item.station) && (
                             <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs font-semibold rounded-full flex items-center gap-1">
@@ -735,13 +741,13 @@ export default function AdminMenu() {
                             onClick={() => openItemModal(item)}
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
                           >
-                            <Edit2 size={12} /> Edit
+                            <Edit2 size={12} /> {t('common.edit')}
                           </button>
                           <button
                             onClick={() => { setDeleteId(item.id); setDeleteType('item'); }}
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors"
                           >
-                            <Trash2 size={12} /> Delete
+                            <Trash2 size={12} /> {t('common.delete')}
                           </button>
                         </div>
                       </div>
@@ -762,7 +768,7 @@ export default function AdminMenu() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <h2 className="text-lg font-bold text-gray-900">
-                {modal === 'add-cat' ? 'New Category' : 'Edit Category'}
+                {modal === 'add-cat' ? t('admin.menu.newCategory') : t('admin.menu.editCategory')}
               </h2>
               <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X size={18} className="text-gray-500" />
@@ -770,9 +776,9 @@ export default function AdminMenu() {
             </div>
             <div className="px-6 py-5 space-y-4">
               <div>
-                <label className={LabelCls}>Category Name *</label>
+                <label className={LabelCls}>{t("admin.menu.categoryName")}</label>
                 <input
-                  type="text" placeholder="e.g. Appetizers"
+                  type="text" placeholder={t('admin.menu.categoryPlaceholder')}
                   value={catForm.name}
                   onChange={e => setCatForm({ ...catForm, name: e.target.value })}
                   className={InputCls}
@@ -782,13 +788,13 @@ export default function AdminMenu() {
             </div>
             <div className="px-6 pb-6 flex gap-3">
               <button onClick={closeModal} className="flex-1 py-2.5 text-sm font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSaveCategory} disabled={saving || !catForm.name.trim()}
                 className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </div>
@@ -807,7 +813,7 @@ export default function AdminMenu() {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
               <h2 className="text-lg font-bold text-gray-900">
-                {modal === 'add-item' ? 'New Menu Item' : `Edit — ${itemForm.name || 'item'}`}
+                {modal === 'add-item' ? t('admin.menu.newMenuItem') : `Edit — ${itemForm.name || 'item'}`}
               </h2>
               <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X size={18} className="text-gray-500" />
@@ -823,31 +829,31 @@ export default function AdminMenu() {
 
                   {/* Name */}
                   <div>
-                    <label className={LabelCls}>Item Name *</label>
-                    <input type="text" placeholder="e.g. Caesar Salad" value={itemForm.name}
+                    <label className={LabelCls}>{t("admin.menu.itemName")}</label>
+                    <input type="text" placeholder={t('admin.menu.itemNamePlaceholder')} value={itemForm.name}
                       onChange={e => setItemForm({ ...itemForm, name: e.target.value })}
                       className={InputCls} autoFocus />
                   </div>
 
                   {/* Price (so'm) */}
                   <div>
-                    <label className={LabelCls}>Price (so'm) *</label>
-                    <input type="number" placeholder="0" value={itemForm.price}
+                    <label className={LabelCls}>{t("admin.menu.priceSom")}</label>
+                    <input type="number" placeholder={t('placeholders.zero', '0')} value={itemForm.price}
                       onChange={e => setItemForm({ ...itemForm, price: e.target.value })}
                       className={InputCls} />
                   </div>
 
                   {/* Description */}
                   <div>
-                    <label className={LabelCls}>Description</label>
-                    <textarea placeholder="Optional description shown on menu" value={itemForm.description}
+                    <label className={LabelCls}>{t("common.description")}</label>
+                    <textarea placeholder={t('admin.menu.descriptionPlaceholder')} value={itemForm.description}
                       onChange={e => setItemForm({ ...itemForm, description: e.target.value })}
                       rows={2} className={InputCls + ' resize-none'} />
                   </div>
 
                   {/* Category — pill buttons */}
                   <div>
-                    <label className={LabelCls}>Category *</label>
+                    <label className={LabelCls}>{t("common.category")} *</label>
                     <div className="flex flex-wrap gap-2">
                       {categories.map(c => (
                         <button
@@ -878,8 +884,8 @@ export default function AdminMenu() {
                       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${itemForm.isAvailable ? 'left-5' : 'left-1'}`} />
                     </div>
                     {itemForm.isAvailable
-                      ? <span className="text-sm font-semibold text-green-700">Active — visible on menu</span>
-                      : <span className="text-sm font-semibold text-gray-500">Hidden from menu</span>
+                      ? <span className="text-sm font-semibold text-green-700">{t("admin.menu.activeVisibleOnMenu")}</span>
+                      : <span className="text-sm font-semibold text-gray-500">{t("admin.menu.hiddenFromMenu")}</span>
                     }
                   </button>
 
@@ -890,23 +896,23 @@ export default function AdminMenu() {
 
                   {/* Item Type — Food / Sale */}
                   <div>
-                    <label className={LabelCls}>Item Type <span className="text-gray-400 normal-case font-normal">— who gets notified when ordered</span></label>
+                    <label className={LabelCls}>{t("admin.menu.itemType")} <span className="text-gray-400 normal-case font-normal">— who gets notified when ordered</span></label>
                     <div className="grid grid-cols-2 gap-2">
-                      {ITEM_TYPES.map(t => {
-                        const active = itemForm.itemType === t.id;
+                      {ITEM_TYPES.map(it => {
+                        const active = itemForm.itemType === it.id;
                         return (
                           <button
-                            key={t.id}
-                            onClick={() => setItemForm({ ...itemForm, itemType: t.id })}
+                            key={it.id}
+                            onClick={() => setItemForm({ ...itemForm, itemType: it.id })}
                             className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
                               active
-                                ? `${t.activeBg} ${t.activeBorder}`
+                                ? `${it.activeBg} ${it.activeBorder}`
                                 : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                             }`}
                           >
-                            <t.Icon size={22} className={active ? t.activeIcon : 'text-gray-400'} />
-                            <span className={`text-sm font-bold ${active ? t.activeText : 'text-gray-700'}`}>{t.label}</span>
-                            <span className={`text-xs text-center leading-tight ${active ? t.activeText + ' opacity-75' : 'text-gray-400'}`}>{t.sub}</span>
+                            <it.Icon size={22} className={active ? it.activeIcon : 'text-gray-400'} />
+                            <span className={`text-sm font-bold ${active ? it.activeText : 'text-gray-700'}`}>{it.label}</span>
+                            <span className={`text-xs text-center leading-tight ${active ? it.activeText + ' opacity-75' : 'text-gray-400'}`}>{it.sub}</span>
                           </button>
                         );
                       })}
@@ -915,9 +921,9 @@ export default function AdminMenu() {
 
                   {/* Kitchen Station — text + quick pick */}
                   <div>
-                    <label className={LabelCls}>Kitchen Station <span className="text-gray-400 normal-case font-normal">— which station prepares this</span></label>
+                    <label className={LabelCls}>{t("admin.menu.kitchenStation")} <span className="text-gray-400 normal-case font-normal">— which station prepares this</span></label>
                     <div className="flex gap-2 mb-2">
-                      <input type="text" placeholder="e.g. Kitchen, Bar, Grill" value={itemForm.station}
+                      <input type="text" placeholder={t('admin.menu.stationPlaceholder')} value={itemForm.station}
                         onChange={e => setItemForm({ ...itemForm, station: e.target.value })}
                         className={InputCls + ' flex-1'} />
                       {(() => {
@@ -928,12 +934,12 @@ export default function AdminMenu() {
                             onClick={() => addStationPreset(typed)}
                             className="px-3 py-2 rounded-xl bg-indigo-50 border-2 border-indigo-200 text-indigo-700 text-xs font-bold whitespace-nowrap hover:bg-indigo-100 transition-colors flex items-center gap-1"
                           >
-                            <Plus size={12} /> Add &ldquo;{typed}&rdquo;
+                            <Plus size={12} /> {t('admin.menu.addStationPreset', { name: typed })}
                           </button>
                         ) : null;
                       })()}
                     </div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Quick Pick</p>
+                    <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-1.5">{t("admin.menu.quickPick")}</p>
                     <div className="grid grid-cols-4 gap-1.5">
                       {allStationPresets(items).map(s => {
                         const active = itemForm.station === s.id;
@@ -954,7 +960,7 @@ export default function AdminMenu() {
                               <button
                                 onClick={() => removeStationPreset(s.id)}
                                 className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
-                                title="Remove preset"
+                                title={t('admin.menu.removePreset')}
                               >
                                 <X size={9} className="text-white" />
                               </button>
@@ -967,10 +973,10 @@ export default function AdminMenu() {
 
                   {/* Image — file upload + preview */}
                   <div>
-                    <label className={LabelCls}>Item Photo</label>
+                    <label className={LabelCls}>{t("admin.menu.itemPhoto")}</label>
                     {itemForm.imageUrl ? (
                       <div className="relative rounded-xl overflow-hidden border border-gray-200 mb-2">
-                        <img src={resolveImgUrl(itemForm.imageUrl)} alt="preview" className="w-full h-36 object-contain bg-slate-50" />
+                        <img src={resolveImgUrl(itemForm.imageUrl)} alt={t('common.preview', 'Preview')} className="w-full h-36 object-contain bg-slate-50" />
                         <button
                           onClick={() => setItemForm({ ...itemForm, imageUrl: '' })}
                           className="absolute top-2 right-2 w-7 h-7 bg-black/50 rounded-full flex items-center justify-center hover:bg-black/70 transition-colors"
@@ -983,8 +989,8 @@ export default function AdminMenu() {
                       imageUploading ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:border-blue-300 hover:bg-blue-50'
                     }`}>
                       {imageUploading
-                        ? <><div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /><span className="text-sm text-blue-600 font-semibold">Uploading…</span></>
-                        : <><Plus size={15} className="text-gray-400" /><span className="text-sm text-gray-500 font-medium">{itemForm.imageUrl ? 'Change photo' : 'Upload photo from device'}</span></>
+                        ? <><div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /><span className="text-sm text-blue-600 font-semibold">{t('admin.menu.uploading')}</span></>
+                        : <><Plus size={15} className="text-gray-400" /><span className="text-sm text-gray-500 font-medium">{itemForm.imageUrl ? t('admin.menu.changePhoto') : t('admin.menu.uploadPhoto')}</span></>
                       }
                       <input type="file" accept="image/*" className="hidden" onChange={handleImageFileChange} disabled={imageUploading} />
                     </label>
@@ -1000,8 +1006,8 @@ export default function AdminMenu() {
                     <Link size={14} className="text-indigo-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-gray-800">Ingredients / Recipe</p>
-                    <p className="text-xs text-gray-400">Kitchen usage — auto-deducted from inventory per order</p>
+                    <p className="text-sm font-bold text-gray-800">{t("admin.menu.ingredients")}</p>
+                    <p className="text-xs text-gray-400">{t('admin.menu.ingredientsHint')}</p>
                   </div>
                 </div>
 
@@ -1024,7 +1030,7 @@ export default function AdminMenu() {
                               <div key={ing.ingredientId ?? idx} className="flex items-center justify-between px-4 py-2.5 bg-white">
                                 <div>
                                   <p className="text-sm font-semibold text-gray-800">{ingName}</p>
-                                  <p className="text-xs text-gray-400">{ingQty} {ingUnit ? `${ingUnit} per dish` : 'per dish'}</p>
+                                  <p className="text-xs text-gray-400">{ingQty} {ingUnit ? t('admin.menu.unitPerDish', { unit: ingUnit }) : t('admin.menu.perDish')}</p>
                                 </div>
                                 <button
                                   onClick={() => {
@@ -1043,12 +1049,12 @@ export default function AdminMenu() {
                       {/* Add ingredient form */}
                       <div className="p-4 space-y-3">
                         <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">1. Select Ingredient</p>
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t("admin.menu.selectIngredient")}</p>
                           <div className="relative mb-2">
                             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input
                               type="text"
-                              placeholder="Search ingredients..."
+                              placeholder={t('admin.menu.searchIngredients')}
                               value={ingSearch}
                               onChange={e => setIngSearch(e.target.value)}
                               className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1056,7 +1062,7 @@ export default function AdminMenu() {
                           </div>
                           <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                             {warehouseItems.length === 0 ? (
-                              <p className="text-xs text-gray-400">No warehouse items found</p>
+                              <p className="text-xs text-gray-400">{t("admin.menu.noWarehouseItems")}</p>
                             ) : warehouseItems
                               .filter(wi => !ingSearch.trim() || wi.name.toLowerCase().includes(ingSearch.toLowerCase()))
                               .map(wi => (
@@ -1078,23 +1084,23 @@ export default function AdminMenu() {
                               </button>
                             ))}
                             {warehouseItems.length > 0 && ingSearch.trim() && warehouseItems.filter(wi => wi.name.toLowerCase().includes(ingSearch.toLowerCase())).length === 0 && (
-                              <p className="text-xs text-gray-400 py-1">No ingredients match "{ingSearch}"</p>
+                              <p className="text-xs text-gray-400 py-1">{t('admin.menu.noIngredientsMatch', { query: ingSearch })}</p>
                             )}
                           </div>
                         </div>
                         <div>
                           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                            2. Quantity per dish{selWi?.unit ? ` (in ${selWi.unit})` : ''}
+                            {t('admin.menu.quantityPerDish')}{selWi?.unit ? ` (${selWi.unit})` : ''}
                           </p>
                           {selWi && (
                             <p className="text-xs text-amber-600 flex items-center gap-1 mb-1.5">
-                              <Clock size={11} /> Enter in {selWi.unit} — same unit as the inventory item
+                              <Clock size={11} /> {t('admin.menu.enterInUnit', { unit: selWi.unit })}
                             </p>
                           )}
                           <div className="flex gap-2">
                             <input
                               type="number" step="0.001"
-                              placeholder={selWi?.unit ? `e.g. 0.05 for 50ml if unit is ${selWi.unit}` : 'Qty per dish'}
+                              placeholder={selWi?.unit ? t('admin.menu.qtyPerDishWithUnit', { unit: selWi.unit }) : t('admin.menu.qtyPerDishPlaceholder')}
                               value={newIngredient.quantityPerDish}
                               onChange={e => setNewIngredient({ ...newIngredient, quantityPerDish: e.target.value })}
                               className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1104,7 +1110,7 @@ export default function AdminMenu() {
                               disabled={!newIngredient.warehouseItemId || !newIngredient.quantityPerDish}
                               className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 transition-colors flex items-center gap-1.5 disabled:opacity-40"
                             >
-                              <Plus size={14} /> Add
+                              <Plus size={14} /> {t('common.add')}
                             </button>
                           </div>
                         </div>
@@ -1119,14 +1125,14 @@ export default function AdminMenu() {
             <div className="px-6 pb-6 pt-3 border-t border-gray-100 flex gap-3 flex-shrink-0">
               <button onClick={closeModal}
                 className="flex-1 py-2.5 text-sm font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSaveItem}
                 disabled={saving || !itemForm.name.trim() || !itemForm.price || !itemForm.categoryId}
                 className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                {saving ? 'Saving…' : modal === 'add-item' ? 'Create Item' : 'Save Changes'}
+                {saving ? t('common.saving') : modal === 'add-item' ? t('admin.menu.createItem') : t('common.saveChanges')}
               </button>
             </div>
           </div>
@@ -1144,23 +1150,23 @@ export default function AdminMenu() {
               <AlertTriangle size={22} className="text-red-600" />
             </div>
             <h2 className="text-lg font-bold text-gray-900 mb-1">
-              Delete {deleteType === 'category' ? 'Category' : 'Item'}?
+              {deleteType === 'category' ? t('admin.menu.deleteCategory') : t('admin.menu.deleteItem')}
             </h2>
             <p className="text-sm text-gray-500 mb-6">
               {deleteType === 'category'
-                ? 'This will permanently delete the category and all its items.'
-                : 'This item will be permanently removed from the menu.'}
+                ? t('admin.menu.deleteCategoryMsg')
+                : t('admin.menu.deleteItemMsg')}
             </p>
             <div className="flex gap-3">
               <button onClick={() => { setDeleteId(null); setDeleteType(null); }}
                 className="flex-1 py-2.5 text-sm font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={deleteType === 'category' ? handleDeleteCategory : handleDeleteItem}
                 disabled={saving}
                 className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50">
-                {saving ? 'Deleting…' : 'Delete'}
+                {saving ? t('common.deleting') : t('common.delete')}
               </button>
             </div>
           </div>

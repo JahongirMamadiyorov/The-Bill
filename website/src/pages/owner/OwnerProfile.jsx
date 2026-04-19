@@ -4,8 +4,10 @@ import { accountingAPI, usersAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import Dropdown from '../../components/Dropdown';
 import PhoneInput, { formatPhoneDisplay } from '../../components/PhoneInput';
+import { useTranslation } from '../../context/LanguageContext';
 
 export default function OwnerProfile() {
+  const { t } = useTranslation();
   const { user: authUser, updateUser } = useAuth();
   const [user, setUser] = useState({
     name: '',
@@ -70,9 +72,9 @@ export default function OwnerProfile() {
       setError(null);
       const updated = await usersAPI.update(authUser.id, { name: user.name, phone: user.phone });
       updateUser({ name: updated.name || user.name, phone: updated.phone || user.phone });
-      showSuccess('Profile updated successfully');
+      showSuccess(t('owner.profile.profileUpdated'));
     } catch (err) {
-      setError(err?.error || err?.message || 'Failed to update profile');
+      setError(err?.error || err?.message || t('common.error'));
     } finally {
       setSavingProfile(false);
     }
@@ -80,11 +82,11 @@ export default function OwnerProfile() {
 
   const handleChangePassword = async () => {
     if (!passwordForm.newPassword || passwordForm.newPassword.length < 6) {
-      setError('New password must be at least 6 characters');
+      setError(t('admin.profile.min6Characters'));
       return;
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('admin.profile.passwordsDoNotMatch'));
       return;
     }
 
@@ -96,9 +98,9 @@ export default function OwnerProfile() {
         confirm_password: passwordForm.confirmPassword,
       });
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      showSuccess('Password changed successfully');
+      showSuccess(t('owner.profile.passwordChanged'));
     } catch (err) {
-      setError(err?.error || err?.message || 'Failed to change password');
+      setError(err?.error || err?.message || t('common.error'));
     } finally {
       setSavingPassword(false);
     }
@@ -110,9 +112,9 @@ export default function OwnerProfile() {
       setSavingRestaurant(true);
       setError(null);
       await accountingAPI.updateRestaurantSettings(restaurantSettings);
-      showSuccess('Restaurant settings updated');
+      showSuccess(t('owner.profile.profileUpdated'));
     } catch (err) {
-      setError(err?.error || err?.message || 'Failed to update restaurant settings');
+      setError(err?.error || err?.message || t('common.error'));
     } finally {
       setSavingRestaurant(false);
     }
@@ -124,9 +126,9 @@ export default function OwnerProfile() {
       setSavingTax(true);
       setError(null);
       await accountingAPI.updateTaxSettings(taxSettings);
-      showSuccess('Tax settings updated');
+      showSuccess(t('owner.profile.profileUpdated'));
     } catch (err) {
-      setError(err?.error || err?.message || 'Failed to update tax settings');
+      setError(err?.error || err?.message || t('common.error'));
     } finally {
       setSavingTax(false);
     }
@@ -137,7 +139,7 @@ export default function OwnerProfile() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading profile...</p>
+          <p className="text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -148,7 +150,7 @@ export default function OwnerProfile() {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
           <User className="w-8 h-8" style={{ color: '#7C3AED' }} />
-          Profile & Settings
+          {t('admin.profile.title')} & {t('common.settings')}
         </h1>
 
         {error && (
@@ -175,49 +177,49 @@ export default function OwnerProfile() {
                 {user.name?.charAt(0).toUpperCase() || 'O'}
               </span>
             </div>
-            <h2 className="text-lg font-bold text-gray-900 text-center">{user.name || 'Owner'}</h2>
-            <p className="text-sm text-gray-600 text-center mt-2">{user.role || 'Restaurant Owner'}</p>
+            <h2 className="text-lg font-bold text-gray-900 text-center">{user.name || t('owner.profile.ownerFallback')}</h2>
+            <p className="text-sm text-gray-600 text-center mt-2">{user.role || t('owner.profile.restaurantOwner')}</p>
           </div>
 
           <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-sm font-medium text-gray-600 mb-4">Contact Information</h3>
+            <h3 className="text-sm font-medium text-gray-600 mb-4">{t('kitchen.profile.contactInformation')}</h3>
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <Mail className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Email</p>
-                  <p className="text-sm font-medium text-gray-900">{user.email || 'Not provided'}</p>
+                  <p className="text-xs text-gray-500">{t('common.email')}</p>
+                  <p className="text-sm font-medium text-gray-900">{user.email || t('owner.profile.notProvided')}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <Phone className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Phone</p>
-                  <p className="text-sm font-medium text-gray-900">{formatPhoneDisplay(user.phone) || 'Not provided'}</p>
+                  <p className="text-xs text-gray-500">{t('common.phone')}</p>
+                  <p className="text-sm font-medium text-gray-900">{formatPhoneDisplay(user.phone) || t('owner.profile.notProvided')}</p>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-            <h3 className="text-sm font-medium text-gray-600 mb-4">Restaurant Info</h3>
+            <h3 className="text-sm font-medium text-gray-600 mb-4">{t('owner.profile.restaurantSettings')}</h3>
             <div className="space-y-4">
               {restaurantSettings ? (
                 <>
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Name</p>
+                    <p className="text-xs text-gray-500 mb-1">{t('common.name')}</p>
                     <p className="text-sm font-medium text-gray-900">{restaurantSettings.restaurantName}</p>
                   </div>
                   <div className="flex items-start gap-2">
                     <MapPin className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-xs text-gray-500">Address</p>
+                      <p className="text-xs text-gray-500">{t('common.details')}</p>
                       <p className="text-sm font-medium text-gray-900">{restaurantSettings.address}</p>
                     </div>
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-gray-500">No restaurant info available</p>
+                <p className="text-sm text-gray-500">{t('common.noResults')}</p>
               )}
             </div>
           </div>
@@ -225,10 +227,10 @@ export default function OwnerProfile() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900 mb-6">Personal Information</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-6">{t('admin.profile.profileInformation')}</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.profile.fullName')}</label>
                 <input
                   type="text"
                   value={user.name || ''}
@@ -238,7 +240,7 @@ export default function OwnerProfile() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.email')}</label>
                 <input
                   type="email"
                   value={user.email || ''}
@@ -251,7 +253,7 @@ export default function OwnerProfile() {
                 <PhoneInput
                   value={user.phone || ''}
                   onChange={(formattedPhone) => setUser({ ...user, phone: formattedPhone })}
-                  label="Phone Number"
+                  label={t('owner.profile.phoneNumber')}
                   size="md"
                 />
               </div>
@@ -262,33 +264,33 @@ export default function OwnerProfile() {
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
-                {savingProfile ? 'Saving...' : 'Save Changes'}
+                {savingProfile ? t('common.saving') : t('common.saveChanges')}
               </button>
             </div>
           </div>
 
           <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900 mb-6">Change Password</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-6">{t('admin.profile.changePassword')}</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.profile.newPassword')}</label>
                 <input
                   type="password"
                   value={passwordForm.newPassword}
                   onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder="Min 6 characters"
+                  placeholder={t('admin.profile.min6Characters')}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.profile.confirmPassword')}</label>
                 <input
                   type="password"
                   value={passwordForm.confirmPassword}
                   onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder="Repeat password"
+                  placeholder={t('admin.profile.confirmPassword')}
                 />
               </div>
 
@@ -298,7 +300,7 @@ export default function OwnerProfile() {
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50"
               >
                 <Lock className="w-4 h-4" />
-                {savingPassword ? 'Changing...' : 'Change Password'}
+                {savingPassword ? t('common.processing') : t('admin.profile.changePassword')}
               </button>
             </div>
           </div>
@@ -307,10 +309,10 @@ export default function OwnerProfile() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {restaurantSettings && (
             <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900 mb-6">Restaurant Settings</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-6">{t('owner.profile.restaurantSettings')}</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Restaurant Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('owner.profile.restaurantName')}</label>
                   <input
                     type="text"
                     value={restaurantSettings.restaurantName || ''}
@@ -322,7 +324,7 @@ export default function OwnerProfile() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.details')}</label>
                   <textarea
                     value={restaurantSettings.address || ''}
                     onChange={(e) =>
@@ -339,7 +341,7 @@ export default function OwnerProfile() {
                     onChange={(formattedPhone) =>
                       setRestaurantSettings({ ...restaurantSettings, phone: formattedPhone })
                     }
-                    label="Phone Number"
+                    label={t('admin.profile.phoneNumber')}
                     size="md"
                   />
                 </div>
@@ -350,7 +352,7 @@ export default function OwnerProfile() {
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  {savingRestaurant ? 'Saving...' : 'Save Settings'}
+                  {savingRestaurant ? t('common.saving') : t('owner.profile.saveSettings')}
                 </button>
               </div>
             </div>
@@ -358,10 +360,10 @@ export default function OwnerProfile() {
 
           {taxSettings && (
             <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900 mb-6">Tax Settings</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-6">{t('owner.profile.taxSettings')}</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tax ID / EIN</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('owner.profile.taxSettings')}</label>
                   <input
                     type="text"
                     value={taxSettings.taxId || ''}
@@ -371,7 +373,7 @@ export default function OwnerProfile() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tax Rate (%)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('owner.profile.taxRate')}</label>
                   <input
                     type="number"
                     value={taxSettings.taxRate || 0}
@@ -383,14 +385,14 @@ export default function OwnerProfile() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tax Filing Frequency</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('common.category')}</label>
                   <Dropdown
-                    value={taxSettings.filingFrequency || 'monthly'}
+                    value={taxSettings.filingFrequency || t('salary.monthly', 'monthly')}
                     onChange={(value) => setTaxSettings({ ...taxSettings, filingFrequency: value })}
                     options={[
-                      { value: 'monthly', label: 'Monthly' },
-                      { value: 'quarterly', label: 'Quarterly' },
-                      { value: 'annually', label: 'Annually' },
+                      { value: 'monthly', label: t('owner.profile.filingMonthly') },
+                      { value: 'quarterly', label: t('owner.profile.filingQuarterly') },
+                      { value: 'annually', label: t('owner.profile.filingAnnually') },
                     ]}
                   />
                 </div>
@@ -401,7 +403,7 @@ export default function OwnerProfile() {
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50"
                 >
                   <Save className="w-4 h-4" />
-                  {savingTax ? 'Saving...' : 'Save Settings'}
+                  {savingTax ? t('common.saving') : t('owner.profile.saveSettings')}
                 </button>
               </div>
             </div>

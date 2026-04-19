@@ -1,16 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, rid } = require('../middleware/auth');
 
 // ─── EXPENSES ────────────────────────────────────────────────
 
 router.get('/expenses', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { from, to, category } = req.query;
+  const restaurantId = rid(req);
   try {
     let query = `SELECT e.*, u.name as recorded_by_name
-                 FROM expenses e LEFT JOIN users u ON e.recorded_by=u.id WHERE 1=1`;
-    const params = [];
+                 FROM expenses e LEFT JOIN users u ON e.recorded_by=u.id WHERE e.restaurant_id=$1`;
+    const params = [restaurantId];
     if (from)     { params.push(from);     query += ` AND e.expense_date >= $${params.length}`; }
     if (to)       { params.push(to);       query += ` AND e.expense_date <= $${params.length}`; }
     if (category) { params.push(category); query += ` AND e.category=$${params.length}`; }
@@ -22,10 +23,11 @@ router.get('/expenses', authenticate, authorize('owner', 'admin'), async (req, r
 
 router.post('/expenses', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { category, description, amount, expense_date } = req.body;
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
-      'INSERT INTO expenses (category,description,amount,expense_date,recorded_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [category || 'Other', description, amount, expense_date || new Date().toISOString().split('T')[0], req.user.id]
+      'INSERT INTO expenses (category,description,amount,expense_date,recorded_by,restaurant_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [category || 'Other', description, amount, expense_date || new Date().toISOString().split('T')[0], req.user.id, restaurantId]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -36,11 +38,12 @@ router.post('/expenses', authenticate, authorize('owner', 'admin'), async (req, 
 router.get('/pnl', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
   const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
+  const restaurantId = rid(req);
   try {
     const [rev, exp, byCat] = await Promise.all([
-      db.query(`SELECT COALESCE(SUM(total_amount),0) as total FROM orders WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2`, [fromDate, toDate]),
-      db.query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date BETWEEN $1 AND $2`, [fromDate, toDate]),
-      db.query(`SELECT category, COALESCE(SUM(amount),0) as revenue FROM expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY category ORDER BY revenue DESC`, [fromDate, toDate]),
+      db.query(`SELECT COALESCE(SUM(total_amount),0) as total FROM orders WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3`, [restaurantId, fromDate, toDate]),
+      db.query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE restaurant_id=$1 AND expense_date BETWEEN $2 AND $3`, [restaurantId, fromDate, toDate]),
+      db.query(`SELECT category, COALESCE(SUM(amount),0) as revenue FROM expenses WHERE restaurant_id=$1 AND expense_date BETWEEN $2 AND $3 GROUP BY category ORDER BY revenue DESC`, [restaurantId, fromDate, toDate]),
     ]);
     const revenue  = parseFloat(rev.rows[0].total);
     const expenses = parseFloat(exp.rows[0].total);
@@ -58,6 +61,7 @@ router.get('/pnl', authenticate, authorize('owner', 'admin'), async (req, res) =
 router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || new Date(new Date().setDate(1)).toISOString().split('T')[0];
   const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
+  const restaurantId = rid(req);
 
   // Calculate previous period of same length for comparison
   const fromD = new Date(fromDate);
@@ -83,8 +87,8 @@ router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res)
            COALESCE(SUM(total_amount) FILTER (WHERE payment_method='card'),   0) AS card_revenue,
            COALESCE(SUM(total_amount) FILTER (WHERE payment_method='online'), 0) AS online_revenue
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2`,
-        [fromDate, toDate]
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3`,
+        [restaurantId, fromDate, toDate]
       ),
       // 2) Previous period summary (for comparison)
       db.query(
@@ -93,8 +97,8 @@ router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res)
            COALESCE(SUM(total_amount), 0)   AS total_revenue,
            COALESCE(AVG(total_amount), 0)   AS avg_order_value
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2`,
-        [prevFrom, prevTo]
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3`,
+        [restaurantId, prevFrom, prevTo]
       ),
       // 3) Daily trend
       db.query(
@@ -103,10 +107,10 @@ router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res)
            COUNT(*)::int AS orders,
            COALESCE(SUM(total_amount), 0) AS revenue
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3
          GROUP BY paid_at::date
          ORDER BY date`,
-        [fromDate, toDate]
+        [restaurantId, fromDate, toDate]
       ),
       // 4) Hourly breakdown
       db.query(
@@ -115,10 +119,10 @@ router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res)
            COUNT(*)::int AS orders,
            COALESCE(SUM(total_amount), 0) AS revenue
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3
          GROUP BY EXTRACT(HOUR FROM paid_at)
          ORDER BY hour`,
-        [fromDate, toDate]
+        [restaurantId, fromDate, toDate]
       ),
       // 5) Order type breakdown
       db.query(
@@ -127,10 +131,10 @@ router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res)
            COUNT(*)::int AS orders,
            COALESCE(SUM(total_amount), 0) AS revenue
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3
          GROUP BY COALESCE(order_type, 'dine_in')
          ORDER BY revenue DESC`,
-        [fromDate, toDate]
+        [restaurantId, fromDate, toDate]
       ),
     ]);
 
@@ -193,14 +197,15 @@ router.get('/sales', authenticate, authorize('owner', 'admin'), async (req, res)
 // ─── CASH FLOW — support both /cashflow and /cash-flow ───────
 
 async function getCashFlow(req, res) {
+  const restaurantId = rid(req);
   try {
     const [entries, totals] = await Promise.all([
       db.query(`SELECT cf.*, u.name as recorded_by_name FROM cash_flow cf
-                LEFT JOIN users u ON cf.recorded_by=u.id ORDER BY cf.created_at DESC LIMIT 100`),
+                LEFT JOIN users u ON cf.recorded_by=u.id WHERE cf.restaurant_id=$1 ORDER BY cf.created_at DESC LIMIT 100`, [restaurantId]),
       db.query(`SELECT
                   COALESCE(SUM(amount) FILTER (WHERE type='in'),  0) AS cash_in,
                   COALESCE(SUM(amount) FILTER (WHERE type='out'), 0) AS cash_out
-                FROM cash_flow WHERE DATE(created_at)=CURRENT_DATE`),
+                FROM cash_flow WHERE restaurant_id=$1 AND DATE(created_at)=CURRENT_DATE`, [restaurantId]),
     ]);
     const t = totals.rows[0];
     res.json({
@@ -217,10 +222,11 @@ router.get('/cash-flow',  authenticate, authorize('owner', 'admin'), getCashFlow
 
 router.post('/cashflow', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { type, amount, description } = req.body;
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
-      'INSERT INTO cash_flow (type,amount,description,recorded_by) VALUES ($1,$2,$3,$4) RETURNING *',
-      [type, amount, description, req.user.id]
+      'INSERT INTO cash_flow (type,amount,description,recorded_by,restaurant_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [type, amount, description, req.user.id, restaurantId]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -229,8 +235,9 @@ router.post('/cashflow', authenticate, authorize('owner', 'admin'), async (req, 
 // ─── TAX SETTINGS — support /tax and /tax-settings ───────────
 
 async function getTaxSettings(req, res) {
+  const restaurantId = rid(req);
   try {
-    const result = await db.query('SELECT * FROM tax_settings ORDER BY created_at DESC LIMIT 1');
+    const result = await db.query('SELECT * FROM tax_settings WHERE restaurant_id=$1 ORDER BY created_at DESC LIMIT 1', [restaurantId]);
     const row = result.rows[0];
     if (!row) return res.json({ tax_rate: 0, tax_name: 'VAT', tax_enabled: false, tax_inclusive: false });
     res.json({
@@ -247,11 +254,12 @@ router.get('/tax-settings', authenticate, getTaxSettings);
 
 async function updateTaxSettings(req, res) {
   const { tax_name, tax_rate, tax_enabled, name, rate } = req.body;
+  const restaurantId = rid(req);
   const finalName = tax_name || name || 'VAT';
   const finalRate = parseFloat(tax_rate ?? rate ?? 0);
   const finalEnabled = tax_enabled !== undefined ? tax_enabled : true;
   try {
-    const existing = await db.query('SELECT id FROM tax_settings LIMIT 1');
+    const existing = await db.query('SELECT id FROM tax_settings WHERE restaurant_id=$1 LIMIT 1', [restaurantId]);
     let result;
     if (existing.rows[0]) {
       result = await db.query(
@@ -260,8 +268,8 @@ async function updateTaxSettings(req, res) {
       );
     } else {
       result = await db.query(
-        'INSERT INTO tax_settings (name, rate, is_active) VALUES ($1,$2,$3) RETURNING *',
-        [finalName, finalRate, finalEnabled]
+        'INSERT INTO tax_settings (name, rate, is_active, restaurant_id) VALUES ($1,$2,$3,$4) RETURNING *',
+        [finalName, finalRate, finalEnabled, restaurantId]
       );
     }
     res.json(result.rows[0]);
@@ -277,6 +285,7 @@ const ensureRestaurantSettings = async () => {
   await db.query(`
     CREATE TABLE IF NOT EXISTS restaurant_settings (
       id                      SERIAL PRIMARY KEY,
+      restaurant_id           UUID NOT NULL,
       restaurant_name         TEXT    DEFAULT 'The Bill Restaurant',
       receipt_header          TEXT    DEFAULT 'Thank you for dining with us!',
       service_charge_rate     NUMERIC DEFAULT 0,
@@ -284,20 +293,14 @@ const ensureRestaurantSettings = async () => {
       updated_at              TIMESTAMP DEFAULT NOW()
     )
   `);
-  const existing = await db.query('SELECT id FROM restaurant_settings LIMIT 1');
-  if (existing.rows.length === 0) {
-    await db.query(
-      `INSERT INTO restaurant_settings (restaurant_name, receipt_header, service_charge_rate, service_charge_enabled)
-       VALUES ('The Bill Restaurant', 'Thank you for dining with us!', 0, false)`
-    );
-  }
 };
 ensureRestaurantSettings().catch(() => {});
 
 router.get('/restaurant-settings', authenticate, async (req, res) => {
+  const restaurantId = rid(req);
   try {
     await ensureRestaurantSettings();
-    const result = await db.query('SELECT * FROM restaurant_settings LIMIT 1');
+    const result = await db.query('SELECT * FROM restaurant_settings WHERE restaurant_id=$1 LIMIT 1', [restaurantId]);
     res.json(result.rows[0] || {
       restaurant_name: 'The Bill Restaurant',
       receipt_header: 'Thank you for dining with us!',
@@ -309,15 +312,26 @@ router.get('/restaurant-settings', authenticate, async (req, res) => {
 
 router.put('/restaurant-settings', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const { restaurant_name, receipt_header, service_charge_rate, service_charge_enabled } = req.body;
+  const restaurantId = rid(req);
   try {
     await ensureRestaurantSettings();
-    const result = await db.query(
-      `UPDATE restaurant_settings
-       SET restaurant_name=$1, receipt_header=$2, service_charge_rate=$3, service_charge_enabled=$4, updated_at=NOW()
-       WHERE id=(SELECT id FROM restaurant_settings LIMIT 1)
-       RETURNING *`,
-      [restaurant_name, receipt_header, service_charge_rate ?? 0, service_charge_enabled ?? false]
-    );
+    const existing = await db.query('SELECT id FROM restaurant_settings WHERE restaurant_id=$1 LIMIT 1', [restaurantId]);
+    let result;
+    if (existing.rows[0]) {
+      result = await db.query(
+        `UPDATE restaurant_settings
+         SET restaurant_name=$1, receipt_header=$2, service_charge_rate=$3, service_charge_enabled=$4, updated_at=NOW()
+         WHERE id=$5
+         RETURNING *`,
+        [restaurant_name, receipt_header, service_charge_rate ?? 0, service_charge_enabled ?? false, existing.rows[0].id]
+      );
+    } else {
+      result = await db.query(
+        `INSERT INTO restaurant_settings (restaurant_id, restaurant_name, receipt_header, service_charge_rate, service_charge_enabled)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [restaurantId, restaurant_name, receipt_header, service_charge_rate ?? 0, service_charge_enabled ?? false]
+      );
+    }
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -326,6 +340,7 @@ router.put('/restaurant-settings', authenticate, authorize('owner', 'admin'), as
 router.get('/sales/daily-trend', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || new Date(new Date().setDate(1)).toISOString().split('T')[0];
   const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT
@@ -333,10 +348,10 @@ router.get('/sales/daily-trend', authenticate, authorize('owner', 'admin'), asyn
          COUNT(*)::int AS orders,
          COALESCE(SUM(total_amount), 0) AS revenue
        FROM orders
-       WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2
+       WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3
        GROUP BY paid_at::date
        ORDER BY date`,
-      [fromDate, toDate]
+      [restaurantId, fromDate, toDate]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -346,6 +361,7 @@ router.get('/sales/daily-trend', authenticate, authorize('owner', 'admin'), asyn
 router.get('/sales/hourly', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || new Date().toISOString().split('T')[0];
   const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT
@@ -353,10 +369,10 @@ router.get('/sales/hourly', authenticate, authorize('owner', 'admin'), async (re
          COUNT(*)::int AS orders,
          COALESCE(SUM(total_amount), 0) AS revenue
        FROM orders
-       WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2
+       WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3
        GROUP BY EXTRACT(HOUR FROM paid_at)
        ORDER BY hour`,
-      [fromDate, toDate]
+      [restaurantId, fromDate, toDate]
     );
     // Fill all 24 hours
     const map = {};
@@ -378,6 +394,7 @@ router.get('/sales/hourly', authenticate, authorize('owner', 'admin'), async (re
 router.get('/sales/by-type', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || new Date(new Date().setDate(1)).toISOString().split('T')[0];
   const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
+  const restaurantId = rid(req);
   try {
     const result = await db.query(
       `SELECT
@@ -385,10 +402,10 @@ router.get('/sales/by-type', authenticate, authorize('owner', 'admin'), async (r
          COUNT(*)::int AS orders,
          COALESCE(SUM(total_amount), 0) AS revenue
        FROM orders
-       WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2
+       WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3
        GROUP BY COALESCE(order_type, 'dine_in')
        ORDER BY revenue DESC`,
-      [fromDate, toDate]
+      [restaurantId, fromDate, toDate]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -398,6 +415,7 @@ router.get('/sales/by-type', authenticate, authorize('owner', 'admin'), async (r
 router.get('/sales/comparison', authenticate, authorize('owner', 'admin'), async (req, res) => {
   const fromDate = req.query.from || new Date(new Date().setDate(1)).toISOString().split('T')[0];
   const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
+  const restaurantId = rid(req);
 
   // Calculate previous period of same length
   const from = new Date(fromDate);
@@ -418,8 +436,8 @@ router.get('/sales/comparison', authenticate, authorize('owner', 'admin'), async
            COALESCE(SUM(total_amount), 0) AS total_revenue,
            COALESCE(AVG(total_amount), 0) AS avg_order_value
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2`,
-        [fromDate, toDate]
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3`,
+        [restaurantId, fromDate, toDate]
       ),
       db.query(
         `SELECT
@@ -427,8 +445,8 @@ router.get('/sales/comparison', authenticate, authorize('owner', 'admin'), async
            COALESCE(SUM(total_amount), 0) AS total_revenue,
            COALESCE(AVG(total_amount), 0) AS avg_order_value
          FROM orders
-         WHERE status='paid' AND paid_at::date BETWEEN $1 AND $2`,
-        [prevFromStr, prevToStr]
+         WHERE restaurant_id=$1 AND status='paid' AND paid_at::date BETWEEN $2 AND $3`,
+        [restaurantId, prevFromStr, prevToStr]
       ),
     ]);
 

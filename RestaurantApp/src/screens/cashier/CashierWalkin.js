@@ -6,19 +6,29 @@ import {
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from '../../context/LanguageContext';
 import { menuAPI, ordersAPI, tablesAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 
 const fmt = (n) => Number(n || 0).toLocaleString('uz-UZ') + " so'm";
 
 const ORDER_TYPES = [
-  { id: 'dine_in',  label: 'Dine-In',  icon: 'restaurant' },
-  { id: 'to_go',    label: 'To Go',    icon: 'takeout-dining' },
-  { id: 'delivery', label: 'Delivery', icon: 'local-shipping' },
+  { id: 'dine_in',  icon: 'restaurant' },
+  { id: 'to_go',    icon: 'takeout-dining' },
+  { id: 'delivery', icon: 'local-shipping' },
 ];
 
+const orderTypeLabel = (id, t) => {
+  if (id === 'dine_in')  return t('cashier.walkin.dineIn', 'Dine-In');
+  if (id === 'to_go')    return t('cashier.walkin.toGo', 'To Go');
+  if (id === 'delivery') return t('cashier.walkin.delivery', 'Delivery');
+  return id;
+};
+
 // ─── PhoneField with +998 country code ──────────────────────────────────────
-function PhoneField({ label = 'PHONE NUMBER', value, onChange }) {
+function PhoneField({ label, value, onChange }) {
+  const { t } = useTranslation();
+  const displayLabel = label || t('phoneField.phoneShort', 'PHONE');
   function handleChange(raw) {
     const digits = raw.replace(/\D/g, '');
     const local = digits.startsWith('998') ? digits.slice(3) : digits;
@@ -42,18 +52,17 @@ function PhoneField({ label = 'PHONE NUMBER', value, onChange }) {
     return out;
   })();
   return (
-    <View style={{ marginBottom: 12 }}>
-      <Text style={S.lbl}>{label.toUpperCase()}</Text>
-      <View style={[S.inp, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden' }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 6 }}>
-          <Text style={{ fontSize: 16 }}>🇺🇿</Text>
+    <View style={{ marginBottom: 12, width: '100%', alignSelf: 'stretch' }}>
+      <Text style={S.lbl}>{String(displayLabel).toUpperCase()}</Text>
+      <View style={[S.inp, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden', width: '100%', minHeight: 48 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 6, alignSelf: 'stretch' }}>
           <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>+998</Text>
         </View>
         <TextInput
-          style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 13, fontSize: 15, color: '#0f172a' }}
+          style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 12, fontSize: 15, color: '#0f172a', minHeight: 48 }}
           value={displayLocal}
           onChangeText={handleChange}
-          placeholder="90 123 45 67"
+          placeholder={t('phoneInput.placeholder', '90 123 45 67')}
           placeholderTextColor="#cbd5e1"
           keyboardType="phone-pad"
           maxLength={13}
@@ -72,6 +81,7 @@ const tableStatusColor = (status) => {
 
 export default function CashierWalkin({ navigation, route }) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const editModeOrder  = route?.params?.order        || null;
   const prefillTable   = route?.params?.prefillTable || null;
 
@@ -115,7 +125,7 @@ export default function CashierWalkin({ navigation, route }) {
         setTables(tbls);
         if (cats.length) setActiveCat(cats[0].id);
       } catch {
-        setDialog({ title: 'Error', message: 'Could not load menu', type: 'error' });
+        setDialog({ title: t('common.error', 'Error'), message: t('cashier.walkin.couldNotLoadMenu', 'Could not load menu'), type: 'error' });
       } finally { setLoading(false); }
     })();
   }, []);
@@ -169,15 +179,22 @@ export default function CashierWalkin({ navigation, route }) {
 
     if (!editModeOrder) {
       if (orderType === 'dine_in' && !selectedTableId) {
-        setDialog({ title: 'Table Required', message: 'Please select a table before placing the order.', type: 'warning' });
+        setDialog({ title: t('cashier.walkin.tableRequired', 'Table Required'), message: t('cashier.walkin.selectTableMessage', 'Please select a table before placing the order.'), type: 'warning' });
         return;
       }
       if (orderType !== 'dine_in' && !customerName.trim()) {
-        setDialog({ title: 'Required', message: `Customer name is required for ${orderType === 'to_go' ? 'To Go' : 'Delivery'} orders.`, type: 'warning' });
+        const typeLabel = orderType === 'to_go'
+          ? t('cashier.walkin.toGo', 'To Go')
+          : t('cashier.walkin.delivery', 'Delivery');
+        setDialog({
+          title: t('cashier.walkin.customerNameRequiredTitle', 'Required'),
+          message: t('cashier.walkin.customerNameRequiredMessage', 'Customer name is required for {type} orders.').replace('{type}', typeLabel),
+          type: 'warning',
+        });
         return;
       }
       if (orderType === 'delivery' && !deliveryAddress.trim()) {
-        setDialog({ title: 'Required', message: 'Delivery address is required.', type: 'warning' });
+        setDialog({ title: t('cashier.walkin.customerNameRequiredTitle', 'Required'), message: t('cashier.walkin.deliveryAddressRequired', 'Delivery address is required.'), type: 'warning' });
         return;
       }
     }
@@ -186,12 +203,12 @@ export default function CashierWalkin({ navigation, route }) {
     try {
       if (editModeOrder) {
         await ordersAPI.addItems(editModeOrder.id, cart.map(x => ({ menu_item_id: x.id, quantity: x.qty })));
-        setDialog({ title: 'Added', message: 'Items appended to order successfully', type: 'success' });
+        setDialog({ title: t('cashier.walkin.itemsAdded', 'Added'), message: t('cashier.walkin.itemsAppended', 'Items appended to order successfully'), type: 'success' });
       } else {
         const noteStr =
-          orderType === 'to_go'    ? `To Go${customerName ? ` — ${customerName}` : ''}` :
-          orderType === 'delivery' ? `Delivery — ${customerName}${deliveryAddress ? ` — ${deliveryAddress}` : ''}` :
-          isDirectPay ? 'Dine-in — direct payment' : 'Dine-in order';
+          orderType === 'to_go'    ? `${t('cashier.walkin.toGo', 'To Go')}${customerName ? ` — ${customerName}` : ''}` :
+          orderType === 'delivery' ? `${t('cashier.walkin.delivery', 'Delivery')} — ${customerName}${deliveryAddress ? ` — ${deliveryAddress}` : ''}` :
+          isDirectPay ? t('cashier.walkin.dineInDirectPayment', 'Dine-in — direct payment') : t('cashier.walkin.dineInOrder', 'Dine-in order');
         const res = await ordersAPI.create(buildPayload(noteStr));
         const newOrderId = res?.data?.id;
         if (isDirectPay && newOrderId) {
@@ -201,18 +218,19 @@ export default function CashierWalkin({ navigation, route }) {
             params: { openPayForOrderId: newOrderId },
           });
         } else {
-          setDialog({ title: 'Created', message: 'Order sent to kitchen!', type: 'success' });
+          setDialog({ title: t('cashier.walkin.created', 'Created'), message: t('cashier.orders.orderSentToKitchen', 'Order sent to kitchen!'), type: 'success' });
           setTimeout(() => navigation.goBack(), 500);
         }
         return; // skip the goBack() below
       }
       navigation.goBack();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to process order', type: 'error' });
+      setDialog({ title: t('common.error', 'Error'), message: e?.response?.data?.error || t('cashier.walkin.failedToProcess', 'Failed to process order'), type: 'error' });
     } finally { setSending(false); }
   };
 
   /* ─────────────────────────────── TABLE PICKER SHEET ─────── */
+  const trans = t;
   const TablePickerSheet = () => (
     <Modal
       visible={showTableSheet}
@@ -223,12 +241,16 @@ export default function CashierWalkin({ navigation, route }) {
       <TouchableOpacity style={S.overlay} activeOpacity={1} onPress={() => setShowTableSheet(false)} />
       <View style={S.sheet}>
         <View style={S.sheetHandle} />
-        <Text style={S.sheetTitle}>Select Table</Text>
-        <Text style={S.sheetSub}>Tap a table to assign this order</Text>
+        <Text style={S.sheetTitle}>{t('cashier.walkin.selectTable', 'Select Table')}</Text>
+        <Text style={S.sheetSub}>{t('cashier.walkin.tapToAssign', 'Tap a table to assign this order')}</Text>
 
         {/* Legend */}
         <View style={S.legend}>
-          {[['#4CAF50','Available'],['#FF6B6B','Occupied'],['#FFB347','Reserved']].map(([c,l]) => (
+          {[
+            ['#4CAF50', t('cashier.walkin.available', 'Available')],
+            ['#FF6B6B', t('cashier.walkin.occupied', 'Occupied')],
+            ['#FFB347', t('cashier.walkin.reserved', 'Reserved')],
+          ].map(([c,l]) => (
             <View key={l} style={S.legendItem}>
               <View style={[S.legendDot, { backgroundColor: c }]} />
               <Text style={S.legendTxt}>{l}</Text>
@@ -254,7 +276,12 @@ export default function CashierWalkin({ navigation, route }) {
                 ]}
                 onPress={() => {
                   if (isOccupied) {
-                    setDialog({ title: 'Table Occupied', message: `Table ${t.name || t.number} already has an active order. Select a different table.`, type: 'warning' });
+                    const tName = t.name || t.number;
+                    setDialog({
+                      title: trans('cashier.walkin.tableOccupied', 'Table Occupied'),
+                      message: trans('cashier.walkin.tableOccupiedMessage', 'Table {name} already has an active order. Select a different table.').replace('{name}', tName),
+                      type: 'warning',
+                    });
                     return;
                   }
                   setSelectedTableId(t.id);
@@ -272,7 +299,7 @@ export default function CashierWalkin({ navigation, route }) {
                 </Text>
                 {t.capacity && (
                   <Text style={[S.tableCap, isSelected && { color: 'rgba(255,255,255,0.8)' }]}>
-                    {t.capacity} seats
+                    {t.capacity} {trans('cashier.walkin.seats', 'seats')}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -281,7 +308,7 @@ export default function CashierWalkin({ navigation, route }) {
           ListEmptyComponent={
             <View style={S.noTables}>
               <MaterialIcons name="table-restaurant" size={36} color={colors.border} />
-              <Text style={S.noTablesTxt}>No tables found</Text>
+              <Text style={S.noTablesTxt}>{t('cashier.walkin.noTablesFound', 'No tables found')}</Text>
             </View>
           }
         />
@@ -303,7 +330,7 @@ export default function CashierWalkin({ navigation, route }) {
           <MaterialIcons name="arrow-back" size={22} color={colors.textDark} />
         </TouchableOpacity>
         <Text style={S.headerTitle}>
-          {editModeOrder ? `Add to #${editModeOrder.id}` : 'New Order'}
+          {editModeOrder ? `${t('cashier.walkin.addTo', 'Add to')} #${editModeOrder.id}` : t('cashier.walkin.newOrder', 'New Order')}
         </Text>
         <View style={S.cartBadge}>
           <Text style={S.cartBadgeTxt}>{cart.reduce((s, x) => s + x.qty, 0)}</Text>
@@ -318,20 +345,20 @@ export default function CashierWalkin({ navigation, route }) {
 
             {/* Order type tabs */}
             <View style={S.typeRow}>
-              {ORDER_TYPES.map(t => (
+              {ORDER_TYPES.map(ot => (
                 <TouchableOpacity
-                  key={t.id}
-                  style={[S.typeBtn, orderType === t.id && S.typeBtnActive]}
+                  key={ot.id}
+                  style={[S.typeBtn, orderType === ot.id && S.typeBtnActive]}
                   onPress={() => {
-                    setOrderType(t.id);
+                    setOrderType(ot.id);
                     setSelectedTableId(null);
                     setCustomerName('');
                     setCustomerPhone('');
                     setDeliveryAddress('');
                   }}
                 >
-                  <MaterialIcons name={t.icon} size={17} color={orderType === t.id ? '#fff' : colors.neutralMid} />
-                  <Text style={[S.typeTxt, orderType === t.id && S.typeTxtActive]}>{t.label}</Text>
+                  <MaterialIcons name={ot.icon} size={17} color={orderType === ot.id ? '#fff' : colors.neutralMid} />
+                  <Text style={[S.typeTxt, orderType === ot.id && S.typeTxtActive]}>{orderTypeLabel(ot.id, t)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -348,9 +375,9 @@ export default function CashierWalkin({ navigation, route }) {
                     <MaterialIcons name="table-restaurant" size={22} color={selectedTableId ? colors.primary : colors.neutralMid} />
                   </View>
                   <View style={S.flex}>
-                    <Text style={S.setupCardLbl}>Table</Text>
+                    <Text style={S.setupCardLbl}>{t('cashier.walkin.table', 'Table')}</Text>
                     <Text style={[S.setupCardVal, !selectedTableId && S.setupCardPlaceholder]}>
-                      {selectedTable ? (selectedTable.name || `Table ${selectedTable.number || selectedTable.id}`) : 'Tap to select'}
+                      {selectedTable ? (selectedTable.name || `${t('cashier.walkin.table', 'Table')} ${selectedTable.number || selectedTable.id}`) : t('cashier.walkin.tapToSelect', 'Tap to select')}
                     </Text>
                   </View>
                   {selectedTableId
@@ -364,7 +391,7 @@ export default function CashierWalkin({ navigation, route }) {
                     <MaterialIcons name="people" size={22} color={colors.primary} />
                   </View>
                   <View style={S.flex}>
-                    <Text style={S.setupCardLbl}>Guests</Text>
+                    <Text style={S.setupCardLbl}>{t('cashier.walkin.guests', 'Guests')}</Text>
                     <View style={S.guestRow}>
                       <TouchableOpacity style={S.guestBtn} onPress={() => setGuestCount(g => Math.max(1, g - 1))}>
                         <MaterialIcons name="remove" size={16} color={colors.textDark} />
@@ -381,7 +408,7 @@ export default function CashierWalkin({ navigation, route }) {
                 {!selectedTableId && (
                   <View style={S.hintRow}>
                     <MaterialIcons name="info-outline" size={14} color="#FF9800" />
-                    <Text style={S.hintTxt}>Select a table to enable placing the order</Text>
+                    <Text style={S.hintTxt}>{t('cashier.walkin.selectTableToEnable', 'Select a table to enable placing the order')}</Text>
                   </View>
                 )}
               </View>
@@ -390,17 +417,28 @@ export default function CashierWalkin({ navigation, route }) {
             {/* ── To Go / Delivery: customer fields ── */}
             {orderType !== 'dine_in' && (
               <View style={S.formGrid}>
-                <View style={S.formRow}>
-                  <View style={S.flex}>
-                    <Text style={S.lbl}>Customer Name *</Text>
-                    <TextInput style={S.inp} value={customerName} onChangeText={setCustomerName} placeholder="E.g. Ali" />
-                  </View>
-                  <PhoneField label="Phone" value={customerPhone} onChange={setCustomerPhone} />
+                <View style={{ width: '100%' }}>
+                  <Text style={S.lbl}>{t('cashier.walkin.customerNameRequired', 'Customer Name *')}</Text>
+                  <TextInput
+                    style={[S.inp, { minHeight: 48, width: '100%' }]}
+                    value={customerName}
+                    onChangeText={setCustomerName}
+                    placeholder={t('cashier.walkin.customerNamePlaceholder', 'E.g. Ali')}
+                  />
+                </View>
+                <View style={{ width: '100%', marginTop: spacing.sm }}>
+                  <PhoneField label={t('cashier.walkin.phone', 'Phone')} value={customerPhone} onChange={setCustomerPhone} />
                 </View>
                 {orderType === 'delivery' && (
-                  <View style={{ marginTop: spacing.sm }}>
-                    <Text style={S.lbl}>Delivery Address *</Text>
-                    <TextInput style={[S.inp, { height: 60 }]} value={deliveryAddress} onChangeText={setDeliveryAddress} placeholder="Street, Apt, etc." multiline />
+                  <View style={{ marginTop: spacing.sm, width: '100%' }}>
+                    <Text style={S.lbl}>{t('cashier.walkin.deliveryAddress', 'Delivery Address *')}</Text>
+                    <TextInput
+                      style={[S.inp, { height: 60, width: '100%' }]}
+                      value={deliveryAddress}
+                      onChangeText={setDeliveryAddress}
+                      placeholder={t('cashier.walkin.deliveryAddressPlaceholder', 'Street, Apt, etc.')}
+                      multiline
+                    />
                   </View>
                 )}
               </View>
@@ -432,7 +470,7 @@ export default function CashierWalkin({ navigation, route }) {
           {visibleItems.length === 0 && (
             <View style={S.empty}>
               <MaterialIcons name="menu-book" size={36} color={colors.border} />
-              <Text style={S.emptyTxt}>No items</Text>
+              <Text style={S.emptyTxt}>{t('cashier.walkin.noItems', 'No items')}</Text>
             </View>
           )}
           {visibleItems.map(item => {
@@ -443,7 +481,7 @@ export default function CashierWalkin({ navigation, route }) {
                 <View style={S.flex}>
                   <Text style={[S.itemName, !avail && { color: '#9ca3af' }]}>{item.name}</Text>
                   <Text style={[S.itemPrice, !avail && { color: '#9ca3af' }]}>{fmt(item.price)}</Text>
-                  {!avail && <Text style={{ fontSize: 10, color: '#dc2626', fontWeight: '700', marginTop: 2 }}>Inactive</Text>}
+                  {!avail && <Text style={{ fontSize: 10, color: '#dc2626', fontWeight: '700', marginTop: 2 }}>{t('cashier.walkin.inactive', 'Inactive')}</Text>}
                 </View>
                 {avail ? (
                   inCart ? (
@@ -463,7 +501,7 @@ export default function CashierWalkin({ navigation, route }) {
                   )
                 ) : (
                   <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#fee2e2', borderRadius: 6 }}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#dc2626' }}>OFF</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#dc2626' }}>{t('cashier.walkin.off', 'OFF')}</Text>
                   </View>
                 )}
               </View>
@@ -479,14 +517,14 @@ export default function CashierWalkin({ navigation, route }) {
             <View style={S.footerMeta}>
               <MaterialIcons name="table-restaurant" size={14} color={colors.neutralMid} />
               <Text style={S.footerMetaTxt}>
-                {selectedTable.name || `Table ${selectedTable.number || selectedTable.id}`}
+                {selectedTable.name || `${t('cashier.walkin.table', 'Table')} ${selectedTable.number || selectedTable.id}`}
               </Text>
               <MaterialIcons name="people" size={14} color={colors.neutralMid} style={{ marginLeft: 10 }} />
-              <Text style={S.footerMetaTxt}>{guestCount} guest{guestCount !== 1 ? 's' : ''}</Text>
+              <Text style={S.footerMetaTxt}>{guestCount} {guestCount !== 1 ? t('cashier.walkin.guestPlural', 'guests') : t('cashier.walkin.guest', 'guest')}</Text>
             </View>
           )}
           <View style={S.totalRow}>
-            <Text style={S.totalLbl}>Total</Text>
+            <Text style={S.totalLbl}>{t('common.total', 'Total')}</Text>
             <Text style={S.totalVal}>{fmt(subtotal)}</Text>
           </View>
           <View style={S.footerBtns}>
@@ -497,7 +535,7 @@ export default function CashierWalkin({ navigation, route }) {
             >
               {sending
                 ? <ActivityIndicator color={colors.textDark} />
-                : <Text style={S.kitchenBtnTxt}>{editModeOrder ? 'Append Items' : 'Send to Kitchen'}</Text>
+                : <Text style={S.kitchenBtnTxt}>{editModeOrder ? t('cashier.walkin.appendItems', 'Append Items') : t('cashier.walkin.sendToKitchen', 'Send to Kitchen')}</Text>
               }
             </TouchableOpacity>
             {!editModeOrder && (
@@ -506,7 +544,7 @@ export default function CashierWalkin({ navigation, route }) {
                 onPress={() => processOrder(true)}
                 disabled={sending || (orderType === 'dine_in' && !selectedTableId)}
               >
-                <Text style={S.payBtnTxt}>Skip — Pay Now</Text>
+                <Text style={S.payBtnTxt}>{t('cashier.walkin.skipPayNow', 'Skip — Pay Now')}</Text>
               </TouchableOpacity>
             )}
           </View>

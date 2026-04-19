@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from '../../context/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import { useApi, money, fmtDate } from '../../hooks/useApi';
 import { ordersAPI, menuAPI, tablesAPI, usersAPI } from '../../api/client';
@@ -18,16 +19,17 @@ const statusColors = {
   cancelled: { bg: 'bg-red-100', text: 'text-red-700', badge: 'bg-red-500' },
 };
 
-const statusLabels = {
-  pending: 'Pending',
-  sent_to_kitchen: 'Sent to Kitchen',
-  preparing: 'Preparing',
-  ready: 'Ready',
-  served: 'Served',
-  bill_requested: 'Bill Requested',
-  paid: 'Paid',
-  cancelled: 'Cancelled',
-};
+// statusLabels resolved via t() inside the component
+const getStatusLabels = (t) => ({
+  pending: t('admin.orders.statusLabels.pending'),
+  sent_to_kitchen: t('statuses.sentToKitchen'),
+  preparing: t('admin.orders.statusLabels.preparing'),
+  ready: t('admin.orders.statusLabels.ready'),
+  served: t('admin.orders.statusLabels.served'),
+  bill_requested: t('admin.orders.statusLabels.bill_requested'),
+  paid: t('admin.orders.statusLabels.paid'),
+  cancelled: t('statuses.cancelled'),
+});
 
 const statusFlow = {
   pending: 'sent_to_kitchen',
@@ -38,34 +40,20 @@ const statusFlow = {
   bill_requested: null,
 };
 
-const nextStatusLabel = {
-  pending: 'Send to Kitchen',
-  sent_to_kitchen: 'Start Preparing',
-  preparing: 'Mark Ready',
-  ready: 'Mark Served',
-  served: 'Request Bill',
+const getNextStatusLabel = (t) => ({
+  pending: t('admin.orders.sendToKitchen'),
+  sent_to_kitchen: t('admin.orders.nextStatusLabels.confirmed'),
+  preparing: t('admin.orders.nextStatusLabels.preparing'),
+  ready: t('admin.orders.nextStatusLabels.ready'),
+  served: t('admin.orders.nextStatusLabels.served'),
   bill_requested: null,
-};
+});
 
-const deleteReasons = [
-  'Duplicate Entry',
-  'Wrong Table',
-  'Test Order',
-  'Customer Left',
-  'Other',
-];
-
-const cancelReasons = [
-  'Customer Left',
-  'Customer Changed Mind',
-  'Kitchen Issue',
-  'Wrong Order',
-  'Long Wait Time',
-  'Other',
-];
+// deleteReasons and cancelReasons loaded from i18n
 
 export default function AdminOrders() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { call, loading, error } = useApi();
   const [activeOrders, setActiveOrders] = useState([]);
   const [paidOrders, setPaidOrders] = useState([]);
@@ -307,10 +295,10 @@ export default function AdminOrders() {
     const created = new Date(createdAt);
     const diffMs = now - created;
     const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'Now';
-    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffMins < 1) return t('admin.orders.nowLabel');
+    if (diffMins < 60) return t('admin.orders.minAgo', { m: diffMins });
     const diffHours = Math.floor(diffMins / 60);
-    return `${diffHours}h ago`;
+    return t('admin.orders.hoursAgo', { h: diffHours });
   };
 
   const displayItems = (items, maxItems = 3) => {
@@ -335,12 +323,12 @@ export default function AdminOrders() {
 
   const getWaitressName = (waitressId) => {
     const waitress = allWaitresses.find(w => w.id === waitressId);
-    return waitress ? waitress.name : waitressId || 'N/A';
+    return waitress ? waitress.name : waitressId || t('admin.orders.na');
   };
 
   const getTableNumber = (tableId) => {
     const table = allTables.find(t => t.id === tableId);
-    return table ? table.tableNumber : tableId || 'N/A';
+    return table ? table.tableNumber : tableId || t('admin.orders.na');
   };
 
   const openEditModal = (order) => {
@@ -527,7 +515,7 @@ export default function AdminOrders() {
   if (!initialLoaded) {
     return (
       <div className="p-8 text-center">
-        <div className="text-gray-600">Loading orders...</div>
+        <div className="text-gray-600">{t("common.loading")}</div>
       </div>
     );
   }
@@ -542,7 +530,7 @@ export default function AdminOrders() {
               <div className="p-2 bg-blue-100 rounded-lg">
                 <ClipboardList className="text-blue-600" size={28} />
               </div>
-              <h1 className="text-3xl font-bold text-gray-900">Order Management</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{t("admin.orders.title")}</h1>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -550,7 +538,7 @@ export default function AdminOrders() {
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
               >
                 <Plus size={18} />
-                New Order
+                {t("admin.orders.newOrder")}
               </button>
               <button
                 onClick={handleRefresh}
@@ -558,7 +546,7 @@ export default function AdminOrders() {
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
               >
                 <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
-                Refresh
+                {t("common.refresh")}
               </button>
             </div>
           </div>
@@ -566,23 +554,23 @@ export default function AdminOrders() {
           {/* Status Badges */}
           <div className="flex flex-wrap gap-3">
             <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
-              <span className="text-sm font-medium text-gray-600">Pending:</span>
+              <span className="text-sm font-medium text-gray-600">{t("statuses.pending")}:</span>
               <span className="text-lg font-bold text-gray-900">{activeStatusCounts.pending || 0}</span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 bg-orange-100 rounded-lg">
-              <span className="text-sm font-medium text-orange-600">In Kitchen:</span>
+              <span className="text-sm font-medium text-orange-600">{t("statuses.sentToKitchen")}:</span>
               <span className="text-lg font-bold text-orange-900">{(activeStatusCounts.sent_to_kitchen || 0) + (activeStatusCounts.preparing || 0)}</span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 bg-green-100 rounded-lg">
-              <span className="text-sm font-medium text-green-600">Ready:</span>
+              <span className="text-sm font-medium text-green-600">{t("statuses.ready")}:</span>
               <span className="text-lg font-bold text-green-900">{activeStatusCounts.ready || 0}</span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 bg-blue-100 rounded-lg">
-              <span className="text-sm font-medium text-blue-600">Served:</span>
+              <span className="text-sm font-medium text-blue-600">{t("statuses.served")}:</span>
               <span className="text-lg font-bold text-blue-900">{activeStatusCounts.served || 0}</span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 bg-purple-100 rounded-lg">
-              <span className="text-sm font-medium text-purple-600">Bill Requested:</span>
+              <span className="text-sm font-medium text-purple-600">{t("statuses.billRequested")}:</span>
               <span className="text-lg font-bold text-purple-900">{activeStatusCounts.bill_requested || 0}</span>
             </div>
           </div>
@@ -593,9 +581,9 @@ export default function AdminOrders() {
       <div className="max-w-7xl mx-auto px-6 py-6">
         <div className="flex gap-2 mb-8 border-b border-gray-200">
           {[
-            { id: 'active', label: 'Active Orders', icon: ClipboardList },
-            { id: 'paid', label: 'Paid Orders', icon: CreditCard },
-            { id: 'cancelled', label: 'Cancelled Orders', icon: Ban },
+            { id: 'active', label: t('admin.orders.activeOrders'), icon: ClipboardList },
+            { id: 'paid', label: t('admin.orders.paidOrders'), icon: CreditCard },
+            { id: 'cancelled', label: t('admin.orders.cancelledOrders'), icon: Ban },
           ].map((t) => {
             const Icon = t.icon;
             return (
@@ -630,7 +618,7 @@ export default function AdminOrders() {
                     <div className="flex items-center gap-3">
                       <span className="text-lg font-bold text-gray-900">#{order.dailyNumber || '—'}</span>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${statusColors[order.status]?.bg || 'bg-gray-100'} ${statusColors[order.status]?.text || 'text-gray-700'}`}>
-                        {statusLabels[order.status] || order.status}
+                        {getStatusLabels(t)[order.status] || order.status}
                       </span>
                     </div>
                     <span className="text-xs text-gray-400">{getElapsedTime(order.createdAt)}</span>
@@ -638,7 +626,7 @@ export default function AdminOrders() {
 
                   {/* Row 2: Table + Waitress */}
                   <div className="px-4 pb-3 flex items-center gap-1.5 text-sm text-gray-600">
-                    <span className="font-semibold text-gray-800">Table {getTableNumber(order.tableId)}</span>
+                    <span className="font-semibold text-gray-800">{t('admin.orders.tablePrefix')} {getTableNumber(order.tableId)}</span>
                     <span className="text-gray-300">·</span>
                     <span>{getWaitressName(order.waitressId)}</span>
                   </div>
@@ -653,11 +641,11 @@ export default function AdminOrders() {
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={(e) => { e.stopPropagation(); openEditModal(order); }}
-                        className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition" title="Edit">
+                        className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition" title={t('common.edit', 'Edit')}>
                         <Edit3 size={16} />
                       </button>
                       <button onClick={(e) => { e.stopPropagation(); setCancelTarget(order); }}
-                        className="p-2 rounded-lg text-red-400 hover:bg-red-50 transition" title="Cancel Order">
+                        className="p-2 rounded-lg text-red-400 hover:bg-red-50 transition" title={t('orders.cancelOrder', 'Cancel Order')}>
                         <Ban size={16} />
                       </button>
                     </div>
@@ -672,7 +660,7 @@ export default function AdminOrders() {
                           className="flex-1 px-3 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition flex items-center justify-center gap-2 text-sm"
                         >
                           <Check size={14} />
-                          {nextStatusLabel[order.status]}
+                          {getNextStatusLabel(t)[order.status]}
                         </button>
                       )}
                       {(order.status === 'served' || order.status === 'bill_requested') && (
@@ -681,7 +669,7 @@ export default function AdminOrders() {
                           className="flex-1 px-3 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition flex items-center justify-center gap-2 text-sm"
                         >
                           <CreditCard size={14} />
-                          Pay
+                          {t("common.paid")}
                         </button>
                       )}
                     </div>
@@ -692,7 +680,7 @@ export default function AdminOrders() {
             {activeOrders.length === 0 && (
               <div className="text-center py-12 bg-white rounded-lg shadow">
                 <ClipboardList size={40} className="text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600 font-medium">No active orders</p>
+                <p className="text-gray-600 font-medium">{t("admin.orders.noOrdersFound")}</p>
               </div>
             )}
           </div>
@@ -704,20 +692,20 @@ export default function AdminOrders() {
             {/* ── Filter Bar (same style as Inventory Stock Output) ── */}
             <div className="flex flex-wrap gap-3 items-end">
               <div>
-                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">From</label>
-                <DatePicker value={dateFrom} onChange={(v) => { setPeriodPreset('custom'); setDateFrom(v); }} placeholder="Start date" size="sm" className="w-[150px]" />
+                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{t("common.from")}</label>
+                <DatePicker value={dateFrom} onChange={(v) => { setPeriodPreset('custom'); setDateFrom(v); }} placeholder={t('placeholders.startDate', 'Start date')} size="sm" className="w-[150px]" />
               </div>
               <div>
-                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">To</label>
-                <DatePicker value={dateTo} onChange={(v) => { setPeriodPreset('custom'); setDateTo(v); }} placeholder="End date" size="sm" className="w-[150px]" />
+                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{t("common.to")}</label>
+                <DatePicker value={dateTo} onChange={(v) => { setPeriodPreset('custom'); setDateTo(v); }} placeholder={t('placeholders.endDate', 'End date')} size="sm" className="w-[150px]" />
               </div>
               <div className="flex gap-1.5 items-center pb-[1px]">
                 {[
-                  { id: 'today', label: 'Today' },
-                  { id: 'yesterday', label: 'Yesterday' },
-                  { id: '7days', label: '7 Days' },
-                  { id: '30days', label: '30 Days' },
-                  { id: 'this_month', label: 'This Month' },
+                  { id: 'today', label: t('periods.today') },
+                  { id: 'yesterday', label: t('periods.yesterday') },
+                  { id: '7days', label: t('periods.last7days') },
+                  { id: '30days', label: t('periods.last30days') },
+                  { id: 'this_month', label: t('periods.thisMonth') },
                 ].map(p => (
                   <button key={p.id} onClick={() => applyPeriod(p.id)}
                     className={`px-2.5 py-2 rounded-lg text-[11px] font-semibold transition-colors ${
@@ -728,18 +716,18 @@ export default function AdminOrders() {
                 ))}
               </div>
               <div className="ml-auto">
-                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Payment</label>
+                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{t("cashier.orders.paymentMethod")}</label>
                 <Dropdown
                   value={paymentFilter}
                   onChange={(v) => setPaymentFilter(v)}
                   options={[
-                    { value: 'all', label: 'All Methods' },
-                    { value: 'cash', label: 'Cash' },
-                    { value: 'card', label: 'Card' },
-                    { value: 'online', label: 'Online' },
-                    { value: 'split', label: 'Split' },
-                    { value: 'qr_code', label: 'QR Code' },
-                    { value: 'loan', label: 'Loan' },
+                    { value: 'all', label: t('admin.orders.allMethods') },
+                    { value: 'cash', label: t('paymentMethods.cash') },
+                    { value: 'card', label: t('paymentMethods.card') },
+                    { value: 'online', label: t('paymentMethods.online') },
+                    { value: 'split', label: t('admin.orders.splitLabel') },
+                    { value: 'qr_code', label: t('paymentMethods.qrCode') },
+                    { value: 'loan', label: t('paymentMethods.loan') },
                   ]}
                   size="sm"
                   className="w-[150px]"
@@ -750,15 +738,15 @@ export default function AdminOrders() {
             {/* Revenue Summary Cards */}
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Total Revenue</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t("owner.sales.totalRevenue")}</p>
                 <p className="text-2xl font-bold text-blue-600">{money(totalRevenue)}</p>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Orders</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t('admin.orders.title')}</p>
                 <p className="text-2xl font-bold text-gray-900">{filteredPaidOrders.length}</p>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Avg Order</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t("owner.sales.avgOrderValue")}</p>
                 <p className="text-2xl font-bold text-gray-900">{money(filteredPaidOrders.length > 0 ? totalRevenue / filteredPaidOrders.length : 0)}</p>
               </div>
             </div>
@@ -769,13 +757,13 @@ export default function AdminOrders() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Order</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Table</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Items</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Total</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Payment</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Waitress</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Time</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('common.order')}</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('admin.tables.title')}</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('common.items')}</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('common.total')}</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('cashier.orders.paymentMethod')}</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('roles.waitress')}</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">{t('admin.tables.time')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -794,7 +782,7 @@ export default function AdminOrders() {
                             <span className="text-sm font-bold text-gray-900">#{order.dailyNumber || '—'}</span>
                           </td>
                           <td className="px-5 py-3.5 text-sm text-gray-600">
-                            {order.tableId ? `Table ${getTableNumber(order.tableId)}` : <span className="text-gray-400">—</span>}
+                            {order.tableId ? `${t('admin.orders.tablePrefix')} ${getTableNumber(order.tableId)}` : <span className="text-gray-400">--</span>}
                           </td>
                           <td className="px-5 py-3.5">
                             <span className="text-sm text-gray-600">{itemCount} items</span>
@@ -818,7 +806,7 @@ export default function AdminOrders() {
                                   loanPaid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                                 }`}>
                                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${loanPaid ? 'bg-green-500' : 'bg-red-500'}`} />
-                                  {loanPaid ? 'Repaid' : 'Unpaid debt'}
+                                  {loanPaid ? t('common.paid') : t('common.unpaid')}
                                 </span>
                               )}
                               {/* Loan customer name */}
@@ -842,7 +830,7 @@ export default function AdminOrders() {
             {filteredPaidOrders.length === 0 && (
               <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
                 <CreditCard size={40} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 font-medium">No paid orders for this period</p>
+                <p className="text-gray-500 font-medium">{t('admin.orders.noOrdersFound')}</p>
               </div>
             )}
           </div>
@@ -855,22 +843,22 @@ export default function AdminOrders() {
               <table className="w-full">
                 <thead className="bg-gradient-to-r from-red-50 to-red-100 border-b border-gray-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Order #</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Table</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Items</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Total</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Cancellation Reason</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">{t('common.order')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">{t('admin.orders.tablePrefix')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">{t('admin.orders.items')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">{t('admin.orders.total')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">{t('admin.orders.cancellationReason')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">{t('admin.orders.date')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {cancelledOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-red-50 transition">
                       <td className="px-6 py-4 text-sm font-semibold text-gray-900">#{order.dailyNumber || '—'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">Table {getTableNumber(order.tableId)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{Array.isArray(order.items) ? order.items.length : 0} items</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{t('admin.orders.tablePrefix')} {getTableNumber(order.tableId)}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{t('admin.orders.itemsCount', { count: Array.isArray(order.items) ? order.items.length : 0 })}</td>
                       <td className="px-6 py-4 text-sm font-bold text-gray-900">{money(order.totalAmount || 0)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{order.cancellationReason || 'Not specified'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{order.cancellationReason || t('common.noData')}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{fmtDate(order.updatedAt)}</td>
                     </tr>
                   ))}
@@ -881,7 +869,7 @@ export default function AdminOrders() {
             {cancelledOrders.length === 0 && (
               <div className="text-center py-12">
                 <Ban size={40} className="text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600 font-medium">No cancelled orders</p>
+                <p className="text-gray-600 font-medium">{t('admin.orders.noOrdersFound')}</p>
               </div>
             )}
           </div>
@@ -911,21 +899,21 @@ export default function AdminOrders() {
               {/* Order Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Status</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{t('common.status')}</div>
                   <span className={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${statusColors[selectedOrder.status]?.bg || 'bg-gray-100'} ${statusColors[selectedOrder.status]?.text || 'text-gray-700'}`}>
-                    {statusLabels[selectedOrder.status] || selectedOrder.status}
+                    {getStatusLabels(t)[selectedOrder.status] || selectedOrder.status}
                   </span>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Table</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{t('admin.newOrder.table')}</div>
                   <div className="text-lg font-bold text-gray-900">{getTableNumber(selectedOrder.tableId)}</div>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Waitress</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{t('roles.waitress')}</div>
                   <div className="text-lg font-bold text-gray-900">{getWaitressName(selectedOrder.waitressId)}</div>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Order Type</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{t('admin.newOrder.title')}</div>
                   <div className="text-lg font-bold text-gray-900">{selectedOrder.orderType || 'Dine-in'}</div>
                 </div>
               </div>
@@ -935,8 +923,8 @@ export default function AdminOrders() {
                 <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
                   <Ban size={20} className="text-red-500 mt-0.5 flex-shrink-0" />
                   <div>
-                    <div className="text-sm font-bold text-red-700">Order Cancelled</div>
-                    <div className="text-sm text-red-600 mt-0.5">{selectedOrder.cancellationReason || 'No reason specified'}</div>
+                    <div className="text-sm font-bold text-red-700">{t('admin.orders.cancelledOrders')}</div>
+                    <div className="text-sm text-red-600 mt-0.5">{selectedOrder.cancellationReason || t('common.noData')}</div>
                   </div>
                 </div>
               )}
@@ -945,17 +933,17 @@ export default function AdminOrders() {
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                   <ClipboardList size={18} />
-                  Items Ordered
+                  {t('common.items')}
                 </h3>
                 <div className="space-y-2 bg-gray-50 rounded-lg p-4">
                   {Array.isArray(selectedOrder.items) && selectedOrder.items.length > 0 ? (
                     <table className="w-full text-sm">
                       <thead className="border-b border-gray-200 mb-2">
                         <tr>
-                          <th className="text-left text-xs font-semibold text-gray-600 pb-2">Item</th>
+                          <th className="text-left text-xs font-semibold text-gray-600 pb-2">{t('common.name')}</th>
                           <th className="text-center text-xs font-semibold text-gray-600 pb-2">Qty</th>
                           <th className="text-right text-xs font-semibold text-gray-600 pb-2">Unit Price</th>
-                          <th className="text-right text-xs font-semibold text-gray-600 pb-2">Subtotal</th>
+                          <th className="text-right text-xs font-semibold text-gray-600 pb-2">{t('common.subtotal')}</th>
                         </tr>
                       </thead>
                       <tbody className="space-y-1">
@@ -970,7 +958,7 @@ export default function AdminOrders() {
                       </tbody>
                     </table>
                   ) : (
-                    <p className="text-gray-600 text-sm">No items in this order</p>
+                    <p className="text-gray-600 text-sm">{t('common.noResults')}</p>
                   )}
                 </div>
               </div>
@@ -978,7 +966,7 @@ export default function AdminOrders() {
               {/* Total */}
               <div className="border-t border-gray-200 pt-4">
                 <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <span className="font-semibold text-gray-900">Total Amount</span>
+                  <span className="font-semibold text-gray-900">{t('common.total')}</span>
                   <span className="text-3xl font-bold text-blue-600">{money(selectedOrder.totalAmount || 0)}</span>
                 </div>
               </div>
@@ -991,7 +979,7 @@ export default function AdminOrders() {
                     <div className="rounded-lg border border-gray-200 overflow-hidden">
                       <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
                         <CreditCard size={16} className="text-blue-600" />
-                        <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Split Payment Breakdown</span>
+                        <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">{t('cashier.orders.splitBill')}</span>
                       </div>
                       {selectedOrder.splitPayments.map((sp, i) => {
                         const methodLabel = { cash: 'Cash', card: 'Card', qr_code: 'QR Code', loan: 'Loan' }[sp.method] || sp.method;
@@ -1035,7 +1023,7 @@ export default function AdminOrders() {
                       <div className="p-4 bg-gray-50 flex items-center gap-3">
                         <CreditCard size={20} className={selectedOrder.paymentMethod === 'loan' ? 'text-amber-500' : 'text-blue-600'} />
                         <div>
-                          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Payment Method</div>
+                          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('cashier.orders.paymentMethod')}</div>
                           <div className={`font-bold text-sm capitalize mt-0.5 ${selectedOrder.paymentMethod === 'loan' ? 'text-amber-700' : 'text-gray-900'}`}>
                             {selectedOrder.paymentMethod?.replace('_', ' ')}
                           </div>
@@ -1061,7 +1049,7 @@ export default function AdminOrders() {
                               <div className="flex items-center gap-2">
                                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${loanPaid ? 'bg-green-500' : 'bg-red-500'}`} />
                                 <span className={`text-sm font-bold ${loanPaid ? 'text-green-700' : 'text-red-700'}`}>
-                                  {loanPaid ? 'Debt repaid' : 'Debt not yet repaid'}
+                                  {loanPaid ? t('common.paid') : t('common.unpaid')}
                                 </span>
                               </div>
                               {loanPaid && paidAt && (
@@ -1076,7 +1064,7 @@ export default function AdminOrders() {
                             {/* Borrower info */}
                             {(name || phone || amt) && (
                               <div className="px-4 py-3 bg-amber-50 space-y-1.5">
-                                <div className="text-xs font-bold text-amber-700 uppercase tracking-wider">Loan Taker</div>
+                                <div className="text-xs font-bold text-amber-700 uppercase tracking-wider">{t('paymentMethods.loan')}</div>
                                 {name && (
                                   <div className="flex items-center gap-2 text-sm text-gray-800">
                                     <User size={13} className="text-amber-500 flex-shrink-0" />
@@ -1120,11 +1108,11 @@ export default function AdminOrders() {
               {/* Timestamps */}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Created</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{t('common.date')}</div>
                   <div className="text-gray-900 font-medium">{fmtDate(selectedOrder.createdAt)}</div>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-xs font-semibold text-gray-600 mb-1">Updated</div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">{t('common.date')}</div>
                   <div className="text-gray-900 font-medium">{fmtDate(selectedOrder.updatedAt)}</div>
                 </div>
               </div>
@@ -1137,14 +1125,14 @@ export default function AdminOrders() {
                     className="flex-1 px-4 py-2 bg-red-50 text-red-600 font-semibold rounded-lg hover:bg-red-100 transition flex items-center justify-center gap-2"
                   >
                     <Ban size={16} />
-                    Cancel Order
+                    {t('admin.orders.cancelOrder')}
                   </button>
                 )}
                 <button
                   onClick={() => setSelectedOrder(null)}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 font-semibold rounded-lg hover:bg-gray-300 transition"
                 >
-                  Close
+                  {t('common.close')}
                 </button>
               </div>
             </div>
@@ -1172,24 +1160,24 @@ export default function AdminOrders() {
             <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
 
               {/* Section: Order Info */}
-              <p className="text-xs font-bold text-blue-600 tracking-wider uppercase">Order Info</p>
+              <p className="text-xs font-bold text-blue-600 tracking-wider uppercase">{t('common.details')}</p>
 
               {/* Table + Waitress side by side */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Table</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{t('admin.newOrder.table')}</label>
                   <Dropdown
                     value={editFormData.tableId || ''}
                     onChange={(value) => setEditFormData({ ...editFormData, tableId: value || null })}
                     options={[
-                      { value: '', label: 'Select a table...' },
-                      ...allTables.map(table => ({ value: table.id, label: `Table ${table.tableNumber}` }))
+                      { value: '', label: t('common.select') },
+                      ...allTables.map(table => ({ value: table.id, label: `${t('admin.orders.tablePrefix')} ${table.tableNumber}` }))
                     ]}
                     size="sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Waitress</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{t('roles.waitress')}</label>
                   <Dropdown
                     value={editFormData.waitressId || ''}
                     onChange={(value) => setEditFormData({ ...editFormData, waitressId: value || null })}
@@ -1201,7 +1189,7 @@ export default function AdminOrders() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Guests</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{t('admin.newOrder.guests')}</label>
                   <div className="flex items-center bg-white rounded-xl border border-gray-200 overflow-hidden h-[38px]">
                     <button onClick={() => setEditFormData(f => ({ ...f, guestCount: Math.max(1, (f.guestCount || 1) - 1) }))}
                       className="px-4 h-full text-blue-600 hover:bg-blue-50 transition">
@@ -1217,7 +1205,7 @@ export default function AdminOrders() {
               </div>
 
               {/* Section: Order Items */}
-              <p className="text-xs font-bold text-blue-600 tracking-wider uppercase pt-1">Order Items</p>
+              <p className="text-xs font-bold text-blue-600 tracking-wider uppercase pt-1">{t('common.items')}</p>
 
               {editFormData.items.length > 0 ? (
                 <div className="space-y-2">
@@ -1246,16 +1234,16 @@ export default function AdminOrders() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 py-2">No items added yet</p>
+                <p className="text-sm text-gray-400 py-2">{t('common.noResults')}</p>
               )}
 
               {/* Section: Add Items */}
-              <p className="text-xs font-bold text-blue-600 tracking-wider uppercase pt-2">Add Items</p>
+              <p className="text-xs font-bold text-blue-600 tracking-wider uppercase pt-2">{t('admin.orders.addItemsToOrder')}</p>
 
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Search menu..."
+                  placeholder={t("admin.menu.searchPlaceholder")}
                   value={searchMenuQuery}
                   onChange={(e) => setSearchMenuQuery(e.target.value)}
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1277,17 +1265,17 @@ export default function AdminOrders() {
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-gray-400 py-2">No items found</p>
+                  <p className="text-sm text-gray-400 py-2">{t('common.noResults')}</p>
                 )}
               </div>
 
               {/* Notes */}
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Notes</label>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{t('common.notes')}</label>
                 <textarea
                   value={editFormData.notes}
                   onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
-                  placeholder="Add order notes..."
+                  placeholder={t('placeholders.orderNotes', 'Add order notes...')}
                   className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   rows="2"
                 />
@@ -1307,10 +1295,10 @@ export default function AdminOrders() {
         const orderItems  = Array.isArray(paymentOrder.items) ? paymentOrder.items : [];
 
         const METHODS = [
-          { key: 'cash',    label: 'Cash',    Icon: DollarSign },
-          { key: 'card',    label: 'Card',    Icon: CreditCard },
-          { key: 'qr_code', label: 'QR Code', Icon: Grid3X3   },
-          { key: 'loan',    label: 'Loan',    Icon: User       },
+          { key: 'cash',    label: t('paymentMethods.cash'),    Icon: DollarSign },
+          { key: 'card',    label: t('paymentMethods.card'),    Icon: CreditCard },
+          { key: 'qr_code', label: t('paymentMethods.qrCode'), Icon: Grid3X3   },
+          { key: 'loan',    label: t('paymentMethods.loan'),    Icon: User       },
         ];
 
         const handlePrintCheque = () => {
@@ -1335,10 +1323,10 @@ export default function AdminOrders() {
                     <CreditCard size={20} className="text-blue-600" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-gray-900">Collect Payment</h2>
+                    <h2 className="text-lg font-bold text-gray-900">{t('cashier.orders.processPayment')}</h2>
                     <p className="text-sm text-gray-500">
                       Order #{paymentOrder.dailyNumber || '—'}
-                      {paymentOrder.tableName ? ` · ${paymentOrder.tableName}` : paymentOrder.tableId ? ` · Table ${getTableNumber(paymentOrder.tableId)}` : ''}
+                      {paymentOrder.tableName ? ` · ${paymentOrder.tableName}` : paymentOrder.tableId ? ` · ${t('admin.orders.tablePrefix')} ${getTableNumber(paymentOrder.tableId)}` : ''}
                       {paymentOrder.waitressId ? ` · ${getWaitressName(paymentOrder.waitressId)}` : ''}
                     </p>
                   </div>
@@ -1356,7 +1344,7 @@ export default function AdminOrders() {
 
                   {/* Payment Method */}
                   <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Payment Method</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t('cashier.orders.paymentMethod')}</p>
                     <div className="grid grid-cols-4 gap-3">
                       {METHODS.map(({ key, label, Icon }) => (
                         <button
@@ -1378,7 +1366,7 @@ export default function AdminOrders() {
                   {/* Amount Received (Cash only) */}
                   {pf.paymentMethod === 'cash' && (
                     <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Amount Received</p>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.amountReceived')}</p>
                       <input
                         type="number"
                         min="0"
@@ -1388,7 +1376,7 @@ export default function AdminOrders() {
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <div className={`mt-2 rounded-xl px-4 py-3 flex items-center justify-between ${change > 0 ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
-                        <span className={`text-sm font-medium ${change > 0 ? 'text-green-600' : 'text-gray-400'}`}>Change to give back</span>
+                        <span className={`text-sm font-medium ${change > 0 ? 'text-green-600' : 'text-gray-400'}`}>{t('cashier.orders.changeToGive')}</span>
                         <span className={`text-xl font-bold ${change > 0 ? 'text-green-600' : 'text-gray-500'}`}>{money(change)}</span>
                       </div>
                     </div>
@@ -1398,7 +1386,7 @@ export default function AdminOrders() {
                   <div className="grid grid-cols-2 gap-5">
                     {/* Discount */}
                     <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Discount (Optional)</p>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.applyDiscount')}</p>
                       <div className="flex gap-2 mb-2">
                         {['percentage', 'fixed'].map(t => (
                           <button
@@ -1436,7 +1424,7 @@ export default function AdminOrders() {
 
                     {/* Split Bill */}
                     <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Split Bill (Optional)</p>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.splitBill')}</p>
                       <div className="flex gap-2 mb-2">
                         {[2, 3, 4].map(n => (
                           <button
@@ -1522,7 +1510,7 @@ export default function AdminOrders() {
                                   type="text"
                                   value={part.loanName}
                                   onChange={e => { const u=[...splitParts]; u[idx]={...u[idx],loanName:e.target.value}; setSplitParts(u); }}
-                                  placeholder="Customer name"
+                                  placeholder={t('placeholders.customerName', 'Customer name')}
                                   className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
                                 />
                                 <PhoneInput
@@ -1546,7 +1534,7 @@ export default function AdminOrders() {
                         const isValid = Math.abs(splitTotal - totalToPay) < 1;
                         return (
                           <div className="flex items-center justify-between mt-3 px-1">
-                            <span className="text-xs font-bold text-gray-400 uppercase">Split Total</span>
+                            <span className="text-xs font-bold text-gray-400 uppercase">{t('common.total')}</span>
                             <span className={`text-sm font-bold ${isValid ? 'text-green-600' : 'text-red-500'}`}>
                               {money(splitTotal)} / {money(totalToPay)}
                             </span>
@@ -1565,15 +1553,15 @@ export default function AdminOrders() {
                       </div>
                       <div className="grid grid-cols-3 gap-3">
                         <div>
-                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Customer Name</p>
-                          <input type="text" value={pf.loanName} onChange={e => setPaymentFormData({ ...pf, loanName: e.target.value })} placeholder="Name..." className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.customerName')}</p>
+                          <input type="text" value={pf.loanName} onChange={e => setPaymentFormData({ ...pf, loanName: e.target.value })} placeholder={t('placeholders.nameDots', 'Name...')} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                         </div>
                         <div>
-                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Phone</p>
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('common.phone')}</p>
                           <PhoneInput value={pf.loanPhone} onChange={v => setPaymentFormData({ ...pf, loanPhone: v })} size="md" />
                         </div>
                         <div>
-                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Return Date</p>
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('cashier.orders.expectedReturn')}</p>
                           <DatePicker value={pf.loanDueDate} onChange={v => setPaymentFormData({ ...pf, loanDueDate: v })} size="sm" />
                         </div>
                       </div>
@@ -1582,11 +1570,11 @@ export default function AdminOrders() {
 
                   {/* Notes */}
                   <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Notes (Optional)</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('common.notes')}</p>
                     <textarea
                       value={pf.notes}
                       onChange={e => setPaymentFormData({ ...pf, notes: e.target.value })}
-                      placeholder="Add payment notes..."
+                      placeholder={t('placeholders.paymentNotes', 'Add payment notes...')}
                       rows={2}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                     />
@@ -1600,12 +1588,12 @@ export default function AdminOrders() {
                     {/* Order Items */}
                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Order Items</p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('common.items')}</p>
                         <span className="text-xs font-semibold text-blue-600">{orderItems.reduce((s, i) => s + (i.quantity || 1), 0)} items</span>
                       </div>
                       <div className="divide-y divide-gray-50">
                         {orderItems.length === 0 ? (
-                          <p className="text-sm text-gray-400 text-center py-4">No items</p>
+                          <p className="text-sm text-gray-400 text-center py-4">{t('common.noResults')}</p>
                         ) : orderItems.map((item, idx) => (
                           <div key={idx} className="px-4 py-2.5 flex items-center justify-between">
                             <div className="flex-1 min-w-0">
@@ -1621,17 +1609,17 @@ export default function AdminOrders() {
                     {/* Totals */}
                     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-500">Subtotal</span>
+                        <span className="text-sm text-gray-500">{t('common.subtotal')}</span>
                         <span className="text-sm font-semibold text-gray-900">{money(orderTotal)}</span>
                       </div>
                       {discountAmt > 0 && (
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-green-600">Discount</span>
+                          <span className="text-sm text-green-600">{t('common.discount')}</span>
                           <span className="text-sm font-semibold text-green-600">-{money(discountAmt)}</span>
                         </div>
                       )}
                       <div className="border-t border-gray-200 pt-3 flex items-center justify-between">
-                        <span className="text-base font-bold text-gray-900">Total</span>
+                        <span className="text-base font-bold text-gray-900">{t('common.total')}</span>
                         <span className="text-2xl font-bold text-blue-600">{money(totalToPay)}</span>
                       </div>
                     </div>
@@ -1648,7 +1636,7 @@ export default function AdminOrders() {
                     {/* Cash change */}
                     {pf.paymentMethod === 'cash' && change > 0 && (
                       <div className="bg-green-50 rounded-xl p-4 border border-green-200 flex items-center justify-between">
-                        <span className="text-sm font-medium text-green-700">Change</span>
+                        <span className="text-sm font-medium text-green-700">{t('cashier.orders.change')}</span>
                         <span className="text-xl font-bold text-green-700">{money(change)}</span>
                       </div>
                     )}
@@ -1661,20 +1649,20 @@ export default function AdminOrders() {
                       className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-gray-900 text-white font-bold text-sm rounded-xl hover:bg-gray-800 transition-colors"
                     >
                       <Check size={18} className="text-green-400" />
-                      Confirm Payment · {money(totalToPay)}
+                      {t('cashier.orders.confirmPayment')} · {money(totalToPay)}
                     </button>
                     <button
                       onClick={handlePrintCheque}
                       className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white text-gray-700 font-semibold text-sm rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
                     >
                       <Printer size={16} />
-                      Print Receipt
+                      {t('cashier.orders.printReceipt')}
                     </button>
                     <button
                       onClick={() => setPaymentOrder(null)}
                       className="w-full py-2 text-gray-400 font-medium text-sm hover:text-gray-600 transition-colors"
                     >
-                      Cancel
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </div>
@@ -1692,7 +1680,7 @@ export default function AdminOrders() {
             <div className="bg-red-50 border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <AlertTriangle className="text-red-600" size={24} />
-                <h2 className="text-lg font-bold text-gray-900">Delete Order</h2>
+                <h2 className="text-lg font-bold text-gray-900">{t('common.delete')}</h2>
               </div>
               <button
                 onClick={() => {
@@ -1711,13 +1699,13 @@ export default function AdminOrders() {
 
               {/* Reason Dropdown */}
               <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Reason for Deletion</label>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">{t('common.description')}</label>
                 <Dropdown
                   value={deleteReason}
                   onChange={(value) => setDeleteReason(value)}
                   options={[
-                    { value: '', label: 'Select a reason...' },
-                    ...deleteReasons.map((reason) => ({
+                    { value: '', label: t('admin.orders.selectReason') },
+                    ...t('admin.orders.deleteReasons').map((reason) => ({
                       value: reason,
                       label: reason
                     }))
@@ -1733,7 +1721,7 @@ export default function AdminOrders() {
                   className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition flex items-center justify-center gap-2"
                 >
                   <Trash2 size={18} />
-                  Delete
+                  {t('common.delete')}
                 </button>
                 <button
                   onClick={() => {
@@ -1742,7 +1730,7 @@ export default function AdminOrders() {
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 font-semibold rounded-lg hover:bg-gray-300 transition"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </div>
@@ -1759,7 +1747,7 @@ export default function AdminOrders() {
               <div className="flex items-center gap-3">
                 <Ban className="text-orange-600" size={24} />
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">Cancel Order</h2>
+                  <h2 className="text-lg font-bold text-gray-900">{t("admin.orders.cancelOrder")}</h2>
                   <p className="text-xs text-gray-500">#{cancelTarget.dailyNumber || '—'} · {cancelTarget.tableName || 'Walk-in'}</p>
                 </div>
               </div>
@@ -1776,7 +1764,7 @@ export default function AdminOrders() {
               <p className="text-sm text-gray-600">Please select a reason for cancelling this order:</p>
 
               <div className="space-y-2">
-                {cancelReasons.map((r) => (
+                {t('admin.orders.cancelReasons').map((r) => (
                   <button
                     key={r}
                     onClick={() => setCancelReason(r)}
@@ -1800,7 +1788,7 @@ export default function AdminOrders() {
                 <textarea
                   value={cancelOtherText}
                   onChange={(e) => setCancelOtherText(e.target.value)}
-                  placeholder="Describe the reason…"
+                  placeholder={t('placeholders.describeReason', 'Describe the reason…')}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400"
                 />
               )}

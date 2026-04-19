@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Grid3x3, AlertCircle, Lock, Unlock, RefreshCw } from 'lucide-react';
 import { tablesAPI } from '../../api/client';
+import { useTranslation } from '../../context/LanguageContext';
 
 const WaitressTables = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +76,7 @@ const WaitressTables = () => {
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          <p className="mt-4 text-gray-600">Loading tables...</p>
+          <p className="mt-4 text-gray-600">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -91,14 +93,14 @@ const WaitressTables = () => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
               <Grid3x3 className="w-8 h-8" style={{ color: '#16A34A' }} />
-              Table Management
+              {t('waitress.tables.title')}
             </h1>
             <p className="text-gray-600 mt-1">
-              <span className="font-medium text-green-600">{freeCount} free</span>
+              <span className="font-medium text-green-600">{freeCount} {t('statuses.free').toLowerCase()}</span>
               <span className="mx-2">·</span>
-              <span className="font-medium text-red-600">{occupiedCount} occupied</span>
+              <span className="font-medium text-red-600">{occupiedCount} {t('statuses.occupied').toLowerCase()}</span>
               <span className="mx-2">·</span>
-              <span className="font-medium text-amber-600">{reservedCount} reserved</span>
+              <span className="font-medium text-amber-600">{reservedCount} {t('statuses.reserved').toLowerCase()}</span>
             </p>
           </div>
           <button
@@ -106,7 +108,7 @@ const WaitressTables = () => {
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            {t('common.refresh')}
           </button>
         </div>
 
@@ -130,14 +132,14 @@ const WaitressTables = () => {
                 <div>
                   <h3 className="text-2xl font-bold leading-tight">{table.tableNumber || table.name}</h3>
                   <p className="text-xs opacity-75 mt-0.5">
-                    {table.status === 'free' ? 'Available' : table.status === 'occupied' ? 'Occupied' : table.status === 'reserved' ? 'Reserved' : 'Cleaning'}
+                    {table.status === 'free' ? t('waitress.tables.available') : table.status === 'occupied' ? t('statuses.occupied') : table.status === 'reserved' ? t('statuses.reserved') : t('statuses.cleaning')}
                   </p>
                 </div>
                 <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1 ${getStatusDot(table.status)}`} />
               </div>
               {/* Body */}
               <div className="px-4 flex-1 flex flex-col justify-between pb-3 overflow-hidden">
-                <p className="text-xs font-medium opacity-80">{table.capacity} seats</p>
+                <p className="text-xs font-medium opacity-80">{table.capacity} {t('admin.tables.seats')}</p>
                 {/* Reservation guest name (if reserved) */}
                 {table.status === 'reserved' && table.reservationGuest && (
                   <p className="text-xs font-semibold truncate opacity-90">{table.reservationGuest}</p>
@@ -162,31 +164,31 @@ const WaitressTables = () => {
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-gray-600 text-sm">Capacity</p>
-                  <p className="text-lg font-semibold text-gray-900">{selectedTable.capacity} Seats</p>
+                  <p className="text-gray-600 text-sm">{t('admin.tables.numberOfSeats')}</p>
+                  <p className="text-lg font-semibold text-gray-900">{selectedTable.capacity} {t('admin.tables.seats')}</p>
                 </div>
                 <div>
-                  <p className="text-gray-600 text-sm">Status</p>
+                  <p className="text-gray-600 text-sm">{t('common.status')}</p>
                   <p className="text-lg font-semibold text-gray-900 capitalize">
-                    {selectedTable.status === 'free' ? 'Available' : selectedTable.status === 'occupied' ? 'Occupied' : 'Reserved'}
+                    {selectedTable.status === 'free' ? t('waitress.tables.available') : selectedTable.status === 'occupied' ? t('statuses.occupied') : t('statuses.reserved')}
                   </p>
                 </div>
               </div>
 
               {selectedTable.currentOrder && (
                 <div className="border-t pt-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Current Order</h3>
+                  <h3 className="font-semibold text-gray-900 mb-3">{t('waitress.tables.currentOrder')}</h3>
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm text-gray-700">
-                      <span>Order ID:</span>
+                      <span>{t('common.order')} ID:</span>
                       <span className="font-semibold">#{selectedTable.currentOrder.id}</span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-700">
-                      <span>Items:</span>
+                      <span>{t('common.items')}:</span>
                       <span className="font-semibold">{selectedTable.currentOrder.items?.length || 0}</span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-700">
-                      <span>Status:</span>
+                      <span>{t('common.status')}:</span>
                       <span className="font-semibold capitalize">
                         {selectedTable.currentOrder.status}
                       </span>
@@ -200,7 +202,7 @@ const WaitressTables = () => {
                   onClick={() => setSelectedTable(null)}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
                 >
-                  Close
+                  {t('common.close')}
                 </button>
 
                 {selectedTable.status === 'free' && (
@@ -212,7 +214,7 @@ const WaitressTables = () => {
                     className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition font-medium flex items-center justify-center gap-2"
                   >
                     <Lock className="w-4 h-4" />
-                    {actionInProgress === selectedTable.id ? 'Marking...' : 'Mark Occupied'}
+                    {actionInProgress === selectedTable.id ? t('waitress.tables.marking') : t('waitress.tables.markOccupied')}
                   </button>
                 )}
 
@@ -226,7 +228,7 @@ const WaitressTables = () => {
                     className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 transition font-medium flex items-center justify-center gap-2"
                   >
                     <Unlock className="w-4 h-4" />
-                    {actionInProgress === selectedTable.id ? 'Marking...' : 'Mark Free'}
+                    {actionInProgress === selectedTable.id ? t('waitress.tables.marking') : t('waitress.tables.markFree')}
                   </button>
                 )}
               </div>

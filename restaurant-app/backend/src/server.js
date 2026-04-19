@@ -25,7 +25,10 @@ async function runMigrations() {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -51,6 +54,7 @@ app.use('/api/permissions',   require('./routes/permissions'));
 app.use('/api/loans',         require('./routes/loans'));
 app.use('/api/finance',       require('./routes/finance'));
 app.use('/api/print',         require('./routes/print'));
+app.use('/api/super-admin',   require('./routes/super-admin'));
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));

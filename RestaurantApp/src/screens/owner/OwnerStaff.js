@@ -9,6 +9,7 @@ import { usersAPI, reportsAPI, shiftsAPI, staffPaymentsAPI } from '../../api/cli
 import { OwnerPeriodBar, OwnerCalendarPicker, TODAY_STR } from '../../components/OwnerPeriodPicker';
 import OwnerStaffDetail from './OwnerStaffDetail';
 import OwnerPageHeader from '../../components/OwnerPageHeader';
+import { useTranslation } from '../../context/LanguageContext';
 
 const P  = '#7C3AED';
 const PL = '#F5F3FF';
@@ -48,42 +49,40 @@ const NAV_ROLES = [
 ];
 
 // ── Role-specific right-side card content ─────────────────────────────────────
-function CardRight({ role, perf, pr, cashierEntry, kitchenEntry }) {
+function CardRight({ role, perf, pr, cashierEntry, kitchenEntry, t }) {
   if (role === 'waitress') {
     if (perf && parseInt(perf.total_orders || 0) > 0) {
       return (
         <>
-          <Text style={st.cardRightTop}>Orders: {perf.total_orders}</Text>
+          <Text style={st.cardRightTop}>{t('owner.staff.orders')}: {perf.total_orders}</Text>
           <Text style={st.cardRightBot}>{money(perf.total_sales)}</Text>
         </>
       );
     }
-    return <Text style={st.noData}>No orders yet</Text>;
+    return <Text style={st.noData}>{t('owner.staff.noOrdersYet')}</Text>;
   }
 
   if (role === 'kitchen') {
-    // kitchenEntry has station-specific orders + avg cook time
     if (kitchenEntry) {
       const avgMin = parseFloat(kitchenEntry.avg_minutes || 0);
       return (
         <>
-          <Text style={st.cardRightTop}>{kitchenEntry.orders_count} orders</Text>
+          <Text style={st.cardRightTop}>{kitchenEntry.orders_count} {t('owner.staff.orders')}</Text>
           <Text style={st.cardRightBot}>
-            {avgMin > 0 ? `~${avgMin.toFixed(0)} min/dish` : 'No cook time data'}
+            {avgMin > 0 ? `~${avgMin.toFixed(0)} ${t('owner.staff.minPerDish')}` : t('owner.staff.noCookTimeData')}
           </Text>
         </>
       );
     }
-    // fallback: show shift data
     if (pr && parseInt(pr.shift_count || 0) > 0) {
       return (
         <>
-          <Text style={st.cardRightTop}>{pr.shift_count} shifts</Text>
+          <Text style={st.cardRightTop}>{pr.shift_count} {t('owner.staff.shifts')}</Text>
           <Text style={st.cardRightBot}>{parseFloat(pr.total_hours || 0).toFixed(1)}h</Text>
         </>
       );
     }
-    return <Text style={st.noData}>No data yet</Text>;
+    return <Text style={st.noData}>{t('owner.staff.noDataYet')}</Text>;
   }
 
   if (role === 'cashier') {
@@ -92,45 +91,45 @@ function CardRight({ role, perf, pr, cashierEntry, kitchenEntry }) {
     if (orders > 0 || days > 0) {
       return (
         <>
-          {orders > 0 && <Text style={st.cardRightTop}>{orders} orders</Text>}
-          {days   > 0 && <Text style={st.cardRightBot}>{days} day{days !== 1 ? 's' : ''} worked</Text>}
-          {orders === 0 && days === 0 && <Text style={st.noData}>No data yet</Text>}
+          {orders > 0 && <Text style={st.cardRightTop}>{orders} {t('owner.staff.orders')}</Text>}
+          {days   > 0 && <Text style={st.cardRightBot}>{days} {t('owner.staff.daysWorked')}</Text>}
+          {orders === 0 && days === 0 && <Text style={st.noData}>{t('owner.staff.noDataYet')}</Text>}
         </>
       );
     }
-    return <Text style={st.noData}>No data yet</Text>;
+    return <Text style={st.noData}>{t('owner.staff.noDataYet')}</Text>;
   }
 
   if (role === 'admin' || role === 'manager') {
     if (pr && (parseInt(pr.shift_count || 0) > 0 || parseFloat(pr.total_hours || 0) > 0)) {
       return (
         <>
-          <Text style={st.cardRightTop}>{pr.shift_count} days worked</Text>
-          <Text style={st.cardRightBot}>{parseFloat(pr.total_hours || 0).toFixed(1)}h total</Text>
+          <Text style={st.cardRightTop}>{pr.shift_count} {t('owner.staff.daysWorked')}</Text>
+          <Text style={st.cardRightBot}>{parseFloat(pr.total_hours || 0).toFixed(1)}h</Text>
         </>
       );
     }
-    return <Text style={st.noData}>No records yet</Text>;
+    return <Text style={st.noData}>{t('owner.staff.noDataYet')}</Text>;
   }
 
   if (role === 'cleaner') {
     if (pr && (parseInt(pr.shift_count || 0) > 0 || parseFloat(pr.total_hours || 0) > 0)) {
       return (
         <>
-          <Text style={st.cardRightTop}>{pr.shift_count} shifts</Text>
+          <Text style={st.cardRightTop}>{pr.shift_count} {t('owner.staff.shifts')}</Text>
           <Text style={st.cardRightBot}>{parseFloat(pr.total_hours || 0).toFixed(1)}h</Text>
         </>
       );
     }
-    return <Text style={st.noData}>No shifts yet</Text>;
+    return <Text style={st.noData}>{t('owner.staff.noDataYet')}</Text>;
   }
 
-  // owner — nothing meaningful
   return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function OwnerStaff() {
+  const { t } = useTranslation();
   const [activeTab,        setActiveTab]        = useState('Performance');
   const [activeRole,       setActiveRole]        = useState('all');   // nav bar filter
 
@@ -311,7 +310,7 @@ export default function OwnerStaff() {
       <View style={st.summaryCard}>
         <MaterialIcons name="people" size={20} color={P} />
         <Text style={st.summaryText}>
-          {filteredStaff.length} {activeRole === 'all' ? 'Active Staff' : `${activeRole.charAt(0).toUpperCase() + activeRole.slice(1)} Staff`}
+          {filteredStaff.length} {activeRole === 'all' ? t('owner.staff.activeStaff') : `${activeRole.charAt(0).toUpperCase() + activeRole.slice(1)}`}
         </Text>
       </View>
 
@@ -341,7 +340,7 @@ export default function OwnerStaff() {
             : 'off')
           : 'off';
         const attDot = { on_duty: '#10B981', late: '#F59E0B', done: '#3B82F6', absent: '#EF4444', off: '#D1D5DB' }[attStatus];
-        const attLabel = { on_duty: 'On Duty', late: 'Late', done: 'Done', absent: 'Absent', off: 'Off' }[attStatus];
+        const attLabel = { on_duty: t('owner.staff.onDuty'), late: t('owner.staff.late'), done: t('owner.staff.done'), absent: t('owner.staff.absent'), off: t('owner.staff.dayOff') }[attStatus];
 
         return (
           <Pressable
@@ -376,6 +375,7 @@ export default function OwnerStaff() {
                 pr={pr}
                 cashierEntry={cashierEntry}
                 kitchenEntry={kitchenEntry}
+                t={t}
               />
               <MaterialIcons name="chevron-right" size={18} color="#D1D5DB" style={{ marginTop: 4 }} />
             </View>
@@ -386,7 +386,7 @@ export default function OwnerStaff() {
       {filteredStaff.length === 0 && (
         <View style={st.emptyState}>
           <MaterialIcons name="people-outline" size={52} color="#D1D5DB" />
-          <Text style={st.emptyText}>No staff in this category</Text>
+          <Text style={st.emptyText}>{t('owner.staff.noStaffInCategory')}</Text>
         </View>
       )}
 
@@ -404,7 +404,7 @@ export default function OwnerStaff() {
       {payrollWithDebts.length === 0 ? (
         <View style={st.emptyState}>
           <MaterialIcons name="work-history" size={52} color="#D1D5DB" />
-          <Text style={st.emptyText}>No payroll data for this period</Text>
+          <Text style={st.emptyText}>{t('owner.staff.noDataYet')}</Text>
         </View>
       ) : (
         payrollWithDebts.map((entry, idx) => {
@@ -430,21 +430,21 @@ export default function OwnerStaff() {
                 </View>
               </View>
               <View style={st.payrollInfoRow}>
-                <Text style={st.payrollInfo}>{entry.shift_count} shifts</Text>
+                <Text style={st.payrollInfo}>{entry.shift_count} {t('owner.staff.shifts')}</Text>
                 <Text style={st.payrollInfo}>{parseFloat(entry.total_hours || 0).toFixed(1)}h</Text>
                 <Text style={st.payrollInfo}>
-                  {entry.salary_type === 'monthly' ? 'Monthly' : 'Earned'}: {money(entry.gross_pay)}
+                  {entry.salary_type === 'monthly' ? t('owner.staff.monthly') : t('owner.staff.earned')}: {money(entry.gross_pay)}
                 </Text>
               </View>
               <View style={st.divider} />
               <View style={st.payrollFinanceRow}>
-                <Text style={st.payrollFinance}>Paid: {money(entry.totalPaid)}</Text>
+                <Text style={st.payrollFinance}>{t('statuses.paid')}: {money(entry.totalPaid)}</Text>
                 {entry.debt > 0 ? (
-                  <Text style={[st.payrollFinance, { color: '#D97706' }]}>Owes: {money(entry.debt)}</Text>
+                  <Text style={[st.payrollFinance, { color: '#D97706' }]}>{t('owner.staff.owes')}: {money(entry.debt)}</Text>
                 ) : entry.debt < 0 ? (
-                  <Text style={[st.payrollFinance, { color: '#DC2626' }]}>Overpaid: {money(Math.abs(entry.debt))}</Text>
+                  <Text style={[st.payrollFinance, { color: '#DC2626' }]}>{t('owner.staff.overpaid')}: {money(Math.abs(entry.debt))}</Text>
                 ) : (
-                  <Text style={[st.payrollFinance, { color: '#16A34A' }]}>✓ Settled</Text>
+                  <Text style={[st.payrollFinance, { color: '#16A34A' }]}>{t('owner.staff.settled')}</Text>
                 )}
                 <MaterialIcons name="chevron-right" size={16} color="#D1D5DB" />
               </View>
@@ -460,7 +460,7 @@ export default function OwnerStaff() {
   if (loading) {
     return (
       <View style={st.container}>
-        <OwnerPageHeader icon="people" title="Staff" subtitle="Team overview & payroll" />
+        <OwnerPageHeader icon="people" title={t('owner.staff.title')} subtitle={t('owner.staff.subtitle')} />
         <View style={st.loadingContainer}>
           <ActivityIndicator size="large" color={P} />
         </View>
@@ -471,19 +471,19 @@ export default function OwnerStaff() {
   return (
     <View style={st.container}>
       {/* ── Header ── */}
-      <OwnerPageHeader icon="people" title="Staff" subtitle="Team overview & payroll">
+      <OwnerPageHeader icon="people" title={t('owner.staff.title')} subtitle={t('owner.staff.subtitle')}>
         <View style={st.tabSwitcher}>
           <Pressable
             style={[st.tabBtn, activeTab === 'Performance' && st.tabBtnActive]}
             onPress={() => setActiveTab('Performance')}
           >
-            <Text style={[st.tabText, activeTab === 'Performance' && st.tabTextActive]}>Performance</Text>
+            <Text style={[st.tabText, activeTab === 'Performance' && st.tabTextActive]}>{t('owner.staff.performance')}</Text>
           </Pressable>
           <Pressable
             style={[st.tabBtn, activeTab === 'Payroll' && st.tabBtnActive]}
             onPress={() => setActiveTab('Payroll')}
           >
-            <Text style={[st.tabText, activeTab === 'Payroll' && st.tabTextActive]}>Payroll</Text>
+            <Text style={[st.tabText, activeTab === 'Payroll' && st.tabTextActive]}>{t('owner.staff.payroll')}</Text>
           </Pressable>
         </View>
       </OwnerPageHeader>

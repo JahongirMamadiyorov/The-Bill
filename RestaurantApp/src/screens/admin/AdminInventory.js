@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { inventoryAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, typography } from '../../utils/theme';
+import { useTranslation } from '../../context/LanguageContext';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 function Field({ label, value, onChangeText, keyboardType = 'default', placeholder }) {
@@ -25,6 +26,7 @@ function Field({ label, value, onChangeText, keyboardType = 'default', placehold
 }
 
 export default function AdminInventory() {
+  const { t } = useTranslation();
   const [items,      setItems]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,7 +80,7 @@ export default function AdminInventory() {
 
   async function save() {
     if (!form.name || !form.quantity || !form.unit) {
-      setDialog({ title: 'Required', message: 'Name, quantity, and unit are required.', type: 'warning' });
+      setDialog({ title: t('common.required'), message: t('adminExtra.nameQtyUnitRequired'), type: 'warning' });
       return;
     }
     try {
@@ -97,7 +99,7 @@ export default function AdminInventory() {
       setModal(false);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.message || 'Save failed', type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.message || t('adminExtra.saveFailed'), type: 'error' });
     }
   }
 
@@ -111,20 +113,20 @@ export default function AdminInventory() {
       setWasteModal(false);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.message || 'Failed to record waste', type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.message || t('adminExtra.failedRecordWaste'), type: 'error' });
     }
   }
 
   async function deleteItem(id) {
     setDialog({
-      title: 'Delete Ingredient',
-      message: 'Remove this ingredient?',
+      title: t('adminExtra.deleteIngredient'),
+      message: t('adminExtra.removeIngredient'),
       type: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t('common.delete'),
       onConfirm: async () => {
         setDialog(null);
         try { await inventoryAPI.delete(id); load(); }
-        catch (_) { setDialog({ title: 'Error', message: 'Delete failed', type: 'error' }); }
+        catch (_) { setDialog({ title: t('common.error'), message: t('adminExtra.deleteFailed'), type: 'error' }); }
       },
     });
   }
@@ -144,7 +146,7 @@ export default function AdminInventory() {
           onPress={() => setFilter('all')}
         >
           <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
-            All ({items.length})
+            {t('common.all')} ({items.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -152,7 +154,7 @@ export default function AdminInventory() {
           onPress={() => setFilter('low')}
         >
           <Text style={[styles.filterText, filter === 'low' && styles.filterTextLow]}>
-            Low Stock ({lowCount})
+            {t('admin.inventory.lowStock')} ({lowCount})
           </Text>
         </TouchableOpacity>
       </View>
@@ -172,7 +174,7 @@ export default function AdminInventory() {
                     <Text style={styles.itemName}>{item.name}</Text>
                     <Text style={[styles.itemQty, isLow && { color: colors.error }]}>
                       {item.quantity} {item.unit}
-                      {isLow ? '  ·  LOW' : ''}
+                      {isLow ? `  \u00b7  ${t('adminExtra.lowLabel')}` : ''}
                     </Text>
                   </View>
                 </View>
@@ -180,18 +182,18 @@ export default function AdminInventory() {
                   {item.cost_per_unit ? (
                     <Text style={styles.itemCost}>${Number(item.cost_per_unit).toFixed(2)}/{item.unit}</Text>
                   ) : null}
-                  <Text style={styles.minQty}>Min: {item.min_quantity} {item.unit}</Text>
+                  <Text style={styles.minQty}>{t('adminExtra.minLabel')}: {item.min_quantity} {item.unit}</Text>
                 </View>
               </View>
               <View style={styles.cardActions}>
                 <TouchableOpacity style={styles.actionBtn} onPress={() => openEdit(item)}>
-                  <Text style={styles.actionBtnText}>Edit</Text>
+                  <Text style={styles.actionBtnText}>{t('common.edit')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.actionBtn, styles.wasteBtn]} onPress={() => openWaste(item)}>
-                  <Text style={[styles.actionBtnText, { color: colors.warning }]}>Waste</Text>
+                  <Text style={[styles.actionBtnText, { color: colors.warning }]}>{t('admin.inventory.outputTypes.waste')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.actionBtn, styles.delBtnInline]} onPress={() => deleteItem(item.id)}>
-                  <Text style={[styles.actionBtnText, { color: colors.error }]}>Delete</Text>
+                  <Text style={[styles.actionBtnText, { color: colors.error }]}>{t('common.delete')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -201,27 +203,27 @@ export default function AdminInventory() {
       </ScrollView>
 
       <TouchableOpacity style={styles.fab} onPress={openNew}>
-        <Text style={styles.fabText}>+ Add Ingredient</Text>
+        <Text style={styles.fabText}>+ {t('admin.inventory.addNewItem')}</Text>
       </TouchableOpacity>
 
       {/* ─── Item Modal ─── */}
       <Modal visible={modal} animationType="slide" transparent>
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
-            <Text style={styles.modalTitle}>{editing ? 'Edit Ingredient' : 'New Ingredient'}</Text>
+            <Text style={styles.modalTitle}>{editing ? t('admin.inventory.editItem') : t('admin.inventory.addNewItem')}</Text>
             <ScrollView>
-              <Field label="Name *"          value={form.name}          onChangeText={v => setForm(f => ({ ...f, name: v }))}          placeholder="e.g. Tomato" />
-              <Field label="Quantity *"       value={form.quantity}      onChangeText={v => setForm(f => ({ ...f, quantity: v }))}      placeholder="0" keyboardType="decimal-pad" />
-              <Field label="Unit *"           value={form.unit}          onChangeText={v => setForm(f => ({ ...f, unit: v }))}          placeholder="kg, litre, pcs..." />
-              <Field label="Min Quantity"     value={form.min_quantity}  onChangeText={v => setForm(f => ({ ...f, min_quantity: v }))}  placeholder="Low-stock threshold" keyboardType="decimal-pad" />
-              <Field label="Cost per Unit"    value={form.cost_per_unit} onChangeText={v => setForm(f => ({ ...f, cost_per_unit: v }))} placeholder="0.00" keyboardType="decimal-pad" />
+              <Field label={`${t('common.name')} *`}      value={form.name}          onChangeText={v => setForm(f => ({ ...f, name: v }))}          placeholder="e.g. Tomato" />
+              <Field label={`${t('common.amount')} *`}    value={form.quantity}      onChangeText={v => setForm(f => ({ ...f, quantity: v }))}      placeholder="0" keyboardType="decimal-pad" />
+              <Field label={`${t('adminExtra.unitLabel')} *`}  value={form.unit}          onChangeText={v => setForm(f => ({ ...f, unit: v }))}          placeholder="kg, litre, pcs..." />
+              <Field label={t('adminExtra.minQuantity')}     value={form.min_quantity}  onChangeText={v => setForm(f => ({ ...f, min_quantity: v }))}  placeholder={t('adminExtra.lowStockThreshold')} keyboardType="decimal-pad" />
+              <Field label={t('adminExtra.costPerUnit')}    value={form.cost_per_unit} onChangeText={v => setForm(f => ({ ...f, cost_per_unit: v }))} placeholder="0.00" keyboardType="decimal-pad" />
             </ScrollView>
             <View style={styles.modalBtns}>
               <TouchableOpacity style={styles.btnCancel} onPress={() => setModal(false)}>
-                <Text style={styles.btnCancelText}>Cancel</Text>
+                <Text style={styles.btnCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.btnSave} onPress={save}>
-                <Text style={styles.btnSaveText}>Save</Text>
+                <Text style={styles.btnSaveText}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -232,15 +234,15 @@ export default function AdminInventory() {
       <Modal visible={wasteModal} animationType="slide" transparent>
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
-            <Text style={styles.modalTitle}>Record Waste — {editing?.name}</Text>
-            <Field label="Quantity *" value={wasteForm.quantity} onChangeText={v => setWasteForm(f => ({ ...f, quantity: v }))} keyboardType="decimal-pad" placeholder={`Amount in ${editing?.unit || 'unit'}`} />
-            <Field label="Reason"     value={wasteForm.reason}   onChangeText={v => setWasteForm(f => ({ ...f, reason: v }))}   placeholder="Spoiled, dropped, etc." />
+            <Text style={styles.modalTitle}>{t('adminExtra.recordWaste')} — {editing?.name}</Text>
+            <Field label={`${t('common.amount')} *`} value={wasteForm.quantity} onChangeText={v => setWasteForm(f => ({ ...f, quantity: v }))} keyboardType="decimal-pad" placeholder={`${editing?.unit || 'unit'}`} />
+            <Field label={t('common.reason')}     value={wasteForm.reason}   onChangeText={v => setWasteForm(f => ({ ...f, reason: v }))}   placeholder="Spoiled, dropped, etc." />
             <View style={styles.modalBtns}>
               <TouchableOpacity style={styles.btnCancel} onPress={() => setWasteModal(false)}>
-                <Text style={styles.btnCancelText}>Cancel</Text>
+                <Text style={styles.btnCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.btnSave, { backgroundColor: colors.warning }]} onPress={recordWaste}>
-                <Text style={styles.btnSaveText}>Record</Text>
+                <Text style={styles.btnSaveText}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
