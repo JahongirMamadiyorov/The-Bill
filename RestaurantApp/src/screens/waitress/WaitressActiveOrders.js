@@ -17,6 +17,24 @@ import { useTranslation } from '../../context/LanguageContext';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
 
+// ── Unit helpers (kg/l weighed items) ────────────────────────────────────────
+const isWeighedItem = (item) => {
+  const u = String(item?.unit || 'piece').toLowerCase();
+  return u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
+};
+const unitSuffix = (item) => {
+  const u = String(item?.unit || 'piece').toLowerCase();
+  return u === 'piece' ? '' : u;
+};
+const formatQtyLabel = (item, qty) => {
+  if (isWeighedItem(item)) {
+    const n = Number(qty || 0);
+    const trimmed = Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '');
+    return `${trimmed} ${unitSuffix(item)}`;
+  }
+  return `×${qty}`;
+};
+
 const fmtTime = (iso) => {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -202,7 +220,7 @@ function OrderDetailModal({ visible, order, onClose, onMarkServed, onRequestBill
               <View key={item.id} style={styles.orderItemRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName}>{item.name || item.item_name}</Text>
-                  <Text style={styles.itemPrice}>×{item.quantity}  {fmtMoney((item.unit_price || 0) * item.quantity)}</Text>
+                  <Text style={styles.itemPrice}>{formatQtyLabel(item, item.quantity)}  {fmtMoney((item.unit_price || 0) * (parseFloat(item.quantity) || 0))}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 6 }}>
                   <View style={{ backgroundColor: ist.bg, borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 4 }}>

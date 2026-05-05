@@ -3751,10 +3751,13 @@ export default function WarehouseScreen() {
         setDeliveryHistory(dbRows);
         // Also update AsyncStorage with DB data for offline use
         AsyncStorage.setItem(DELIVERY_STORAGE_KEY, JSON.stringify(dbRows)).catch(() => {});
-      } else if (localRows.length > 0) {
-        // DB is empty but AsyncStorage has data — display locally and migrate to DB via bulk-sync
-        setDeliveryHistory(localRows);
-        procurementAPI.bulkSyncDeliveries(localRows).catch(() => {});
+      } else {
+        // DB is the source of truth. If the DB has no deliveries, the admin
+        // has either freshly cleared them or has never created any — do NOT
+        // re-seed from the local AsyncStorage cache (that caused deleted
+        // deliveries to keep reappearing). Mirror the empty state locally.
+        setDeliveryHistory([]);
+        AsyncStorage.setItem(DELIVERY_STORAGE_KEY, JSON.stringify([])).catch(() => {});
       }
     }).catch(() => {});
 

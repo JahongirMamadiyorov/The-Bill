@@ -253,25 +253,25 @@ export default function AdminDashboard({ navigation }) {
       if (payrollRes.status  === 'fulfilled') setPayrollData(payrollRes.value.data || []);
       if (loansRes.status    === 'fulfilled') setLoanStats(loansRes.value.data || null);
 
-      // Supplier debt: always sync AsyncStorage → DB so website stays in sync,
-      // then use DB total. Fall back to local calculation if DB unreachable.
+      // Supplier debt: the DB is the single source of truth. We do NOT push
+      // the AsyncStorage cache back up — that caused deleted deliveries to
+      // keep reappearing after admins cleared them from the web panel.
       try {
-        // Step 1: Always push AsyncStorage data to DB (idempotent via ON CONFLICT)
-        const raw = await AsyncStorage.getItem('@the_bill_delivery_history');
-        const localDeliveries = raw ? JSON.parse(raw) : [];
-        if (localDeliveries.length > 0) {
-          await procurementAPI.bulkSyncDeliveries(localDeliveries).catch(() => {});
-        }
-
-        // Step 2: Now read the authoritative total from DB
         const debtRes = await procurementAPI.getDeliveriesDebt().catch(() => null);
         const dbTotal = parseFloat(debtRes?.data?.total_debt) || 0;
         const dbCount = debtRes?.data?.count ?? 0;
 
-        if (dbCount > 0) {
+        if (debtRes) {
+          // DB responded — use it even when empty, and mirror the empty state
+          // down into AsyncStorage so local UI stops showing stale deliveries.
           setSupplierDebt(dbTotal);
+          if (dbCount === 0) {
+            AsyncStorage.setItem('@the_bill_delivery_history', JSON.stringify([])).catch(() => {});
+          }
         } else {
-          // DB unreachable or truly empty — compute locally
+          // DB unreachable — fall back to whatever is cached locally
+          const raw = await AsyncStorage.getItem('@the_bill_delivery_history');
+          const localDeliveries = raw ? JSON.parse(raw) : [];
           const debt = localDeliveries
             .filter(d => d.paymentStatus !== 'paid' && ['Delivered', 'Partial'].includes(d.status))
             .reduce((s, d) => s + (Number(d.total) || 0), 0);

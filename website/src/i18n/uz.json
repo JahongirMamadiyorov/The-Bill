@@ -73,7 +73,9 @@
     "other": "Boshqa",
     "notProvided": "Ko'rsatilmagan",
     "allPurpose": "Universal",
-    "preview": "Ko'rinish"
+    "preview": "Ko'rinish",
+    "table": "Stol",
+    "orderNumber": "Buyurtma #"
   },
 
   "login": {
@@ -404,6 +406,7 @@
       "sectionsWithTablesHint": "Stollar mavjud bo'limlarni o'chirib bo'lmaydi.",
       "removeSection": "Bo'limni o'chirish",
       "cannotRemoveSection": "O'chirib bo'lmaydi -- bo'limda stollar bor",
+      "renameSection": "Bo'lim nomini o'zgartirish",
       "orderNumber": "Buyurtma #{number}",
       "itemsCount": "{count} ta taom",
       "startNewOrderHint": "Stol kartasidan yangi buyurtma boshlang",
@@ -442,6 +445,8 @@
       "itemName": "Taom nomi *",
       "itemNamePlaceholder": "masalan: Sezar salati",
       "priceSom": "Narxi (so'm) *",
+      "unit": "O'lchov",
+      "unitPiece": "dona",
       "descriptionPlaceholder": "Menyuda ko'rsatiladigan tavsif",
       "activeVisibleOnMenu": "Faol -- menyuda ko'rinadi",
       "hiddenFromMenu": "Menyudan yashirilgan",
@@ -848,7 +853,10 @@
       "noItemsInCategory": "Bu kategoriyada taom yo'q",
       "itemCount": "{count} ta taom",
       "priceEach": "{price} dona",
-      "addingItems": "Qo'shilmoqda..."
+      "addingItems": "Qo'shilmoqda...",
+      "enterAmount": "Miqdorni kiriting",
+      "amount": "Miqdor",
+      "price": "Narx"
     }
   },
 
@@ -947,6 +955,7 @@
   },
 
   "cashier": {
+    "printItem": "Mahsulotni chiqarish",
     "orders": {
       "title": "Kassir buyurtmalari",
       "allActive": "Barcha faol",
@@ -1050,7 +1059,15 @@
       "failedToLoad": "Qarzlarni yuklab bo'lmadi",
       "unknown": "Noma'lum",
       "allStatuses": "Barchasi",
-      "tapDateHint": "Boshlanish/tugash sanasini tanlash uchun bosing"
+      "tapDateHint": "Boshlanish/tugash sanasini tanlash uchun bosing",
+      "loanDetails": "Qarz tafsilotlari",
+      "takenOn": "Olingan sana",
+      "paidOn": "To'langan sana",
+      "orderItems": "Buyurtma mahsulotlari",
+      "noOrderLinked": "Bu qarzga buyurtma biriktirilmagan",
+      "noItems": "Buyurtmada mahsulot yo'q",
+      "paidVia": "To'lov usuli",
+      "couldNotLoadOrder": "Buyurtmani yuklab bo'lmadi"
     },
     "profile": {
       "ordersToday": "Bugungi buyurtmalar",

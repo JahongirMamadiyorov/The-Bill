@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { loansAPI } from '../../api/client';
+import { loansAPI, ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 import { useTranslation } from '../../context/LanguageContext';
 
@@ -240,11 +240,188 @@ function LoanPayModal({ visible, loan, onClose, onConfirm }) {
   );
 }
 
+// ── Loan Details Modal ────────────────────────────────────────────────────────
+function LoanDetailsModal({ visible, loan, onClose, onRequestPay }) {
+  const { t } = useTranslation();
+  const [items,   setItems]   = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!visible || !loan?.order_id) { setItems([]); return; }
+    let active = true;
+    setLoading(true);
+    ordersAPI.getById(loan.order_id)
+      .then(res => { if (active) setItems(res?.data?.items || []); })
+      .catch(() => { if (active) setItems([]); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [visible, loan?.order_id]);
+
+  if (!loan) return null;
+  const isActive  = loan.status === 'active';
+  const over      = isOverdue(loan);
+  const statusBg  = isActive ? (over ? '#FEF2F2' : '#FFFBEB') : '#F0FDF4';
+  const statusCol = isActive ? (over ? '#DC2626' : '#D97706') : '#16A34A';
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={LD.mask} activeOpacity={1} onPress={onClose} />
+      <View style={LD.sheet}>
+        <View style={LD.handle} />
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+          {/* Header */}
+          <View style={LD.headerRow}>
+            <View style={LD.avatar}>
+              <MaterialIcons name="person" size={24} color={colors.neutralMid} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={LD.name}>{loan.customer_name}</Text>
+              {loan.customer_phone ? (
+                <View style={LD.phoneRow}>
+                  <MaterialIcons name="phone" size={13} color={colors.neutralMid} />
+                  <Text style={LD.phone}>{loan.customer_phone}</Text>
+                </View>
+              ) : null}
+            </View>
+            <TouchableOpacity onPress={onClose} style={LD.closeBtn}>
+              <MaterialIcons name="close" size={20} color={colors.neutralMid} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Status + amount card */}
+          <View style={[LD.amtCard, { backgroundColor: statusBg }]}>
+            <Text style={[LD.amtLabel, { color: statusCol }]}>
+              {t('cashier.loans.totalAmount', 'Total amount')}
+            </Text>
+            <Text style={[LD.amtValue, { color: statusCol }]}>{fmt(loan.amount)}</Text>
+            <View style={[LD.amtBadge, { borderColor: statusCol }]}>
+              <Text style={[LD.amtBadgeTxt, { color: statusCol }]}>
+                {isActive ? (over ? t('cashier.loans.overdue', 'Overdue') : t('common.active', 'Active')) : t('cashier.loans.paid', 'Paid')}
+              </Text>
+            </View>
+          </View>
+
+          {/* Order info */}
+          {(loan.daily_number || loan.table_name) && (
+            <View style={LD.section}>
+              <Text style={LD.sectionLbl}>{t('cashier.loans.orderInfo', 'Order info')}</Text>
+              <View style={LD.rowGroup}>
+                {loan.daily_number ? (
+                  <View style={LD.row}>
+                    <MaterialIcons name="receipt" size={16} color={colors.neutralMid} />
+                    <Text style={LD.rowLbl}>{t('common.order', 'Order')}</Text>
+                    <Text style={LD.rowVal}>#{loan.daily_number}</Text>
+                  </View>
+                ) : null}
+                {loan.table_name ? (
+                  <View style={LD.row}>
+                    <MaterialIcons name="table-restaurant" size={16} color={colors.neutralMid} />
+                    <Text style={LD.rowLbl}>{t('common.table', 'Table')}</Text>
+                    <Text style={LD.rowVal}>{loan.table_name}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          )}
+
+          {/* Dates */}
+          <View style={LD.section}>
+            <Text style={LD.sectionLbl}>{t('cashier.loans.dates', 'Dates')}</Text>
+            <View style={LD.rowGroup}>
+              <View style={LD.row}>
+                <MaterialIcons name="calendar-today" size={16} color={colors.neutralMid} />
+                <Text style={LD.rowLbl}>{t('cashier.loans.issued', 'Issued')}</Text>
+                <Text style={LD.rowVal}>{fmtDate(loan.created_at)}</Text>
+              </View>
+              <View style={LD.row}>
+                <MaterialIcons name="event" size={16} color={over ? '#DC2626' : colors.neutralMid} />
+                <Text style={LD.rowLbl}>{t('cashier.loans.dueDate', 'Due date')}</Text>
+                <Text style={[LD.rowVal, over && { color: '#DC2626' }]}>{fmtDate(loan.due_date)}</Text>
+              </View>
+              {loan.paid_at ? (
+                <View style={LD.row}>
+                  <MaterialIcons name="check-circle" size={16} color="#16A34A" />
+                  <Text style={LD.rowLbl}>{t('cashier.loans.paidOn', 'Paid on')}</Text>
+                  <Text style={[LD.rowVal, { color: '#16A34A' }]}>{fmtDate(loan.paid_at)}</Text>
+                </View>
+              ) : null}
+              {loan.payment_method ? (
+                <View style={LD.row}>
+                  <MaterialIcons name="payments" size={16} color={colors.neutralMid} />
+                  <Text style={LD.rowLbl}>{t('cashier.loans.paymentMethod', 'Payment method')}</Text>
+                  <Text style={LD.rowVal}>{t(`paymentMethods.${loan.payment_method}`, loan.payment_method)}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Order items */}
+          {loan.order_id ? (
+            <View style={LD.section}>
+              <Text style={LD.sectionLbl}>{t('cashier.loans.orderItems', 'Order items')}</Text>
+              {loading ? (
+                <View style={{ paddingVertical: 16, alignItems: 'center' }}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              ) : items.length === 0 ? (
+                <Text style={LD.emptyItems}>{t('cashier.loans.noItemsFound', 'No items to show')}</Text>
+              ) : (
+                <View style={LD.itemList}>
+                  {items.map((it, idx) => {
+                    const qty        = parseFloat(it.quantity || 0);
+                    const unitPrice  = parseFloat(it.price || it.unit_price || 0);
+                    const lineTotal  = parseFloat(it.total_price || 0) || (unitPrice * qty);
+                    const isWeighed  = it.unit && it.unit !== 'piece';
+                    const qtyDisplay = isWeighed ? `${qty} ${it.unit}` : `×${qty}`;
+                    return (
+                      <View key={it.id || idx} style={LD.item}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={LD.itemName} numberOfLines={2}>{it.name}</Text>
+                          <Text style={LD.itemQty}>
+                            {unitPrice > 0
+                              ? `${qtyDisplay}  •  ${fmt(unitPrice)}${isWeighed ? `/${it.unit}` : ''}`
+                              : qtyDisplay}
+                          </Text>
+                        </View>
+                        <Text style={LD.itemTotal}>{fmt(lineTotal)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          {loan.notes ? (
+            <View style={LD.section}>
+              <Text style={LD.sectionLbl}>{t('cashier.loans.notes', 'Notes')}</Text>
+              <Text style={LD.notesTxt}>{loan.notes}</Text>
+            </View>
+          ) : null}
+        </ScrollView>
+
+        {/* Mark as Paid CTA — only for active loans */}
+        {isActive && (
+          <TouchableOpacity
+            style={LD.payCta}
+            activeOpacity={0.85}
+            onPress={() => { onClose(); onRequestPay && onRequestPay(); }}
+          >
+            <MaterialIcons name="check-circle" size={20} color="#fff" />
+            <Text style={LD.payCtaTxt}>{t('cashier.loans.markAsPaid', 'Mark as Paid')}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 // ── Loan Card ──────────────────────────────────────────────────────────────────
 function LoanCard({ loan, onMarkPaid, setDialog }) {
   const { t } = useTranslation();
-  const [paying,    setPaying]    = useState(false);
-  const [showModal, setShowModal] = useState(false);
+  const [paying,     setPaying]     = useState(false);
+  const [showModal,  setShowModal]  = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   const isActive  = loan.status === 'active';
   const over      = isOverdue(loan);
   const dueInfo   = dueDateLabel(loan.due_date, loan.status, t);
@@ -264,7 +441,11 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
   };
 
   return (
-    <View style={[S.card, over && S.cardOverdue]}>
+    <TouchableOpacity
+      style={[S.card, over && S.cardOverdue]}
+      activeOpacity={0.85}
+      onPress={() => setShowDetail(true)}
+    >
       <View style={S.cardTop}>
         <View style={S.avatarWrap}>
           <MaterialIcons name="person" size={20} color={colors.neutralMid} />
@@ -333,7 +514,14 @@ function LoanCard({ loan, onMarkPaid, setDialog }) {
         onClose={() => setShowModal(false)}
         onConfirm={handleConfirmPay}
       />
-    </View>
+
+      <LoanDetailsModal
+        visible={showDetail}
+        loan={loan}
+        onClose={() => setShowDetail(false)}
+        onRequestPay={() => setShowModal(true)}
+      />
+    </TouchableOpacity>
   );
 }
 
@@ -621,4 +809,37 @@ const LP = StyleSheet.create({
   methodLbl:    { fontSize: 12, fontWeight: '700', color: '#6B7280' },
   confirmBtn:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.success || '#16A34A', borderRadius: 14, paddingVertical: 15 },
   confirmTxt:   { color: '#fff', fontWeight: '800', fontSize: 15 },
+});
+
+// ── Loan Details Modal Styles ───────────────────────────────────────────────────
+const LD = StyleSheet.create({
+  mask:         { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet:        { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, paddingBottom: 24, maxHeight: '90%' },
+  handle:       { width: 36, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: spacing.md },
+  headerRow:    { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  avatar:       { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.neutralLight, alignItems: 'center', justifyContent: 'center' },
+  name:         { fontSize: 17, fontWeight: '800', color: colors.textDark },
+  phoneRow:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  phone:        { fontSize: 13, color: colors.neutralMid, fontWeight: '500' },
+  closeBtn:     { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.neutralLight },
+  amtCard:      { alignItems: 'center', padding: spacing.lg, borderRadius: radius.lg, marginBottom: spacing.md },
+  amtLabel:     { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  amtValue:     { fontSize: 24, fontWeight: '900', marginBottom: 8 },
+  amtBadge:     { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.full, borderWidth: 1.5 },
+  amtBadgeTxt:  { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
+  section:      { marginBottom: spacing.md },
+  sectionLbl:   { fontSize: 11, fontWeight: '800', color: colors.neutralMid, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: spacing.sm },
+  rowGroup:     { backgroundColor: colors.background || '#F9FAFB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 4 },
+  row:          { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  rowLbl:       { fontSize: 13, color: colors.neutralMid, fontWeight: '500' },
+  rowVal:       { flex: 1, textAlign: 'right', fontSize: 13, color: colors.textDark, fontWeight: '700' },
+  itemList:     { backgroundColor: colors.background || '#F9FAFB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 4 },
+  item:         { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  itemName:     { fontSize: 13, color: colors.textDark, fontWeight: '700' },
+  itemQty:      { fontSize: 11, color: colors.neutralMid, marginTop: 2 },
+  itemTotal:    { fontSize: 13, color: colors.textDark, fontWeight: '800' },
+  emptyItems:   { fontSize: 13, color: colors.neutralMid, textAlign: 'center', paddingVertical: spacing.md },
+  notesTxt:     { fontSize: 13, color: colors.textDark, lineHeight: 20, backgroundColor: colors.background || '#F9FAFB', padding: spacing.md, borderRadius: radius.md },
+  payCta:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.success || '#16A34A', borderRadius: radius.lg, paddingVertical: 14, marginTop: spacing.sm },
+  payCtaTxt:    { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.3 },
 });

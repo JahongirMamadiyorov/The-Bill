@@ -411,13 +411,26 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
   async function handleAddFoodToOrder() {
     const activeOrder = tableOrders[0];
     if (!activeOrder) return;
-    const items = Object.entries(addFoodCart)
+    const newItems = Object.entries(addFoodCart)
       .filter(([, qty]) => qty > 0)
-      .map(([id, quantity]) => ({ menuItemId: id, quantity }));
-    if (items.length === 0) return;
+      .map(([id, quantity]) => ({ menu_item_id: id, quantity }));
+    if (newItems.length === 0) return;
     setAddFoodSaving(true);
     try {
-      await ordersAPI.addItems(activeOrder.id, items);
+      // Use PUT /orders/:id with merged items so Add Items works on
+      // bill_requested orders regardless of backend deployment state.
+      let merged = newItems;
+      try {
+        const fresh = await ordersAPI.getById(activeOrder.id);
+        const prior = Array.isArray(fresh?.data?.items) ? fresh.data.items : [];
+        const priorMapped = prior.map(it => ({
+          menu_item_id: it.menu_item_id,
+          quantity:     Number(it.quantity || 0),
+          unit_price:   parseFloat(it.unit_price || 0),
+        }));
+        merged = [...priorMapped, ...newItems];
+      } catch (_) { /* fall back to just new items */ }
+      await ordersAPI.update(activeOrder.id, { items: merged });
       setAddFoodView(false);
       setAddFoodCart({});
       // Refresh order view
@@ -931,6 +944,10 @@ export default function AdminTables({ navigation }) {
   // backend has persisted the write.
   const pendingSecDeletesRef = useRef(new Map());
   const pendingSecAddsRef    = useRef(new Map());
+  // For renames: oldLc -> { newName, expiresAt }. Filters out the old name from
+  // poll responses while ensuring the new name remains visible until the server
+  // surfaces it.
+  const pendingSecRenamesRef = useRef(new Map());
   const SEC_PENDING_TTL_MS   = 8000;
 
   // Apply the shields to a server sections snapshot, returning the list to
@@ -941,11 +958,15 @@ export default function AdminTables({ navigation }) {
     for (const m of [pendingSecDeletesRef.current, pendingSecAddsRef.current]) {
       for (const [k, exp] of m) if (exp < now) m.delete(k);
     }
+    for (const [k, v] of pendingSecRenamesRef.current) {
+      if ((v?.expiresAt || 0) < now) pendingSecRenamesRef.current.delete(k);
+    }
     const seen = new Set();
     const merged = [];
     for (const name of serverList || []) {
       const lc = String(name).toLowerCase();
       if (pendingSecDeletesRef.current.has(lc)) continue;
+      if (pendingSecRenamesRef.current.has(lc)) continue; // suppress old name during rename
       if (seen.has(lc)) continue;
       seen.add(lc);
       merged.push(name);
@@ -954,6 +975,13 @@ export default function AdminTables({ navigation }) {
       if (!seen.has(lc)) {
         merged.push(lc);
         seen.add(lc);
+      }
+    }
+    for (const [, info] of pendingSecRenamesRef.current) {
+      const newLc = String(info?.newName || '').toLowerCase();
+      if (newLc && !seen.has(newLc)) {
+        merged.push(info.newName);
+        seen.add(newLc);
       }
     }
     return merged;
@@ -991,6 +1019,9 @@ export default function AdminTables({ navigation }) {
 
   // section mgmt
   const [newSecName, setNewSecName] = useState('');
+  // Inline-edit state for renaming a section row.
+  const [editingSec, setEditingSec] = useState(null); // current section name (original) being edited
+  const [editingSecInput, setEditingSecInput] = useState('');
 
   // ── tick (UI timer for occupied duration) ───────────────────────────────────
   useEffect(() => {
@@ -1271,6 +1302,84 @@ export default function AdminTables({ navigation }) {
       .catch(() => {
         // Persist failed — drop the shield so the next poll restores truth.
         pendingSecDeletesRef.current.delete(lc);
+      });
+  }
+
+  function beginRenameSection(sec) {
+    setEditingSec(sec);
+    setEditingSecInput(sec);
+  }
+
+  function cancelRenameSection() {
+    setEditingSec(null);
+    setEditingSecInput('');
+  }
+
+  function commitRenameSection(oldName) {
+    const newName = (editingSecInput || '').trim();
+    if (!newName) return;
+    if (newName.length > 80) {
+      setDialog({ title: 'Too long', message: 'Section name must be 80 characters or fewer.', type: 'warning' });
+      return;
+    }
+    const oldLc = oldName.toLowerCase();
+    const newLc = newName.toLowerCase();
+    if (newLc === oldLc) { cancelRenameSection(); return; }
+    // Case-insensitive clash with another existing section.
+    const clash = sections.some(s => s.toLowerCase() === newLc && s.toLowerCase() !== oldLc);
+    if (clash) {
+      setDialog({ title: 'Exists', message: 'A section with that name already exists.', type: 'warning' });
+      return;
+    }
+
+    // Optimistic UI — swap old name with new in-place.
+    setSections(prev => prev.map(s => (s.toLowerCase() === oldLc ? newName : s)));
+
+    // Mirror onto local table rows so chip counts/filters keep working until
+    // the next /tables poll resolves.
+    setTables(prev => prev.map(row => {
+      const secLc = (row.section || '').toLowerCase();
+      if (secLc === oldLc) return { ...row, section: newName };
+      return row;
+    }));
+
+    // Keep the active tab in sync if it pointed at the old name.
+    if ((activeTab || '').toLowerCase() === oldLc) setActiveTab(newName);
+
+    // Shield polls: suppress old name, keep new name.
+    pendingSecRenamesRef.current.set(oldLc, {
+      newName,
+      expiresAt: Date.now() + SEC_PENDING_TTL_MS,
+    });
+    pendingSecDeletesRef.current.set(oldLc, Date.now() + SEC_PENDING_TTL_MS);
+    pendingSecAddsRef.current.set(newLc, Date.now() + SEC_PENDING_TTL_MS);
+
+    cancelRenameSection();
+
+    tablesAPI.renameSection(oldName, newName)
+      .then(() => {
+        // Server confirmed — drop shields early so future polls reflect truth.
+        pendingSecRenamesRef.current.delete(oldLc);
+        pendingSecDeletesRef.current.delete(oldLc);
+        pendingSecAddsRef.current.delete(newLc);
+      })
+      .catch((err) => {
+        // Roll back on failure.
+        pendingSecRenamesRef.current.delete(oldLc);
+        pendingSecDeletesRef.current.delete(oldLc);
+        pendingSecAddsRef.current.delete(newLc);
+        setSections(prev => prev.map(s => (s.toLowerCase() === newLc ? oldName : s)));
+        setTables(prev => prev.map(row => {
+          const secLc = (row.section || '').toLowerCase();
+          if (secLc === newLc) return { ...row, section: oldName };
+          return row;
+        }));
+        if ((activeTab || '').toLowerCase() === newLc) setActiveTab(oldName);
+        setDialog({
+          title: 'Rename failed',
+          message: err?.response?.data?.error || 'Could not rename the section. Please try again.',
+          type: 'warning',
+        });
       });
   }
 
@@ -1629,7 +1738,7 @@ export default function AdminTables({ navigation }) {
       {/* Manage Sections Sheet */}
       <Sheet
         visible={secSheet}
-        onClose={() => { setSecSheet(false); setNewSecName(''); }}
+        onClose={() => { setSecSheet(false); setNewSecName(''); cancelRenameSection(); }}
         title={t('admin.tables.manageSections')}
       >
         <Field label={t('admin.tables.addNewSection')}>
@@ -1651,23 +1760,67 @@ export default function AdminTables({ navigation }) {
 
         <Field label={t('admin.tables.sections')}>
           {sections.map(sec => {
-            const c     = secColor(sec, sections);
-            const count = tables.filter(t => (t.section || '') === sec).length;
+            const c         = secColor(sec, sections);
+            const count     = tables.filter(t => (t.section || '') === sec).length;
+            const isEditing = editingSec === sec;
+            const trimmed   = (editingSecInput || '').trim();
+            const sameName  = trimmed.toLowerCase() === sec.toLowerCase();
+            const clash     = !sameName && sections.some(s => s.toLowerCase() === trimmed.toLowerCase());
+            const canSave   = !!trimmed && !sameName && !clash;
             return (
               <View key={sec} style={[S.secRow, { borderLeftColor: c.text }]}>
                 <View style={[S.secDot, { backgroundColor: c.bg }]}>
-                  <Text style={[S.secDotTxt, { color: c.text }]}>{sec[0].toUpperCase()}</Text>
+                  <Text style={[S.secDotTxt, { color: c.text }]}>
+                    {(isEditing ? (trimmed || sec) : sec)[0].toUpperCase()}
+                  </Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={S.secRowName}>{sec}</Text>
-                  <Text style={S.secRowCount}>{count} table{count !== 1 ? 's' : ''}</Text>
-                </View>
-                <TouchableOpacity
-                  style={[S.removeBtn, count > 0 && { opacity: 0.3 }]}
-                  onPress={() => removeSection(sec)}
-                >
-                  <MaterialIcons name="close" size={14} color="#dc2626" />
-                </TouchableOpacity>
+                {isEditing ? (
+                  <>
+                    <View style={{ flex: 1 }}>
+                      <TextInput
+                        style={S.secEditInput}
+                        value={editingSecInput}
+                        onChangeText={setEditingSecInput}
+                        autoFocus
+                        maxLength={80}
+                        returnKeyType="done"
+                        onSubmitEditing={() => commitRenameSection(sec)}
+                        placeholder={sec}
+                        placeholderTextColor={colors.textMuted}
+                      />
+                      <Text style={S.secRowCount}>{count} table{count !== 1 ? 's' : ''}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[S.confirmBtn, !canSave && { opacity: 0.35 }]}
+                      onPress={() => commitRenameSection(sec)}
+                      disabled={!canSave}
+                    >
+                      <MaterialIcons name="check" size={14} color="#1d4ed8" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={S.cancelBtn} onPress={cancelRenameSection}>
+                      <MaterialIcons name="close" size={14} color="#475569" />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <View style={{ flex: 1 }}>
+                      <Text style={S.secRowName}>{sec}</Text>
+                      <Text style={S.secRowCount}>{count} table{count !== 1 ? 's' : ''}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={S.editBtn}
+                      onPress={() => beginRenameSection(sec)}
+                    >
+                      <MaterialIcons name="edit" size={14} color="#1d4ed8" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[S.removeBtn, count > 0 && { opacity: 0.3 }]}
+                      onPress={() => removeSection(sec)}
+                    >
+                      <MaterialIcons name="close" size={14} color="#dc2626" />
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             );
           })}
@@ -1676,7 +1829,7 @@ export default function AdminTables({ navigation }) {
         <Text style={S.secHint}>Sections with tables cannot be removed.</Text>
 
         <View style={S.btnRow}>
-          <Btn label="Done" onPress={() => { setSecSheet(false); setNewSecName(''); }} outline />
+          <Btn label="Done" onPress={() => { setSecSheet(false); setNewSecName(''); cancelRenameSection(); }} outline />
         </View>
       </Sheet>
 
@@ -1881,6 +2034,10 @@ const S = StyleSheet.create({
   secRowCount:  { fontSize: 11, color: '#94a3b8', marginTop: 2 },
   removeBtn:    { width: 30, height: 30, borderRadius: 15, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center' },
   removeBtnTxt: { fontSize: 12, color: '#dc2626', fontWeight: '800' },
+  editBtn:      { width: 30, height: 30, borderRadius: 15, backgroundColor: '#dbeafe', justifyContent: 'center', alignItems: 'center', marginRight: 6 },
+  confirmBtn:   { width: 30, height: 30, borderRadius: 15, backgroundColor: '#dbeafe', justifyContent: 'center', alignItems: 'center', marginRight: 6 },
+  cancelBtn:    { width: 30, height: 30, borderRadius: 15, backgroundColor: '#e2e8f0', justifyContent: 'center', alignItems: 'center' },
+  secEditInput: { fontSize: 14, fontWeight: '700', color: '#0f172a', borderWidth: 1, borderColor: '#93c5fd', backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: Platform.OS === 'ios' ? 6 : 2 },
   secHint:      { marginHorizontal: 20, fontSize: 11, color: '#94a3b8', fontStyle: 'italic', marginBottom: 8 },
 });
 

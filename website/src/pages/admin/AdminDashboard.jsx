@@ -161,9 +161,12 @@ export default function AdminDashboard() {
         setActiveOrders(active);
       }
 
-      // Handle staff status
+      // Handle staff status — filter to only currently clocked-in staff (present / late)
       if (results[4].status === 'fulfilled' && Array.isArray(results[4].value)) {
-        setStaffStatus(results[4].value);
+        const activeStaff = results[4].value.filter(
+          s => s.clockIn && !s.clockOut && ['present', 'late'].includes((s.status || '').toLowerCase())
+        );
+        setStaffStatus(activeStaff);
       }
 
       // Handle best sellers

@@ -22,28 +22,51 @@ function ensurePrintStyles() {
   const s = document.createElement('style');
   s.id = STYLE_ID;
   s.textContent = `
+    /* Receipt-only print. Hides the entire app and prints just the
+       receipt card on a compact 80mm-wide auto-height page so a single
+       short receipt does not balloon into multiple A4 sheets. */
     @media print {
-      body > *:not(#${DIV_ID}) { display: none !important; }
-      #${DIV_ID} { display: block !important; }
-      @page { size: 80mm auto; margin: 0; }
+      @page { size: 80mm auto; margin: 3mm 0; }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      body * { visibility: hidden !important; }
+      #${DIV_ID}, #${DIV_ID} * { visibility: visible !important; }
+      #${DIV_ID} {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        right: 0 !important;
+        display: block !important;
+        page-break-inside: avoid;
+      }
     }
     #${DIV_ID} {
       display: none;
-      font-family: 'Courier New', monospace;
-      font-size: 11px;
+      font-family: 'Courier New', 'Menlo', monospace;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.35;
       color: #000;
-      width: 72mm;
+      width: 76mm;
       margin: 0 auto;
-      padding: 3mm 0;
+      padding: 3mm 2mm;
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
     }
     #${DIV_ID} .center    { text-align: center; }
-    #${DIV_ID} .rest-name { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
-    #${DIV_ID} .dashed    { border-top: 1px dashed #555; margin: 5px 0; }
-    #${DIV_ID} .row       { display: flex; justify-content: space-between; margin: 1.5px 0; word-break: break-word; }
-    #${DIV_ID} .row-label { flex: 1; padding-right: 4px; }
-    #${DIV_ID} .total-row { font-size: 13px; font-weight: bold; margin-top: 2px; }
-    #${DIV_ID} .gray      { color: #444; font-size: 10px; }
-    #${DIV_ID} .footer    { margin-top: 10px; font-size: 10px; color: #444; }
+    #${DIV_ID} .rest-name { font-size: 22px; font-weight: 900; margin-bottom: 4px; letter-spacing: 0.5px; color: #000; }
+    #${DIV_ID} .dashed    { border-top: 2px dashed #000; margin: 6px 0; }
+    #${DIV_ID} .row       { display: flex; justify-content: space-between; align-items: baseline; margin: 3px 0; word-break: break-word; font-weight: 700; color: #000; }
+    #${DIV_ID} .row-label { flex: 1; padding-right: 6px; }
+    #${DIV_ID} .total-row { font-size: 20px; font-weight: 900; margin: 4px 0; color: #000; }
+    #${DIV_ID} .gray      { color: #000; font-size: 15px; font-weight: 800; margin: 2px 0; }
+    #${DIV_ID} .green     { color: #000; font-weight: 700; }
+    #${DIV_ID} .footer    { margin-top: 10px; font-size: 15px; color: #000; font-weight: 800; }
   `;
   document.head.appendChild(s);
 }

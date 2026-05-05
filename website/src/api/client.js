@@ -96,6 +96,8 @@ export const tablesAPI = {
   getSections: () => api.get('/tables/sections'),
   addSection: (name) => api.post('/tables/sections', { name }),
   deleteSection: (name) => api.delete(`/tables/sections/${encodeURIComponent(name)}`),
+  renameSection: (oldName, newName) =>
+    api.patch(`/tables/sections/${encodeURIComponent(oldName)}`, { newName }),
 };
 
 export const menuAPI = {

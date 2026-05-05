@@ -36,6 +36,7 @@ const NAV_ITEMS = {
     { to: '/admin/menu', icon: UtensilsCrossed, labelKey: 'nav.menu' },
     { to: '/admin/inventory', icon: Package, labelKey: 'nav.inventory' },
     { to: '/admin/orders', icon: ClipboardList, labelKey: 'nav.orders' },
+    { to: '/admin/loans', icon: Banknote, labelKey: 'nav.loans' },
     { to: '/admin/staff', icon: Users, labelKey: 'nav.staff' },
     { to: '/admin/profile', icon: User, labelKey: 'nav.profile' },
   ],

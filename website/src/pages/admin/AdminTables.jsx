@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AdminNewOrder from './AdminNewOrder';
 import PhoneInput, { formatPhoneDisplay } from '../../components/PhoneInput';
 import { useApi } from '../../hooks/useApi';
@@ -8,7 +9,8 @@ import {
   Plus, Minus, Trash2, X, Grid3X3, Users, AlertTriangle, RefreshCw,
   Settings, CheckCircle2, Clock, AlertCircle, Sparkles, ClipboardList,
   CalendarCheck, ChevronRight, User, Phone, Calendar, UserCheck,
-  XCircle, Timer, Receipt, UtensilsCrossed, ArrowLeft,
+  XCircle, Timer, Receipt, UtensilsCrossed, ArrowLeft, Pencil, Check,
+  CalendarClock,
 } from 'lucide-react';
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -111,6 +113,7 @@ export default function AdminTables() {
 
   const { call }   = useApi();
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   // Build STATUS config inside component so it has access to t()
   const STATUS = useMemo(() => getStatusConfig(t), [t]);
@@ -122,6 +125,9 @@ export default function AdminTables() {
   const [activeFilter,    setActiveFilter]    = useState('all');
   const [allSections,     setAllSections]     = useState(DEFAULT_SECTIONS);
   const [newSectionInput, setNewSectionInput] = useState('');
+  const [editingSection,  setEditingSection]  = useState(null); // current section name being renamed
+  const [editingInput,    setEditingInput]    = useState('');
+  const [renameSaving,    setRenameSaving]    = useState(false);
 
   // modals / sheets
   const [modal,           setModal]           = useState(null); // 'add'|'edit'|'sections'|'reserve'
@@ -131,6 +137,7 @@ export default function AdminTables() {
   const [newOrderTable,   setNewOrderTable]   = useState(null); // new order modal
   const [editingTableId,  setEditingTableId]  = useState(null);
   const [deleteId,        setDeleteId]        = useState(null);
+  const [cancelReservationTable, setCancelReservationTable] = useState(null); // confirm cancel reservation
 
   // forms
   const [form, setForm] = useState({
@@ -162,6 +169,9 @@ export default function AdminTables() {
   // window before the backend reflects the write.
   const pendingSectionDeletesRef = useRef(new Map()); // name(lc) -> expiresAt
   const pendingSectionAddsRef    = useRef(new Map()); // name(lc) -> expiresAt
+  // For renames we track BOTH names: the old (lc) we want suppressed from polled
+  // results, and the new (lc) we want kept even if the GET hasn't caught up.
+  const pendingSectionRenamesRef = useRef(new Map()); // oldLc -> { newName, expiresAt }
   const PENDING_TTL_MS = 8000;
 
   // tick state — increments every second to keep elapsed timers live
@@ -182,46 +192,76 @@ export default function AdminTables() {
       for (const m of [pendingSectionDeletesRef.current, pendingSectionAddsRef.current]) {
         for (const [k, exp] of m) if (exp < now) m.delete(k);
       }
-      const pendingDel = pendingSectionDeletesRef.current;
-      const pendingAdd = pendingSectionAddsRef.current;
+      for (const [k, v] of pendingSectionRenamesRef.current) {
+        if ((v?.expiresAt || 0) < now) pendingSectionRenamesRef.current.delete(k);
+      }
+      const pendingDel    = pendingSectionDeletesRef.current;
+      const pendingAdd    = pendingSectionAddsRef.current;
+      const pendingRename = pendingSectionRenamesRef.current;
 
-      // Filter the server snapshot through pending writes so optimistic UI
-      // doesn't get snapped back during the brief window before the backend
-      // reflects an in-flight add or delete.
-      const seen = new Set();
-      const merged = [];
-      for (const name of data) {
-        const lc = String(name).toLowerCase();
-        if (pendingDel.has(lc)) continue; // user just removed this
-        if (seen.has(lc)) continue;
-        seen.add(lc);
-        merged.push(name);
-      }
-      // Re-add any pending additions the server hasn't acknowledged yet.
-      for (const [lc, _exp] of pendingAdd) {
-        if (!seen.has(lc)) {
-          // We stored the lowercase key — recover the original casing from
-          // the current state if available, otherwise capitalise.
-          const fromState = allSections.find(s => s.toLowerCase() === lc);
-          merged.push(fromState || lc);
+      // Use functional updater so we don't need to close over `allSections`.
+      // Closing over it would make this callback change identity every poll
+      // and re-trigger the polling useEffect below, flashing the "Loading…"
+      // state on every tick.
+      setAllSections(prev => {
+        const seen = new Set();
+        const merged = [];
+        for (const name of data) {
+          const lc = String(name).toLowerCase();
+          if (pendingDel.has(lc)) continue; // user just removed this
+          if (pendingRename.has(lc)) continue; // user just renamed this — suppress old name
+          if (seen.has(lc)) continue;
           seen.add(lc);
+          merged.push(name);
         }
-      }
-      setAllSections(merged);
+        // Re-add any pending additions the server hasn't acknowledged yet.
+        for (const [lc, _exp] of pendingAdd) {
+          if (!seen.has(lc)) {
+            const fromState = prev.find(s => s.toLowerCase() === lc);
+            merged.push(fromState || lc);
+            seen.add(lc);
+          }
+        }
+        // Re-add any pending rename targets the server hasn't surfaced yet.
+        for (const [_oldLc, info] of pendingRename) {
+          const newLc = String(info?.newName || '').toLowerCase();
+          if (newLc && !seen.has(newLc)) {
+            merged.push(info.newName);
+            seen.add(newLc);
+          }
+        }
+        // Skip state update if identical to avoid a re-render blink.
+        if (merged.length === prev.length && merged.every((v, i) => v === prev[i])) {
+          return prev;
+        }
+        return merged;
+      });
     } catch (_) {}
-  }, [call, allSections]);
+  }, [call]);
+
+  // Snapshot signature of last applied tables payload — used to skip
+  // setTables when the polled data is unchanged (avoids re-render blink).
+  const lastTablesSigRef = useRef('');
+  const tablesSignature = (arr) =>
+    arr
+      .map(t => `${t.id}:${t.status}:${t.occupied_since || ''}:${t.section || ''}:${t.capacity || ''}:${t.table_name || t.tableName || ''}:${t.active_order_id || t.activeOrderId || ''}`)
+      .join('|');
 
   const fetchTables = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const data = await call(tablesAPI.getAll);
       const arr = Array.isArray(data) ? data : [];
-      setTables(arr);
-      // keep selectedTable in sync with latest data
-      setSelectedTable(prev => {
-        if (!prev) return null;
-        return arr.find(t => t.id === prev.id) || null;
-      });
+      const sig = tablesSignature(arr);
+      if (sig !== lastTablesSigRef.current) {
+        lastTablesSigRef.current = sig;
+        setTables(arr);
+        // keep selectedTable in sync with latest data
+        setSelectedTable(prev => {
+          if (!prev) return null;
+          return arr.find(t => t.id === prev.id) || null;
+        });
+      }
       setError(null);
     } catch (err) {
       console.error('Failed to fetch tables:', err);
@@ -234,11 +274,11 @@ export default function AdminTables() {
   useEffect(() => {
     fetchTables();
     fetchSections();
-    // Poll tables every second to stay in sync. Sections refresh every 5s so
-    // that adds/deletes performed on the app or by other admins propagate
-    // here without leaving stale chips behind.
-    pollRef.current = setInterval(() => fetchTables(true), 1000);
-    const sectionsPoll = setInterval(() => fetchSections(), 5000);
+    // Poll tables every 5s to stay in sync without flashing the grid.
+    // setTables is skipped when the payload signature hasn't changed, so this
+    // is essentially free when nothing is happening.
+    pollRef.current = setInterval(() => fetchTables(true), 5000);
+    const sectionsPoll = setInterval(() => fetchSections(), 8000);
     return () => {
       clearInterval(pollRef.current);
       clearInterval(sectionsPoll);
@@ -595,6 +635,84 @@ export default function AdminTables() {
       // Persist failed — drop the shield so the poll can reset state.
       pendingSectionDeletesRef.current.delete(lc);
       fetchSections();
+    }
+  };
+
+  const beginRenameSection = (sec) => {
+    setEditingSection(sec);
+    setEditingInput(sec);
+  };
+
+  const cancelRenameSection = () => {
+    setEditingSection(null);
+    setEditingInput('');
+    setRenameSaving(false);
+  };
+
+  const handleRenameSection = async (oldName) => {
+    const newName = editingInput.trim();
+    if (!newName) return;
+    if (newName.length > 80) return;
+    if (newName.toLowerCase() === oldName.toLowerCase()) {
+      // No change — just exit editing mode.
+      cancelRenameSection();
+      return;
+    }
+    // Block clashes with another existing section (case-insensitive).
+    const clash = allSections.some(
+      s => s.toLowerCase() === newName.toLowerCase() && s.toLowerCase() !== oldName.toLowerCase()
+    );
+    if (clash) return;
+
+    const oldLc = oldName.toLowerCase();
+    setRenameSaving(true);
+
+    // Optimistic UI: replace old name with new in-place.
+    setAllSections(prev => prev.map(s => (s.toLowerCase() === oldLc ? newName : s)));
+
+    // Mirror the rename onto local table rows so the chip count and filter
+    // pill keep working until the next /tables poll.
+    setTables(prev => prev.map(t => {
+      const sec = (t.section || '').toLowerCase();
+      if (sec === oldLc) return { ...t, section: newName };
+      return t;
+    }));
+
+    // Keep the active filter in sync if it pointed at the old name.
+    if (activeFilter.toLowerCase() === oldLc) setActiveFilter(newName);
+
+    // Shield the next polls from resurrecting the old name or hiding the new one.
+    pendingSectionRenamesRef.current.set(oldLc, {
+      newName,
+      expiresAt: Date.now() + PENDING_TTL_MS,
+    });
+    pendingSectionDeletesRef.current.set(oldLc, Date.now() + PENDING_TTL_MS);
+    pendingSectionAddsRef.current.set(newName.toLowerCase(), Date.now() + PENDING_TTL_MS);
+
+    try {
+      await call(tablesAPI.renameSection, oldName, newName);
+      // Confirmed — drop shields slightly early so future polls reflect truth.
+      pendingSectionRenamesRef.current.delete(oldLc);
+      pendingSectionDeletesRef.current.delete(oldLc);
+      pendingSectionAddsRef.current.delete(newName.toLowerCase());
+      // Refresh tables/sections so anything we missed comes through cleanly.
+      fetchSections();
+      fetchTables(true);
+    } catch (_) {
+      // Roll back on failure.
+      pendingSectionRenamesRef.current.delete(oldLc);
+      pendingSectionDeletesRef.current.delete(oldLc);
+      pendingSectionAddsRef.current.delete(newName.toLowerCase());
+      setAllSections(prev => prev.map(s => (s.toLowerCase() === newName.toLowerCase() ? oldName : s)));
+      setTables(prev => prev.map(t => {
+        const sec = (t.section || '').toLowerCase();
+        if (sec === newName.toLowerCase()) return { ...t, section: oldName };
+        return t;
+      }));
+      if (activeFilter.toLowerCase() === newName.toLowerCase()) setActiveFilter(oldName);
+      fetchSections();
+    } finally {
+      cancelRenameSection();
     }
   };
 
@@ -1060,11 +1178,11 @@ export default function AdminTables() {
                       {t('admin.tables.newOrder')}
                     </button>
                     <button
-                      onClick={() => { setSelectedTable(null); setStatusTable(table); setPendingStatus(table.status || 'free'); }}
-                      className="flex-1 flex items-center justify-center gap-2 py-3.5 border-2 border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors"
+                      onClick={() => { setSelectedTable(null); openReserveModal(table); }}
+                      className="flex-1 flex items-center justify-center gap-2 py-3.5 border-2 border-blue-200 text-blue-600 font-semibold rounded-xl hover:bg-blue-50 transition-colors"
                     >
-                      <Settings size={18} />
-                      {t('admin.tables.statusLabel')}
+                      <CalendarClock size={18} />
+                      {t('admin.tables.reserveTable')}
                     </button>
                   </div>
                 )}
@@ -1079,7 +1197,7 @@ export default function AdminTables() {
                       {t('admin.tables.seatGuests')}
                     </button>
                     <button
-                      onClick={() => { handleCancelReservation(table); setSelectedTable(null); }}
+                      onClick={() => { setCancelReservationTable(table); setSelectedTable(null); }}
                       className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-red-50 border-2 border-red-200 text-red-600 font-semibold rounded-xl hover:bg-red-100 transition-colors"
                     >
                       <XCircle size={18} />
@@ -1091,7 +1209,27 @@ export default function AdminTables() {
                 {isOccupied && (
                   <div className="flex flex-col gap-2">
                     <button
-                      onClick={() => { fetchMenuForAddFood(); setOrderViewOpen(true); }}
+                      onClick={async () => {
+                        // Resolve the active order id for this table, then navigate to the
+                        // Orders page with that order pre-opened in the rich detail modal.
+                        let orderId = tableOrder?.id || table?.active_order_id || table?.activeOrderId;
+                        if (!orderId) {
+                          try {
+                            const data = await ordersAPI.getAll({
+                              tableId: table.id,
+                              status:  'pending,sent_to_kitchen,preparing,ready,bill_requested',
+                            });
+                            const orders = Array.isArray(data) ? data : (Array.isArray(data?.orders) ? data.orders : []);
+                            orderId = orders[0]?.id;
+                          } catch (_) { /* ignore */ }
+                        }
+                        setSelectedTable(null);
+                        if (orderId) {
+                          navigate(`/admin/orders?open=${encodeURIComponent(orderId)}`);
+                        } else {
+                          navigate('/admin/orders');
+                        }
+                      }}
                       className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
                     >
                       <ClipboardList size={18} />
@@ -1396,26 +1534,72 @@ export default function AdminTables() {
                   {allSections.map((sec) => {
                     const count = tables.filter(t => getSection(t).toLowerCase() === sec.toLowerCase()).length;
                     const canDelete = count === 0;
+                    const isEditing = editingSection === sec;
                     return (
                       <div key={sec} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
                         <div className={`w-1 self-stretch rounded-full ${sectionBarColor(sec)}`} />
                         <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold ${sectionInitialBg(sec)}`}>
-                          {sec.charAt(0).toUpperCase()}
+                          {(isEditing ? (editingInput.trim() || sec) : sec).charAt(0).toUpperCase()}
                         </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-gray-800 text-sm">{sec}</p>
-                          <p className="text-xs text-gray-500">{t('admin.tables.tableCountLabel', { count })}</p>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteSection(sec)}
-                          disabled={!canDelete}
-                          className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
-                            canDelete ? 'bg-red-100 hover:bg-red-200 text-red-500' : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                          }`}
-                          title={canDelete ? t('admin.tables.removeSection') : t('admin.tables.cannotRemoveSection')}
-                        >
-                          <X size={14} />
-                        </button>
+                        {isEditing ? (
+                          <>
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={editingInput}
+                                maxLength={80}
+                                onChange={(e) => setEditingInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameSection(sec);
+                                  else if (e.key === 'Escape') cancelRenameSection();
+                                }}
+                                className="w-full px-3 py-2 text-sm font-semibold text-gray-800 bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                placeholder={sec}
+                              />
+                              <p className="text-xs text-gray-500 mt-1">{t('admin.tables.tableCountLabel', { count })}</p>
+                            </div>
+                            <button
+                              onClick={() => handleRenameSection(sec)}
+                              disabled={renameSaving || !editingInput.trim() || editingInput.trim().toLowerCase() === sec.toLowerCase() || allSections.some(s => s.toLowerCase() === editingInput.trim().toLowerCase() && s.toLowerCase() !== sec.toLowerCase())}
+                              className="w-7 h-7 rounded-full flex items-center justify-center bg-blue-100 hover:bg-blue-200 text-blue-600 disabled:bg-gray-100 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
+                              title={t('common.save')}
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              onClick={cancelRenameSection}
+                              className="w-7 h-7 rounded-full flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors"
+                              title={t('common.cancel')}
+                            >
+                              <X size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex-1">
+                              <p className="font-semibold text-gray-800 text-sm">{sec}</p>
+                              <p className="text-xs text-gray-500">{t('admin.tables.tableCountLabel', { count })}</p>
+                            </div>
+                            <button
+                              onClick={() => beginRenameSection(sec)}
+                              className="w-7 h-7 rounded-full flex items-center justify-center bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors"
+                              title={t('admin.tables.renameSection')}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSection(sec)}
+                              disabled={!canDelete}
+                              className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                                canDelete ? 'bg-red-100 hover:bg-red-200 text-red-500' : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                              }`}
+                              title={canDelete ? t('admin.tables.removeSection') : t('admin.tables.cannotRemoveSection')}
+                            >
+                              <X size={14} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -1682,6 +1866,43 @@ export default function AdminTables() {
           </div>
         </div>
       )}
+      {/* ── Cancel Reservation Confirmation ─────────────────────────────────── */}
+      {cancelReservationTable && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <XCircle size={20} className="text-red-600" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-900">{t('admin.tables.cancelReservation')}</h2>
+            </div>
+            <div className="px-6 py-6">
+              <p className="text-gray-700 font-medium mb-1">
+                {cancelReservationTable.name || `Table ${cancelReservationTable.tableNumber}`}
+              </p>
+              <p className="text-gray-600 text-sm">{t('common.actionCannotBeUndone')}</p>
+            </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+              <button
+                onClick={() => setCancelReservationTable(null)}
+                className="flex-1 px-4 py-2.5 text-gray-700 font-medium border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={async () => {
+                  await handleCancelReservation(cancelReservationTable);
+                  setCancelReservationTable(null);
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors"
+              >
+                {t('common.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

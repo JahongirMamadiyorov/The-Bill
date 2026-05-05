@@ -153,7 +153,8 @@ router.get('/', authenticate, async (req, res) => {
       const itemsRes = await db.query(
         `SELECT oi.id, oi.order_id, oi.menu_item_id, oi.quantity, oi.unit_price,
                 COALESCE(m.name, 'Unknown item') AS name,
-                COALESCE(m.name, 'Unknown item') AS item_name
+                COALESCE(m.name, 'Unknown item') AS item_name,
+                COALESCE(m.unit, 'piece') AS unit
          FROM order_items oi
          LEFT JOIN menu_items m ON oi.menu_item_id = m.id
          WHERE oi.order_id = ANY($1::uuid[])`,
@@ -236,7 +237,7 @@ router.get('/kitchen', authenticate, authorize('owner', 'admin', 'kitchen'), asy
     if (userStation) {
       // Only fetch items that belong to this station OR have no station assigned
       itemsResult = await db.query(
-        `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, m.kitchen_station, oi.item_ready
+        `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, COALESCE(m.unit, 'piece') AS unit, m.kitchen_station, oi.item_ready, COALESCE(m.unit, 'piece') AS unit
          FROM order_items oi
          LEFT JOIN menu_items m ON oi.menu_item_id = m.id
          WHERE oi.order_id = ANY($1::uuid[])
@@ -246,7 +247,7 @@ router.get('/kitchen', authenticate, authorize('owner', 'admin', 'kitchen'), asy
     } else {
       // No station filter — return all items
       itemsResult = await db.query(
-        `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, m.kitchen_station, oi.item_ready
+        `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, COALESCE(m.unit, 'piece') AS unit, m.kitchen_station, oi.item_ready, COALESCE(m.unit, 'piece') AS unit
          FROM order_items oi
          LEFT JOIN menu_items m ON oi.menu_item_id = m.id
          WHERE oi.order_id = ANY($1::uuid[])`,
@@ -354,7 +355,7 @@ router.get('/kitchen/completed', authenticate, authorize('owner', 'admin', 'kitc
 
     const orderIds = ordersResult.rows.map(o => o.id);
     const itemsResult = await db.query(
-      `SELECT oi.*, m.name as item_name, m.kitchen_station
+      `SELECT oi.*, m.name as item_name, m.kitchen_station, COALESCE(m.unit, 'piece') AS unit
        FROM order_items oi
        LEFT JOIN menu_items m ON oi.menu_item_id = m.id
        WHERE oi.order_id = ANY($1::uuid[])`,
@@ -481,7 +482,7 @@ router.get('/:id', authenticate, async (req, res) => {
     );
     if (!order.rows[0]) return res.status(404).json({ error: 'Order not found' });
     const items = await db.query(
-      `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name
+      `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, COALESCE(m.unit, 'piece') AS unit
        FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id AND m.restaurant_id = (SELECT restaurant_id FROM orders WHERE id=$2)
        WHERE oi.order_id=$1`, [req.params.id, req.params.id]
     );
@@ -500,7 +501,11 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // PUT /api/orders/:id — update order details (table, waitress, notes, items, payment_method)
-router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) => {
+// Waitresses also need to update their own orders (e.g. adding items to a bill_requested
+// order from the active-order modal). Authorization is still scoped per restaurant by
+// the `WHERE restaurant_id=...` filter below, and waitresses can't change role-restricted
+// fields (payment_method, cancellation, etc.) from their UI.
+router.put('/:id', authenticate, authorize('owner', 'admin', 'cashier', 'waitress'), async (req, res) => {
   const { table_id, waitress_id, guest_count, notes, items, payment_method } = req.body;
   const client = await db.connect();
   try {
@@ -560,6 +565,12 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
 
       vals.push(taxAmount); sets.push(`tax_amount=$${vals.length}`);
       vals.push(total);     sets.push(`total_amount=$${vals.length}`);
+
+      // If the items list changed on a bill_requested/ready/served order,
+      // reset status to pending so kitchen picks the change up.
+      if (['bill_requested', 'ready', 'served'].includes(existing.rows[0].status)) {
+        vals.push('pending'); sets.push(`status=$${vals.length}`);
+      }
     }
 
     // Always run the UPDATE (at minimum touches updated_at)
@@ -605,7 +616,7 @@ router.put('/:id', authenticate, authorize('owner', 'admin'), async (req, res) =
        WHERE o.id=$1 AND o.restaurant_id=$2`, [req.params.id, rid(req)]
     );
     const updatedItems = await db.query(
-      `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name
+      `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, COALESCE(m.unit, 'piece') AS unit
        FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id AND m.restaurant_id = (SELECT restaurant_id FROM orders WHERE id=$2)
        WHERE oi.order_id=$1`, [req.params.id, req.params.id]
     );
@@ -727,7 +738,10 @@ router.post('/', authenticate, async (req, res) => {
     // Create notifications for kitchen users asynchronously
     (async () => {
       try {
-        const kitchenUsers = await db.query("SELECT id FROM users WHERE role='kitchen'");
+        const kitchenUsers = await db.query(
+          "SELECT id FROM users WHERE role='kitchen' AND restaurant_id=$1 AND is_active IS NOT FALSE",
+          [rid(req)]
+        );
 
         let notifTitle, notifBody;
         if (order_type === 'to_go') {
@@ -807,7 +821,7 @@ router.put('/:id/status', authenticate, async (req, res) => {
           } catch (_) { continue; }
 
           for (const recipe of bom.rows) {
-            const totalQtyToDeduct = parseFloat(recipe.quantity_used) * parseInt(item.quantity);
+            const totalQtyToDeduct = parseFloat(recipe.quantity_used) * parseFloat(item.quantity);
             let remainingToDeduct = totalQtyToDeduct;
 
             // Fetch batches FIFO (stock_batches may not exist — skip gracefully)
@@ -873,21 +887,23 @@ router.put('/:id/status', authenticate, async (req, res) => {
       (async () => {
         try {
           const tableRes   = await db.query("SELECT table_number FROM restaurant_tables WHERE id=$1 AND restaurant_id=$2", [order.table_id, order.restaurant_id]);
-          const waitressRes= await db.query("SELECT name FROM users WHERE id=$1", [order.waitress_id]);
+          const waitressRes= await db.query("SELECT name FROM users WHERE id=$1 AND restaurant_id=$2", [order.waitress_id, order.restaurant_id]);
           const tNum       = tableRes.rows[0]?.table_number || '?';
           const waitress   = waitressRes.rows[0]?.name || 'Waitress';
           const total      = parseFloat(order.total_amount || 0).toLocaleString('uz-UZ');
           const now        = new Date().toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
           const body       = `Table ${tNum} · ${total} so'm · ${waitress} · ${now}`;
 
-          // Primary: send to cashiers
+          // Primary: send to cashiers in THIS restaurant only
           let recipients = await db.query(
-            "SELECT id FROM users WHERE role='cashier' AND is_active IS NOT FALSE"
+            "SELECT id FROM users WHERE role='cashier' AND restaurant_id=$1 AND is_active IS NOT FALSE",
+            [order.restaurant_id]
           );
-          // Fallback: if no cashiers, send to admins/owners
+          // Fallback: if no cashiers, send to admins/owners in THIS restaurant only
           if (recipients.rows.length === 0) {
             recipients = await db.query(
-              "SELECT id FROM users WHERE role IN ('admin','owner') AND is_active IS NOT FALSE"
+              "SELECT id FROM users WHERE role IN ('admin','owner') AND restaurant_id=$1 AND is_active IS NOT FALSE",
+              [order.restaurant_id]
             );
           }
           for (const u of recipients.rows) {
@@ -1053,7 +1069,7 @@ router.put('/:id/pay', authenticate, async (req, res) => {
              WHERE mii.menu_item_id=$1`, [item.menu_item_id]
           );
           for (const ing of bom.rows) {
-            const qtyUsed = parseFloat(ing.quantity_used) * parseInt(item.quantity);
+            const qtyUsed = parseFloat(ing.quantity_used) * parseFloat(item.quantity);
             await client.query(
               'UPDATE warehouse_items SET quantity_in_stock = GREATEST(0, quantity_in_stock - $1), updated_at=NOW() WHERE id=$2',
               [qtyUsed, ing.ingredient_id]
@@ -1121,7 +1137,9 @@ router.post('/:id/items', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
     const order = existing.rows[0];
-    if (order.status === 'bill_requested' || order.status === 'paid' || order.status === 'cancelled') {
+    // Adding items is blocked only for finalised orders — bill_requested is allowed
+    // (the cashier/waitress may still add items after the customer has asked for the bill).
+    if (order.status === 'paid' || order.status === 'cancelled') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Cannot add items to an order with status: ${order.status}` });
     }
@@ -1158,9 +1176,11 @@ router.post('/:id/items', authenticate, async (req, res) => {
       [total, taxAmount, req.params.id]
     );
 
-    // Reset to pending so kitchen sees the new items
+    // Reset to pending so kitchen sees the new items.
+    // bill_requested is included — if the customer already asked for the bill and then
+    // adds more items, we re-open the order for the kitchen.
     await client.query(
-      `UPDATE orders SET status='pending', updated_at=NOW() WHERE id=$1 AND status IN ('ready','served')`,
+      `UPDATE orders SET status='pending', updated_at=NOW() WHERE id=$1 AND status IN ('ready','served','bill_requested')`,
       [req.params.id]
     );
 
@@ -1175,15 +1195,18 @@ router.post('/:id/items', authenticate, async (req, res) => {
        WHERE o.id=$1 AND o.restaurant_id=$2`, [req.params.id, rid(req)]
     );
     const updatedItems = await db.query(
-      `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name
+      `SELECT oi.*, COALESCE(m.name, 'Unknown item') as name, COALESCE(m.name, 'Unknown item') as item_name, COALESCE(m.unit, 'piece') AS unit
        FROM order_items oi LEFT JOIN menu_items m ON oi.menu_item_id=m.id AND m.restaurant_id = (SELECT restaurant_id FROM orders WHERE id=$2)
        WHERE oi.order_id=$1 ORDER BY oi.created_at ASC`, [req.params.id, req.params.id]
     );
 
-    // Notify kitchen of updated order
+    // Notify kitchen of updated order (scoped to this restaurant only)
     (async () => {
       try {
-        const kitchenUsers = await db.query("SELECT id FROM users WHERE role='kitchen'");
+        const kitchenUsers = await db.query(
+          "SELECT id FROM users WHERE role='kitchen' AND restaurant_id=$1 AND is_active IS NOT FALSE",
+          [rid(req)]
+        );
         for (const u of kitchenUsers.rows) {
           await db.query(
             "INSERT INTO notifications (user_id, title, body, type, restaurant_id) VALUES ($1,$2,$3,$4,$5)",

@@ -912,6 +912,24 @@ const fld = StyleSheet.create({
   chevron:     { fontSize: 22, color: '#94a3b8', marginLeft: 4 },
 });
 
+// ─── Unit / qty helpers (shared with edit modal) ──────────────────────────────
+const isWeighedUnit = (unit) => {
+  const u = String(unit || 'piece').toLowerCase();
+  return u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
+};
+const unitSuffix = (unit) => {
+  const u = String(unit || 'piece').toLowerCase();
+  return u === 'piece' ? '' : u;
+};
+const formatItemQty = (item) => {
+  const n = Number(item?.quantity) || 0;
+  if (isWeighedUnit(item?.unit)) {
+    const trimmed = Number.isInteger(n) ? String(n) : parseFloat(n.toFixed(3)).toString();
+    return `${trimmed} ${unitSuffix(item?.unit)}`;
+  }
+  return String(Math.round(n) || 1);
+};
+
 // ─── EDIT CURRENT ORDER (full-screen) ─────────────────────────────────────────
 function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
   const { t } = useTranslation();
@@ -933,6 +951,9 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
 
   const [showTablePicker,    setShowTablePicker]    = useState(false);
   const [showWaitressPicker, setShowWaitressPicker] = useState(false);
+
+  // Amount picker for kg/L items: { localId: string|null, item, draft }
+  const [amountPicker, setAmountPicker] = useState(null);
 
   const isKitchenBusy = ['preparing', 'ready'].includes(order?.status);
 
@@ -961,6 +982,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
         name:         i.item_name || i.name,
         price:        Number(i.unit_price || i.price || 0),
         quantity:     Number(i.quantity || 1),
+        unit:         String(i.unit || 'piece').toLowerCase(),
       })));
       setTables(tRes.data || []);
       setStaff(sRes.data || []);
@@ -977,6 +999,11 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
   const liveTotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
 
   function addMenuItem(mi) {
+    const miUnit = String(mi.unit || 'piece').toLowerCase();
+    if (isWeighedUnit(miUnit)) {
+      setAmountPicker({ localId: null, item: mi, draft: '', priceDraft: '' });
+      return;
+    }
     const miId = mi.id || mi.menu_item_id;
     setItems(prev => {
       // Match on menu_item_id so the same menu item increments qty instead of duplicating.
@@ -988,15 +1015,46 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
         name:         mi.name || mi.item_name,
         price:        Number(mi.price || mi.unit_price || 0),
         quantity:     1,
+        unit:         miUnit,
       }];
     });
   }
   function changeQty(id, delta) {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i));
+    const it = items.find(i => i.id === id);
+    if (it && isWeighedUnit(it.unit)) {
+      const unitPrice = Number(it.price || 0);
+      const seedPrice = unitPrice > 0 ? String(Math.round(it.quantity * unitPrice)) : '';
+      setAmountPicker({ localId: id, item: { ...it, name: it.name, price: it.price, unit: it.unit }, draft: String(it.quantity), priceDraft: seedPrice });
+      return;
+    }
+    setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, Number(i.quantity || 0) + delta) } : i));
   }
   function removeItem(id) {
-    if (items.length <= 1) { showToast(t('adminExtra.atLeast1Item'), 'error'); return; }
     setItems(prev => prev.filter(i => i.id !== id));
+  }
+
+  function confirmAmountPicker() {
+    if (!amountPicker) return;
+    const amt = Math.round((parseFloat(amountPicker.draft) || 0) * 1000) / 1000;
+    if (!(amt > 0)) { showToast(t('adminExtra.invalidAmount','Enter a valid amount'), 'error'); return; }
+    const mi = amountPicker.item;
+    const miUnit = String(mi.unit || 'piece').toLowerCase();
+    if (amountPicker.localId != null) {
+      // Update existing item
+      setItems(prev => prev.map(i => i.id === amountPicker.localId ? { ...i, quantity: amt } : i));
+    } else {
+      // Add new item
+      const miId = mi.id || mi.menu_item_id;
+      setItems(prev => [...prev, {
+        id:           `new_${miId}_${Date.now()}`,
+        menu_item_id: miId,
+        name:         mi.name || mi.item_name,
+        price:        Number(mi.price || mi.unit_price || 0),
+        quantity:     amt,
+        unit:         miUnit,
+      }]);
+    }
+    setAmountPicker(null);
   }
 
   async function handleSave() {
@@ -1011,7 +1069,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
         notes:       notes      || undefined,
         // Send menu_item_id explicitly so removed items actually drop from the
         // server (backend does DELETE + INSERT of the provided items list).
-        items:       items.map(i => ({ menu_item_id: i.menu_item_id || i.id, quantity: i.quantity })),
+        items:       items.map(i => ({ menu_item_id: i.menu_item_id || i.id, quantity: Number(i.quantity) || 1 })),
       });
       showToast(`Order ${shortId(order)} updated`, 'success');
       onSaved();
@@ -1083,26 +1141,37 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
 
                   {/* ── Order Items ── */}
                   <Text style={ec.sectionTitle}>{t('adminExtra.orderItems')}</Text>
-                  {items.map(it => (
-                    <View key={it.id} style={ec.itemRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={ec.itemName} numberOfLines={1}>{it.name}</Text>
-                        <Text style={ec.itemPrice}>{money(it.price)}</Text>
+                  {items.map(it => {
+                    const weighed = isWeighedUnit(it.unit);
+                    return (
+                      <View key={it.id} style={ec.itemRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={ec.itemName} numberOfLines={1}>{it.name}</Text>
+                          <Text style={ec.itemPrice}>{money(it.price)}{weighed ? ` / ${unitSuffix(it.unit)}` : ''}</Text>
+                        </View>
+                        <View style={ec.itemControls}>
+                          {weighed ? (
+                            <TouchableOpacity style={[ec.ctrlBtn, { width: 'auto', paddingHorizontal: 10 }]} onPress={() => changeQty(it.id, 0)}>
+                              <MaterialIcons name="edit" size={16} color="#475569" />
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity style={ec.ctrlBtn} onPress={() => changeQty(it.id, -1)}>
+                              <Text style={ec.ctrlBtnText}>−</Text>
+                            </TouchableOpacity>
+                          )}
+                          <Text style={[ec.itemQty, weighed && { minWidth: 64, paddingHorizontal: 4 }]}>{formatItemQty(it)}</Text>
+                          {!weighed && (
+                            <TouchableOpacity style={ec.ctrlBtn} onPress={() => changeQty(it.id, 1)}>
+                              <Text style={ec.ctrlBtnText}>+</Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity style={ec.removeBtn} onPress={() => removeItem(it.id)}>
+                            <MaterialIcons name="close" size={16} color="#dc2626" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                      <View style={ec.itemControls}>
-                        <TouchableOpacity style={ec.ctrlBtn} onPress={() => changeQty(it.id, -1)}>
-                          <Text style={ec.ctrlBtnText}>−</Text>
-                        </TouchableOpacity>
-                        <Text style={ec.itemQty}>{it.quantity}</Text>
-                        <TouchableOpacity style={ec.ctrlBtn} onPress={() => changeQty(it.id, 1)}>
-                          <Text style={ec.ctrlBtnText}>+</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={ec.removeBtn} onPress={() => removeItem(it.id)}>
-                          <MaterialIcons name="close" size={16} color="#dc2626" />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
+                    );
+                  })}
 
                   {/* ── Add Items ── */}
                   <Text style={ec.sectionTitle}>{t('adminExtra.addItemsLabel')}</Text>
@@ -1117,15 +1186,19 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                       clearButtonMode="while-editing"
                     />
                   </View>
-                  {filteredMenu.map(mi => (
-                    <TouchableOpacity key={mi.id} style={ec.menuRow} onPress={() => addMenuItem(mi)}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={ec.menuName}>{mi.name || mi.item_name}</Text>
-                        <Text style={ec.menuPrice}>{money(mi.price || mi.unit_price || 0)}</Text>
-                      </View>
-                      <View style={ec.addBtn}><Text style={ec.addBtnText}>+</Text></View>
-                    </TouchableOpacity>
-                  ))}
+                  {filteredMenu.map(mi => {
+                    const miUnit = String(mi.unit || 'piece').toLowerCase();
+                    const weighed = isWeighedUnit(miUnit);
+                    return (
+                      <TouchableOpacity key={mi.id} style={ec.menuRow} onPress={() => addMenuItem(mi)}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={ec.menuName}>{mi.name || mi.item_name}</Text>
+                          <Text style={ec.menuPrice}>{money(mi.price || mi.unit_price || 0)}{weighed ? ` / ${unitSuffix(miUnit)}` : ''}</Text>
+                        </View>
+                        <View style={ec.addBtn}><Text style={ec.addBtnText}>+</Text></View>
+                      </TouchableOpacity>
+                    );
+                  })}
 
                   {/* ── Notes ── */}
                   <Text style={ec.sectionTitle}>{t('common.notes','Notes')}</Text>
@@ -1199,6 +1272,92 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
             </View>
           </Modal>
         )}
+
+        {/* Amount picker for kg/L items */}
+        {amountPicker && (
+          <Modal visible animationType="fade" transparent statusBarTranslucent onRequestClose={() => setAmountPicker(null)}>
+            <View style={pkr.overlay}>
+              <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setAmountPicker(null)} />
+              <View style={ap.sheet}>
+                <View style={pkr.handle} />
+                <Text style={ap.title}>{amountPicker.item?.name || amountPicker.item?.item_name}</Text>
+                <Text style={ap.sub}>
+                  {money(Number(amountPicker.item?.price || amountPicker.item?.unit_price || 0))} / {unitSuffix(amountPicker.item?.unit)}
+                </Text>
+
+                <Text style={ap.label}>{t('adminExtra.amount','Amount')} ({unitSuffix(amountPicker.item?.unit)})</Text>
+                <TextInput
+                  style={ap.input}
+                  value={amountPicker.draft}
+                  onChangeText={(v) => {
+                    const cleaned = v.replace(',', '.');
+                    const unit    = Number(amountPicker.item?.price || amountPicker.item?.unit_price || 0);
+                    const qty     = parseFloat(cleaned) || 0;
+                    const price   = Math.round(qty * unit);
+                    setAmountPicker(p => p ? {
+                      ...p,
+                      draft: cleaned,
+                      priceDraft: qty > 0 && unit > 0 ? String(price) : '',
+                    } : p);
+                  }}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor="#94a3b8"
+                  autoFocus
+                />
+
+                <View style={ap.presetRow}>
+                  {['0.25','0.5','1','1.5','2'].map(v => (
+                    <TouchableOpacity
+                      key={v}
+                      style={ap.presetBtn}
+                      onPress={() => {
+                        const unit  = Number(amountPicker.item?.price || amountPicker.item?.unit_price || 0);
+                        const price = Math.round(parseFloat(v) * unit);
+                        setAmountPicker(p => p ? {
+                          ...p,
+                          draft: v,
+                          priceDraft: unit > 0 ? String(price) : '',
+                        } : p);
+                      }}
+                    >
+                      <Text style={ap.presetText}>{v}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={[ap.label, { marginTop: 14 }]}>{t('common.price','Price')}</Text>
+                <TextInput
+                  style={ap.input}
+                  value={amountPicker.priceDraft || ''}
+                  onChangeText={(v) => {
+                    const cleaned = v.replace(',', '.').replace(/[^0-9.]/g, '');
+                    const unit    = Number(amountPicker.item?.price || amountPicker.item?.unit_price || 0);
+                    const price   = parseFloat(cleaned) || 0;
+                    const qty     = unit > 0 ? Math.round((price / unit) * 1000) / 1000 : 0;
+                    setAmountPicker(p => p ? {
+                      ...p,
+                      priceDraft: cleaned,
+                      draft: price > 0 && unit > 0 ? String(qty) : '',
+                    } : p);
+                  }}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#94a3b8"
+                />
+
+                <View style={ap.btnRow}>
+                  <TouchableOpacity style={[ap.btn, ap.btnCancel]} onPress={() => setAmountPicker(null)}>
+                    <Text style={ap.btnCancelText}>{t('common.cancel','Cancel')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[ap.btn, ap.btnConfirm]} onPress={confirmAmountPicker}>
+                    <Text style={ap.btnConfirmText}>{amountPicker.localId != null ? t('common.save','Save') : t('common.add','Add')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </Modal>
     </>
   );
@@ -1239,6 +1398,27 @@ const ec = StyleSheet.create({
   totalBox:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#eff6ff', borderRadius: 14, padding: 16, marginTop: 20 },
   totalLabel:      { fontSize: 14, fontWeight: '700', color: '#1d4ed8' },
   totalVal:        { fontSize: 20, fontWeight: '900', color: colors.admin },
+});
+
+// Amount picker styles (shared by EditCurrentOrderModal)
+const ap = StyleSheet.create({
+  sheet:          { backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 28 },
+  title:          { fontSize: 17, fontWeight: '800', color: '#0f172a', textAlign: 'center', marginTop: 8 },
+  sub:            { fontSize: 13, color: colors.admin, textAlign: 'center', marginBottom: 14, fontWeight: '600' },
+  label:          { fontSize: 11, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
+  input:          { backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 14, paddingVertical: 14, fontSize: 20, fontWeight: '700', color: '#0f172a', textAlign: 'center' },
+  presetRow:      { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 6 },
+  presetBtn:      { flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: '#eff6ff', alignItems: 'center' },
+  presetText:     { color: colors.admin, fontWeight: '700', fontSize: 14 },
+  totalRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 14 },
+  totalLabel:     { fontSize: 13, fontWeight: '700', color: '#475569' },
+  totalVal:       { fontSize: 18, fontWeight: '900', color: colors.admin },
+  btnRow:         { flexDirection: 'row', gap: 10, marginTop: 14 },
+  btn:            { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  btnCancel:      { backgroundColor: '#f1f5f9' },
+  btnCancelText:  { color: '#475569', fontWeight: '700', fontSize: 14 },
+  btnConfirm:     { backgroundColor: colors.admin },
+  btnConfirmText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 });
 
 // ─── EDIT PAID ORDER (bottom sheet) ──────────────────────────────────────────

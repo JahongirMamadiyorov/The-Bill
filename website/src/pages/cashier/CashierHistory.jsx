@@ -369,8 +369,8 @@ function OrderDetailModal({ order, onClose, onRefund }) {
 
   const data = fullOrder || order;
   const items = data.items || data.orderItems || [];
-  const itemCount = items.reduce((s, x) => s + (x.quantity || 1), 0);
-  const subtotal  = items.reduce((s, x) => s + (parseFloat(x.unitPrice || x.price || 0) * (x.quantity || 1)), 0);
+  const itemCount = Math.round(items.reduce((s, x) => s + (Number(x.quantity) || 1), 0));
+  const subtotal  = items.reduce((s, x) => s + (parseFloat(x.unitPrice || x.price || 0) * (Number(x.quantity) || 1)), 0);
   const tax  = parseFloat(data.taxAmount) || 0;
   const disc = parseFloat(data.discountAmount ?? data.discount) || 0;
   const total = parseFloat(data.totalAmount) || 0;

@@ -33,16 +33,21 @@ const METHOD_MAP = {
 };
 
 // ── Table status config ────────────────────────────────────────────────────────
-const getTableStatus = (t) => ({
-  free:     { color: '#16A34A', bg: '#F0FDF4', label: t('statuses.free'),     icon: 'check-circle-outline' },
-  occupied: { color: '#D97706', bg: '#FFFBEB', label: t('statuses.occupied'), icon: 'people-outline'        },
-  reserved: { color: '#7C3AED', bg: '#F5F3FF', label: t('statuses.reserved'), icon: 'event-note'            },
-  cleaning: { color: '#0891B2', bg: '#ECFEFF', label: t('statuses.cleaning'), icon: 'cleaning-services'     },
-  closed:   { color: '#DC2626', bg: '#FEF2F2', label: 'Closed',              icon: 'block'                 },
-});
+const getTableStatus = (tFn) => {
+  const t = typeof tFn === 'function' ? tFn : ((_, fb) => fb || '');
+  return {
+    free:     { color: '#16A34A', bg: '#F0FDF4', label: t('statuses.free',     'Free'),     icon: 'check-circle-outline' },
+    occupied: { color: '#D97706', bg: '#FFFBEB', label: t('statuses.occupied', 'Occupied'), icon: 'people-outline'        },
+    reserved: { color: '#7C3AED', bg: '#F5F3FF', label: t('statuses.reserved', 'Reserved'), icon: 'event-note'            },
+    cleaning: { color: '#0891B2', bg: '#ECFEFF', label: t('statuses.cleaning', 'Cleaning'), icon: 'cleaning-services'     },
+    closed:   { color: '#DC2626', bg: '#FEF2F2', label: t('statuses.closed',   'Closed'),   icon: 'block'                 },
+  };
+};
 
 // ── Mini Table Card ────────────────────────────────────────────────────────────
-function TableCard({ table, onPress, t }) {
+function TableCard({ table, onPress, t: tProp }) {
+  const { t: tHook } = useTranslation();
+  const t = tProp || tHook || ((_, fb) => fb || '');
   const TABLE_STATUS = getTableStatus(t);
   const cfg    = TABLE_STATUS[table.status] || TABLE_STATUS.free;
   const hasOrder = table.status === 'occupied';
@@ -118,6 +123,110 @@ function PhoneField({ label = 'PHONE NUMBER', value, onChange }) {
   );
 }
 
+// ── Loan Due-Date Picker (calendar bottom sheet) ──────────────────────────────
+function LoanDatePickerSheet({ current, onSelect, onClose, t }) {
+  const todayObj = new Date();
+  const [viewYear,  setViewYear]  = useState(todayObj.getFullYear());
+  const [viewMonth, setViewMonth] = useState(todayObj.getMonth());
+
+  const fmtDs = (d) => {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  };
+  const todayStr = fmtDs(todayObj);
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  };
+
+  const firstDow  = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const daysInMon = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMon; d++) cells.push(fmtDs(new Date(viewYear, viewMonth, d)));
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  const monthsShort = (() => {
+    const m = t('datePicker.monthsShort');
+    return Array.isArray(m) ? m : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  })();
+  const dayHdrs = (() => {
+    const d = t('datePicker.days');
+    return Array.isArray(d) ? d : ['Mo','Tu','We','Th','Fr','Sa','Su'];
+  })();
+
+  return (
+    <View style={LD.sheet}>
+      <View style={LD.header}>
+        <MaterialIcons name="calendar-today" size={18} color="#0891B2" />
+        <Text style={LD.title}>{t('cashier.orders.selectDueDate', 'Select due date')}</Text>
+        <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
+          <MaterialIcons name="close" size={20} color={colors.neutralMid} />
+        </TouchableOpacity>
+      </View>
+      <View style={LD.navRow}>
+        <TouchableOpacity onPress={prevMonth} style={LD.arrow}><Text style={LD.arrowTxt}>‹</Text></TouchableOpacity>
+        <Text style={LD.monthTitle}>{monthsShort[viewMonth]} {viewYear}</Text>
+        <TouchableOpacity onPress={nextMonth} style={LD.arrow}><Text style={LD.arrowTxt}>›</Text></TouchableOpacity>
+      </View>
+      <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+        {dayHdrs.map((d, i) => (
+          <View key={`${d}-${i}`} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
+            <Text style={LD.dayHdr}>{d}</Text>
+          </View>
+        ))}
+      </View>
+      {weeks.map((week, wi) => (
+        <View key={wi} style={{ flexDirection: 'row' }}>
+          {week.map((ds, di) => {
+            if (!ds) return <View key={`e${di}`} style={{ flex: 1, aspectRatio: 1 }} />;
+            const isSelected = ds === current;
+            const isPast     = ds < todayStr;
+            const isToday    = ds === todayStr;
+            const bg = isSelected ? '#0891B2' : 'transparent';
+            const txtColor = isSelected ? '#fff' : isPast ? colors.border : isToday ? '#0891B2' : colors.textDark;
+            return (
+              <TouchableOpacity
+                key={ds}
+                disabled={isPast}
+                style={{ flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: bg, borderRadius: isSelected ? 9 : 0 }}
+                onPress={() => onSelect(ds)}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 13, fontWeight: isSelected || isToday ? '800' : '400', color: txtColor }}>
+                  {parseInt(ds.split('-')[2], 10)}
+                </Text>
+                {isToday && !isSelected && (
+                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#0891B2', marginTop: 1 }} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const LD = StyleSheet.create({
+  sheet:      { backgroundColor: colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: spacing.xl, paddingBottom: 32 },
+  header:     { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md, gap: spacing.xs },
+  title:      { fontSize: 16, fontWeight: '800', color: colors.textDark, marginLeft: 4 },
+  navRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  arrow:      { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  arrowTxt:   { fontSize: 24, color: '#0891B2', fontWeight: '700', lineHeight: 28 },
+  monthTitle: { fontSize: 15, fontWeight: '800', color: colors.textDark },
+  dayHdr:     { fontSize: 11, fontWeight: '700', color: colors.neutralMid },
+});
+
 // ── Payment Sheet ─────────────────────────────────────────────────────────────
 const getPayMethods = (t) => [
   { id: 'Cash',    label: t('paymentMethods.cash') },
@@ -134,20 +243,59 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
   const [loanName,   setLoanName]   = useState('');
   const [loanPhone,  setLoanPhone]  = useState('');
   const [loanDue,    setLoanDue]    = useState('');
-  const [discPct,    setDiscPct]    = useState('0');
+  const [discMode,   setDiscMode]   = useState('percent'); // 'percent' | 'som'
+  const [discValue,  setDiscValue]  = useState('');
+  const [splitWays,  setSplitWays]  = useState(null);      // null | 2 | 3 | 4
+  const [splitParts, setSplitParts] = useState([]);        // [{amount, method, paid, loanName, loanPhone, loanDueDate}]
+  const [notes,      setNotes]      = useState('');
   const [paying,     setPaying]     = useState(false);
+  const [showLoanCal,    setShowLoanCal]    = useState(false);   // main loan due date picker
+  const [splitCalIndex,  setSplitCalIndex]  = useState(null);    // null | index of split part being edited
 
-  const total    = parseFloat(order?.total_amount || 0);
-  const disc     = Math.min(total, (total * Math.min(parseFloat(discPct) || 0, 100)) / 100);
-  const toPay    = Math.max(0, total - disc);
-  const change   = Math.max(0, (parseFloat(cashGiven) || 0) - toPay);
+  const orderItems = Array.isArray(order?.items) ? order.items : [];
+  const itemsCount = orderItems.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
+
+  const total   = parseFloat(order?.total_amount || 0);
+  const disc    = discMode === 'percent'
+    ? Math.min(total, (total * Math.min(parseFloat(discValue) || 0, 100)) / 100)
+    : Math.min(total, Math.max(0, parseFloat(discValue) || 0));
+  const toPay   = Math.max(0, total - disc);
+  const change  = Math.max(0, (parseFloat(cashGiven) || 0) - toPay);
+  const perPart = splitWays ? Math.ceil(toPay / splitWays) : 0;
+  const splitTotal = splitParts.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
 
   useEffect(() => {
     if (visible) {
       setMethod('Cash'); setCashGiven(''); setCardOk(false); setQrOk(false);
-      setLoanName(''); setLoanPhone(''); setLoanDue(''); setDiscPct('0'); setPaying(false);
+      setLoanName(''); setLoanPhone(''); setLoanDue('');
+      setDiscMode('percent'); setDiscValue(''); setSplitWays(null);
+      setSplitParts([]);
+      setNotes(''); setPaying(false);
+      setShowLoanCal(false); setSplitCalIndex(null);
     }
   }, [visible]);
+
+  // Initialize split parts when user picks a split count
+  useEffect(() => {
+    if (splitWays && splitWays > 0) {
+      const each = Math.ceil(toPay / splitWays);
+      setSplitParts(Array.from({ length: splitWays }, () => ({
+        amount: String(each),
+        method: 'cash',
+        paid: false,
+        loanName: '',
+        loanPhone: '',
+        loanDueDate: '',
+      })));
+    } else {
+      setSplitParts([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitWays]);
+
+  const updatePart = (i, field, value) => {
+    setSplitParts(prev => prev.map((p, idx) => idx === i ? { ...p, [field]: value } : p));
+  };
 
   const canPay = () => {
     if (method === 'Cash')    return (parseFloat(cashGiven) || 0) >= toPay;
@@ -165,6 +313,7 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
         payment_method:  METHOD_MAP[method] || method.toLowerCase(),
         discount_amount: disc > 0 ? disc : 0,
       };
+      if (notes.trim()) payload.notes = notes.trim();
       if (method === 'Loan') {
         payload.loan_customer_name  = loanName;
         payload.loan_customer_phone = loanPhone;
@@ -177,75 +326,221 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
     } finally { setPaying(false); }
   };
 
+  const activeMethod = getPayMethods(t).find(m => m.id === method);
+
   if (!order) return null;
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={S.mask} activeOpacity={1} onPress={onClose} />
-      <View style={S.paySheet}>
-        <View style={S.sheetHandle} />
-        <Text style={S.sheetTitle}>{t('cashier.tables.collectPayment')}</Text>
-        <Text style={S.sheetSub}>
-          {order.table_name || order.customer_name || t('cashier.orders.walkIn')} · {fmt(total)}
-        </Text>
-
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Discount */}
-          <Text style={S.sectionLabel}>{t('cashier.tables.discount')}</Text>
-          <View style={S.discRow}>
-            {[0, 5, 10, 15, 20].map(p => (
-              <TouchableOpacity
-                key={p}
-                style={[S.discBtn, discPct === String(p) && S.discBtnActive]}
-                onPress={() => setDiscPct(String(p))}
-              >
-                <Text style={[S.discTxt, discPct === String(p) && { color: '#fff' }]}>{p}%</Text>
-              </TouchableOpacity>
-            ))}
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={S.payModal} edges={['top', 'bottom']}>
+        {/* Header */}
+        <View style={S.payHeader}>
+          <View style={S.payHeaderIcon}>
+            <MaterialIcons name="credit-card" size={22} color={colors.primary} />
           </View>
-          {disc > 0 && (
-            <View style={S.discSummary}>
-              <Text style={S.discSummaryTxt}>Discount: -{fmt(disc)}</Text>
-              <Text style={[S.discSummaryTxt, { fontWeight: '800', color: colors.primary }]}>{t('common.total')}: {fmt(toPay)}</Text>
-            </View>
-          )}
+          <View style={{ flex: 1 }}>
+            <Text style={S.payHeaderTitle}>{t('cashier.tables.collectPayment')}</Text>
+            <Text style={S.payHeaderSub}>
+              {order?.order_number ? `#${order.order_number} · ` : ''}{order.table_name || order.customer_name || t('cashier.orders.walkIn')}
+            </Text>
+          </View>
+          <TouchableOpacity style={S.payHeaderClose} onPress={onClose}>
+            <MaterialIcons name="close" size={24} color={colors.neutralMid} />
+          </TouchableOpacity>
+        </View>
 
-          {/* Payment method */}
-          <Text style={[S.sectionLabel, { marginTop: 16 }]}>{t('cashier.tables.paymentMethod')}</Text>
-          <View style={S.methodRow}>
-            {PAY_METHODS.map(m => (
-              <TouchableOpacity key={m} style={[S.methodBtn, method === m && S.methodBtnActive]} onPress={() => setMethod(m)}>
-                <MaterialIcons
-                  name={m === 'Cash' ? 'payments' : m === 'Card' ? 'credit-card' : m === 'QR Code' ? 'qr-code-2' : 'account-balance-wallet'}
-                  size={20}
-                  color={method === m ? '#fff' : colors.neutralMid}
-                />
-                <Text style={[S.methodTxt, method === m && { color: '#fff' }]}>{m}</Text>
-              </TouchableOpacity>
-            ))}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+
+          {/* Payment method cards */}
+          <Text style={S.secLbl}>{t('cashier.tables.paymentMethod')}</Text>
+          <View style={S.pmGrid}>
+            {getPayMethods(t).map(m => {
+              const on = method === m.id;
+              const iconName = m.id === 'Cash' ? 'payments' : m.id === 'Card' ? 'credit-card' : m.id === 'QR Code' ? 'qr-code-2' : 'account-balance-wallet';
+              return (
+                <TouchableOpacity key={m.id} style={[S.pmCard, on && S.pmCardActive]} onPress={() => setMethod(m.id)}>
+                  <MaterialIcons name={iconName} size={22} color={on ? colors.primary : colors.neutralMid} />
+                  <Text style={[S.pmCardTxt, on && S.pmCardTxtActive]}>{m.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
-          {/* Cash */}
+          {/* Amount received (cash) */}
           {method === 'Cash' && (
-            <>
+            <View style={{ marginTop: spacing.lg }}>
+              <Text style={S.secLbl}>{t('cashier.orders.amountReceived', 'Amount received')}</Text>
               <TextInput
-                style={S.input}
-                placeholder={`Amount given (min ${fmt(toPay)})`}
+                style={S.amtInput}
+                placeholder={String(Math.round(toPay))}
+                placeholderTextColor={colors.neutralMid}
                 keyboardType="numeric"
                 value={cashGiven}
                 onChangeText={setCashGiven}
               />
-              {(parseFloat(cashGiven) || 0) >= toPay && (
-                <View style={S.changeBox}>
-                  <Text style={S.changeLbl}>{t('cashier.tables.change', 'Change')}</Text>
-                  <Text style={S.changeAmt}>{fmt(change)}</Text>
-                </View>
-              )}
-            </>
+              <View style={[S.amtChangePill, change > 0 ? S.amtChangeOn : S.amtChangeIdle]}>
+                <Text style={[S.amtChangeLbl, { color: change > 0 ? '#16A34A' : colors.neutralMid }]}>
+                  {t('cashier.orders.changeToGive', 'Change to give')}
+                </Text>
+                <Text style={[S.amtChangeVal, { color: change > 0 ? '#16A34A' : colors.neutralMid }]}>{fmt(change)}</Text>
+              </View>
+            </View>
           )}
 
-          {/* Card */}
+          {/* Discount + Split row */}
+          <View style={[S.twoCol, { marginTop: spacing.lg }]}>
+            <View style={S.col}>
+              <Text style={S.secLbl}>{t('cashier.orders.applyDiscount', 'Apply discount')}</Text>
+              <View style={S.modeTabs}>
+                {['percent', 'som'].map(mode => (
+                  <TouchableOpacity
+                    key={mode}
+                    style={[S.modeTab, discMode === mode && S.modeTabActive]}
+                    onPress={() => { setDiscMode(mode); setDiscValue(''); }}
+                  >
+                    <Text style={[S.modeTabTxt, discMode === mode && S.modeTabTxtActive]}>
+                      {mode === 'percent' ? '%' : "So'm"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={S.inputWrap}>
+                <TextInput
+                  style={S.inputInner}
+                  placeholder={discMode === 'percent' ? '0 — 100' : '0'}
+                  placeholderTextColor={colors.neutralMid}
+                  keyboardType="numeric"
+                  value={discValue}
+                  onChangeText={setDiscValue}
+                />
+                <Text style={S.inputSuffix}>{discMode === 'percent' ? '%' : "so'm"}</Text>
+              </View>
+              {disc > 0 && <Text style={S.discApplied}>-{fmt(disc)}</Text>}
+            </View>
+            <View style={S.col}>
+              <Text style={S.secLbl}>{t('cashier.orders.splitBill', 'Split bill')}</Text>
+              <View style={S.splitRow}>
+                {[2, 3, 4].map(n => {
+                  const on = splitWays === n;
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      style={[S.splitBtn, on && S.splitBtnActive]}
+                      onPress={() => setSplitWays(on ? null : n)}
+                    >
+                      <Text style={[S.splitBtnTxt, on && S.splitBtnTxtActive]}>{n}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+          {splitWays && splitParts.length > 0 && (
+            <View style={S.splitParts}>
+              {splitParts.map((part, i) => {
+                const partMethods = [
+                  { key: 'cash',    label: t('paymentMethods.cash',   'Cash'),  icon: 'payments' },
+                  { key: 'card',    label: t('paymentMethods.card',   'Card'),  icon: 'credit-card' },
+                  { key: 'qr_code', label: t('paymentMethods.qrCode', 'QR'),    icon: 'qr-code-2' },
+                  { key: 'loan',    label: t('paymentMethods.loan',   'Loan'),  icon: 'account-balance-wallet' },
+                ];
+                return (
+                  <View key={i} style={S.splitPartCard}>
+                    {/* Header: Part N + paid checkbox */}
+                    <View style={S.splitPartHeader}>
+                      <Text style={S.splitPartLbl}>{t('cashier.orders.part', 'Part')} {i + 1}</Text>
+                      <TouchableOpacity
+                        style={S.splitPaidRow}
+                        activeOpacity={0.7}
+                        onPress={() => updatePart(i, 'paid', !part.paid)}
+                      >
+                        <View style={[S.splitPaidBox, part.paid && S.splitPaidBoxOn]}>
+                          {part.paid && <MaterialIcons name="check" size={11} color="#fff" />}
+                        </View>
+                        <Text style={[S.splitPaidLbl, part.paid && { color: colors.success }]}>
+                          {t('cashier.orders.paid', 'Paid')}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Amount input */}
+                    <View style={[S.inputWrap, { marginBottom: 8 }]}>
+                      <TextInput
+                        style={S.inputInner}
+                        keyboardType="numeric"
+                        value={part.amount}
+                        onChangeText={v => updatePart(i, 'amount', v.replace(/[^0-9.]/g, ''))}
+                        placeholder={String(perPart)}
+                        placeholderTextColor={colors.neutralMid}
+                      />
+                      <Text style={S.inputSuffix}>so'm</Text>
+                    </View>
+
+                    {/* Per-part method buttons */}
+                    <View style={S.splitMethodRow}>
+                      {partMethods.map(pm => {
+                        const on = part.method === pm.key;
+                        return (
+                          <TouchableOpacity
+                            key={pm.key}
+                            style={[S.splitMethodBtn, on && S.splitMethodBtnActive]}
+                            onPress={() => updatePart(i, 'method', pm.key)}
+                          >
+                            <MaterialIcons name={pm.icon} size={14} color={on ? '#fff' : colors.neutralMid} />
+                            <Text style={[S.splitMethodTxt, on && S.splitMethodTxtActive]}>{pm.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    {/* Conditional loan fields */}
+                    {part.method === 'loan' && (
+                      <View style={S.splitLoanWrap}>
+                        <TextInput
+                          style={S.splitLoanInput}
+                          placeholder={t('placeholders.customerNameReq', 'Customer name *')}
+                          placeholderTextColor={colors.neutralMid}
+                          value={part.loanName}
+                          onChangeText={v => updatePart(i, 'loanName', v)}
+                        />
+                        <TextInput
+                          style={S.splitLoanInput}
+                          placeholder={t('common.phone', 'Phone')}
+                          placeholderTextColor={colors.neutralMid}
+                          keyboardType="phone-pad"
+                          value={part.loanPhone}
+                          onChangeText={v => updatePart(i, 'loanPhone', v)}
+                        />
+                        <TouchableOpacity
+                          style={[S.splitLoanInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                          onPress={() => setSplitCalIndex(i)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={{ fontSize: 13, color: part.loanDueDate ? colors.textDark : colors.neutralMid }}>
+                            {part.loanDueDate || t('cashier.orders.selectDueDate', 'Select due date')}
+                          </Text>
+                          <MaterialIcons name="calendar-today" size={16} color={colors.neutralMid} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* Split totals validation */}
+              <View style={[S.splitTotalsRow, Math.abs(splitTotal - toPay) > 1 && S.splitTotalsErr]}>
+                <Text style={S.splitTotalsLbl}>
+                  {t('cashier.orders.splitTotal', 'Split total')}: <Text style={S.splitTotalsVal}>{fmt(splitTotal)}</Text>
+                </Text>
+                <Text style={S.splitTotalsLbl}>
+                  {t('common.total', 'Total')}: <Text style={S.splitTotalsVal}>{fmt(toPay)}</Text>
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Card confirm */}
           {method === 'Card' && (
-            <TouchableOpacity style={[S.confirmRow, cardOk && S.confirmRowOk]} onPress={() => setCardOk(!cardOk)}>
+            <TouchableOpacity style={[S.confirmRow, cardOk && S.confirmRowOk, { marginTop: spacing.lg }]} onPress={() => setCardOk(!cardOk)}>
               <View style={[S.checkbox, cardOk && S.checkboxOk]}>
                 {cardOk && <MaterialIcons name="check" size={13} color="#fff" />}
               </View>
@@ -253,9 +548,9 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
             </TouchableOpacity>
           )}
 
-          {/* QR Code */}
+          {/* QR confirm */}
           {method === 'QR Code' && (
-            <>
+            <View style={{ marginTop: spacing.lg }}>
               <View style={S.qrBox}>
                 <MaterialIcons name="qr-code-2" size={64} color={colors.border} />
                 <Text style={S.qrLbl}>{t('cashier.tables.customerScansToPay', 'Customer scans to pay')}</Text>
@@ -266,42 +561,140 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
                 </View>
                 <Text style={S.confirmLbl}>{t('cashier.tables.qrPaymentConfirmed', 'QR payment confirmed')}</Text>
               </TouchableOpacity>
-            </>
+            </View>
           )}
 
-          {/* Loan */}
+          {/* Loan fields */}
           {method === 'Loan' && (
-            <>
+            <View style={{ marginTop: spacing.lg }}>
               <View style={S.loanBanner}>
                 <MaterialIcons name="warning-amber" size={16} color="#92400E" />
-                <Text style={S.loanBannerTxt}>Loan records the debt. Money is collected later.</Text>
+                <Text style={S.loanBannerTxt}>{t('cashier.orders.loanNotice', 'Loan records the debt. Money is collected later.')}</Text>
               </View>
-              <TextInput style={S.input} placeholder={t('placeholders.customerNameReq', 'Customer name *')} value={loanName} onChangeText={setLoanName} />
-              <PhoneField label="Phone Number" value={loanPhone} onChange={setLoanPhone} />
-              <TextInput style={S.input} placeholder={t('placeholders.dueDateFormat', 'Due date (YYYY-MM-DD) *')} value={loanDue} onChangeText={setLoanDue} />
-            </>
+              <TextInput style={S.input} placeholder={t('placeholders.customerNameReq', 'Customer name *')} placeholderTextColor={colors.neutralMid} value={loanName} onChangeText={setLoanName} />
+              <PhoneField label={t('common.phone', 'Phone number')} value={loanPhone} onChange={setLoanPhone} />
+              <TouchableOpacity
+                style={[S.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }]}
+                onPress={() => setShowLoanCal(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={{ fontSize: 14, color: loanDue ? colors.textDark : colors.neutralMid }}>
+                  {loanDue || t('cashier.orders.selectDueDate', 'Select due date')}
+                </Text>
+                <MaterialIcons name="calendar-today" size={18} color={colors.neutralMid} />
+              </TouchableOpacity>
+            </View>
           )}
 
-          <View style={{ height: 120 }} />
+          {/* Order summary */}
+          <View style={[S.summaryCard, { marginTop: spacing.lg }]}>
+            <View style={S.summaryHeader}>
+              <Text style={S.summaryHeaderLbl}>{t('cashier.orders.orderItems', 'Order items')}</Text>
+              <Text style={S.summaryHeaderCount}>{Math.round(itemsCount)} {t('common.items', 'items')}</Text>
+            </View>
+            {orderItems.length === 0 ? (
+              <Text style={S.summaryEmpty}>{t('common.noResults', '—')}</Text>
+            ) : orderItems.map((it, i) => {
+              const p = parseFloat(it.unit_price || it.price || 0);
+              const q = parseFloat(it.quantity) || 1;
+              return (
+                <View key={i} style={[S.summaryItem, i < orderItems.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.neutralLight }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.summaryItemName} numberOfLines={1}>{it.name || it.menu_item_name || '—'}</Text>
+                    <Text style={S.summaryItemQty}>{fmt(p)} × {q}</Text>
+                  </View>
+                  <Text style={S.summaryItemPrice}>{fmt(p * q)}</Text>
+                </View>
+              );
+            })}
+            <View style={S.summaryTotals}>
+              <View style={S.summaryTotalRow}>
+                <Text style={S.summaryTotalLbl}>{t('common.subtotal', 'Subtotal')}</Text>
+                <Text style={S.summaryTotalVal}>{fmt(total)}</Text>
+              </View>
+              {disc > 0 && (
+                <View style={S.summaryTotalRow}>
+                  <Text style={[S.summaryTotalLbl, S.summaryDisc]}>{t('common.discount', 'Discount')}</Text>
+                  <Text style={[S.summaryTotalVal, S.summaryDisc]}>-{fmt(disc)}</Text>
+                </View>
+              )}
+              <View style={[S.summaryTotalRow, S.summaryGrandRow]}>
+                <Text style={S.summaryGrandLbl}>{t('common.total', 'Total')}</Text>
+                <Text style={S.summaryGrandVal}>{fmt(toPay)}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Method indicator */}
+          <View style={S.methodIndicator}>
+            <MaterialIcons
+              name={method === 'Cash' ? 'payments' : method === 'Card' ? 'credit-card' : method === 'QR Code' ? 'qr-code-2' : 'account-balance-wallet'}
+              size={18}
+              color={colors.primary}
+            />
+            <Text style={S.methodIndicatorTxt}>{activeMethod?.label}</Text>
+            {splitWays ? <Text style={S.methodIndicatorSub}> · {splitWays} {t('cashier.orders.ways', 'ways')}</Text> : null}
+          </View>
+
+          {/* Notes */}
+          <View style={{ marginTop: spacing.lg }}>
+            <Text style={S.secLbl}>{t('common.notes', 'Notes')}</Text>
+            <TextInput
+              style={S.notesInput}
+              placeholder={t('cashier.orders.addPaymentNotes', 'Add payment notes…')}
+              placeholderTextColor={colors.neutralMid}
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+            />
+          </View>
+
         </ScrollView>
 
         {/* Footer */}
         <View style={S.payFooter}>
           <TouchableOpacity
-            style={[S.payBtn, (!canPay() || paying) && S.payBtnDisabled]}
+            style={[S.payCta, (!canPay() || paying) && { opacity: 0.5 }]}
             onPress={handlePay}
             disabled={!canPay() || paying}
           >
             {paying
               ? <ActivityIndicator color="#fff" />
               : <>
-                  <MaterialIcons name="check-circle" size={20} color="#fff" />
-                  <Text style={S.payBtnTxt}>Confirm Payment — {fmt(toPay)}</Text>
+                  <MaterialIcons name="check-circle" size={20} color="#4ADE80" />
+                  <Text style={S.payCtaTxt}>{t('cashier.orders.confirmPayment', 'Confirm payment')} · {fmt(toPay)}</Text>
                 </>
             }
           </TouchableOpacity>
+          <TouchableOpacity style={S.payCancel} onPress={onClose}>
+            <Text style={S.payCancelTxt}>{t('common.cancel', 'Cancel')}</Text>
+          </TouchableOpacity>
         </View>
-      </View>
+
+        {/* Main loan due-date picker */}
+        <Modal visible={showLoanCal} transparent animationType="slide" onRequestClose={() => setShowLoanCal(false)}>
+          <TouchableOpacity style={S.calMask} activeOpacity={1} onPress={() => setShowLoanCal(false)} />
+          <LoanDatePickerSheet
+            current={loanDue}
+            onSelect={(ds) => { setLoanDue(ds); setShowLoanCal(false); }}
+            onClose={() => setShowLoanCal(false)}
+            t={t}
+          />
+        </Modal>
+
+        {/* Per-part split loan due-date picker */}
+        <Modal visible={splitCalIndex !== null} transparent animationType="slide" onRequestClose={() => setSplitCalIndex(null)}>
+          <TouchableOpacity style={S.calMask} activeOpacity={1} onPress={() => setSplitCalIndex(null)} />
+          {splitCalIndex !== null && (
+            <LoanDatePickerSheet
+              current={splitParts[splitCalIndex]?.loanDueDate || ''}
+              onSelect={(ds) => { updatePart(splitCalIndex, 'loanDueDate', ds); setSplitCalIndex(null); }}
+              onClose={() => setSplitCalIndex(null)}
+              t={t}
+            />
+          )}
+        </Modal>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -310,6 +703,23 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
 function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, navigation, setDialog }) {
   const { t } = useTranslation();
   const [showPay, setShowPay] = useState(false);
+  const [fullOrder, setFullOrder] = useState(null);
+
+  // Fetch full order (with items) when this detail opens for a table that has an order.
+  // The summary order from the tables list does NOT include items, so we need to fetch.
+  useEffect(() => {
+    let cancelled = false;
+    if (order?.id) {
+      ordersAPI.getById(order.id)
+        .then(res => { if (!cancelled) setFullOrder(res.data || null); })
+        .catch(() => { /* keep summary */ });
+    } else {
+      setFullOrder(null);
+    }
+    return () => { cancelled = true; };
+  }, [order?.id]);
+
+  const orderForUI = fullOrder || order;
 
   const handlePaid = () => {
     setShowPay(false);
@@ -318,9 +728,9 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
 
   if (!table) return null;
 
-  const hasOrder     = !!order;
-  const billRequested = order?.status === 'bill_requested';
-  const isPaid       = order?.status === 'paid';
+  const hasOrder     = !!orderForUI;
+  const billRequested = orderForUI?.status === 'bill_requested';
+  const isPaid       = orderForUI?.status === 'paid';
   const canPay       = hasOrder && !isPaid;
 
   return (
@@ -355,26 +765,26 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
                 <View style={S.summaryRow}>
                   <Text style={S.summaryLbl}>{t('cashier.tables.order', 'Order')}</Text>
                   <Text style={S.summaryVal}>
-                    {order.daily_number ? `#${order.daily_number}` : order.id?.slice(-6)}
+                    {orderForUI.daily_number ? `#${orderForUI.daily_number}` : orderForUI.id?.slice(-6)}
                   </Text>
                 </View>
                 <View style={S.summaryRow}>
                   <Text style={S.summaryLbl}>{t('cashier.tables.guests', 'Guests')}</Text>
-                  <Text style={S.summaryVal}>{order.guest_count || '—'}</Text>
+                  <Text style={S.summaryVal}>{orderForUI.guest_count || '—'}</Text>
                 </View>
                 <View style={S.summaryRow}>
                   <Text style={S.summaryLbl}>{t('cashier.tables.waiter', 'Waiter')}</Text>
-                  <Text style={S.summaryVal}>{order.waitress_name || 'Cashier'}</Text>
+                  <Text style={S.summaryVal}>{orderForUI.waitress_name || 'Cashier'}</Text>
                 </View>
                 <View style={S.summaryRow}>
                   <Text style={S.summaryLbl}>{t('cashier.tables.time', 'Time')}</Text>
-                  <Text style={S.summaryVal}>{elapsed(order.created_at)}</Text>
+                  <Text style={S.summaryVal}>{elapsed(orderForUI.created_at)}</Text>
                 </View>
               </View>
 
               {/* Items */}
               <Text style={S.sectionLabel}>{t('cashier.tables.orderItems', 'ORDER ITEMS')}</Text>
-              {(order.items || []).map((item, i) => (
+              {(orderForUI.items || []).map((item, i) => (
                 <View key={i} style={S.itemRow}>
                   <Text style={S.itemName}>{item.name || item.menu_item_name || '—'}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -387,13 +797,22 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
               {/* Total */}
               <View style={S.totalRow}>
                 <Text style={S.totalLbl}>{t('cashier.tables.total', 'Total')}</Text>
-                <Text style={S.totalAmt}>{fmt(order.total_amount)}</Text>
+                <Text style={S.totalAmt}>{fmt(orderForUI.total_amount)}</Text>
               </View>
 
               {/* Actions */}
               <View style={S.actionBtns}>
                 {canPay && (
-                  <TouchableOpacity style={S.payNowBtn} onPress={() => setShowPay(true)}>
+                  <TouchableOpacity
+                    style={S.payNowBtn}
+                    onPress={() => {
+                      onClose();
+                      navigation.navigate('CashierOrders', {
+                        openPayForOrderId: orderForUI.id,
+                        autoPay: true,
+                      });
+                    }}
+                  >
                     <MaterialIcons name="payments" size={18} color="#fff" />
                     <Text style={S.payNowTxt}>{t('cashier.tables.collectPayment', 'Collect Payment')}</Text>
                   </TouchableOpacity>
@@ -401,7 +820,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
                 {!isPaid && (
                   <TouchableOpacity
                     style={S.addItemsBtn}
-                    onPress={() => { onClose(); onAddItems(table, order); }}
+                    onPress={() => { onClose(); onAddItems(table, orderForUI); }}
                   >
                     <MaterialIcons name="add" size={18} color={colors.primary} />
                     <Text style={S.addItemsTxt}>{t('cashier.tables.addItems', 'Add Items')}</Text>
@@ -473,7 +892,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
       </View>
 
       <PaymentSheet
-        order={order}
+        order={orderForUI}
         visible={showPay}
         onClose={() => setShowPay(false)}
         onPaid={handlePaid}
@@ -641,7 +1060,7 @@ export default function CashierTables({ navigation }) {
             {row.items.map(table =>
               table._filler
                 ? <View key={table.id} style={{ flex: 1 }} />
-                : <TableCard key={table.id} table={table} onPress={() => setSelTable(table)} />
+                : <TableCard key={table.id} table={table} t={t} onPress={() => setSelTable(table)} />
             )}
           </View>
         )}
@@ -780,8 +1199,107 @@ const S = StyleSheet.create({
   qrLbl:        { fontSize: 12, color: colors.neutralMid, marginTop: 4 },
   loanBanner:   { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#FFFBEB', borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: '#FDE68A' },
   loanBannerTxt:{ flex: 1, fontSize: 12, color: '#92400E' },
-  payFooter:    { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing.lg, paddingBottom: 32, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.border },
+  payFooter:    { padding: spacing.lg, paddingBottom: spacing.md, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.border },
   payBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: radius.btn, paddingVertical: 15 },
   payBtnDisabled:{ backgroundColor: colors.border },
   payBtnTxt:    { color: '#fff', fontWeight: '800', fontSize: 15 },
+
+  // ── Redesigned PaymentSheet (matches website style) ──────────────────────────
+  payModal:         { flex: 1, backgroundColor: colors.background },
+  payHeader:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  payHeaderIcon:    { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md },
+  payHeaderTitle:   { fontSize: 16, fontWeight: '800', color: colors.textDark },
+  payHeaderSub:     { fontSize: 12, color: colors.neutralMid, marginTop: 2 },
+  payHeaderClose:   { padding: 6, borderRadius: radius.sm },
+
+  secLbl:           { fontSize: 11, fontWeight: '800', color: colors.neutralMid, letterSpacing: 0.8, marginBottom: 8, textTransform: 'uppercase' },
+
+  pmGrid:           { flexDirection: 'row', gap: 8 },
+  pmCard:           { flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: radius.md, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.white, gap: 6 },
+  pmCardActive:     { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  pmCardTxt:        { fontSize: 12, fontWeight: '700', color: colors.neutralMid },
+  pmCardTxtActive:  { color: colors.primary },
+
+  amtInput:         { paddingHorizontal: spacing.md, paddingVertical: 14, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, fontSize: 18, fontWeight: '800', color: colors.textDark },
+  amtChangePill:    { marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 12, borderRadius: radius.md, borderWidth: 1 },
+  amtChangeIdle:    { backgroundColor: colors.neutralLight, borderColor: colors.border },
+  amtChangeOn:      { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+  amtChangeLbl:     { fontSize: 12, fontWeight: '600' },
+  amtChangeVal:     { fontSize: 18, fontWeight: '800' },
+
+  twoCol:           { flexDirection: 'row', gap: 12 },
+  col:              { flex: 1 },
+
+  modeTabs:         { flexDirection: 'row', gap: 6, marginBottom: 8 },
+  modeTab:          { flex: 1, paddingVertical: 10, borderRadius: radius.sm, backgroundColor: colors.neutralLight, alignItems: 'center' },
+  modeTabActive:    { backgroundColor: colors.primary },
+  modeTabTxt:       { fontSize: 13, fontWeight: '800', color: colors.neutralMid },
+  modeTabTxtActive: { color: '#fff' },
+
+  inputWrap:        { position: 'relative' },
+  inputInner:       { paddingLeft: spacing.md, paddingRight: 40, paddingVertical: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, fontSize: 14, color: colors.textDark },
+  inputSuffix:      { position: 'absolute', right: 12, top: 13, fontSize: 12, color: colors.neutralMid, fontWeight: '600' },
+  discApplied:     { marginTop: 6, fontSize: 12, fontWeight: '700', color: colors.success },
+
+  splitRow:         { flexDirection: 'row', gap: 6 },
+  splitBtn:         { flex: 1, paddingVertical: 11, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.neutralLight, alignItems: 'center' },
+  splitBtnActive:   { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  splitBtnTxt:      { fontSize: 13, fontWeight: '800', color: colors.neutralMid },
+  splitBtnTxtActive:{ color: colors.primary },
+
+  splitParts:       { marginTop: 10, gap: 8 },
+  splitPart:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm },
+  splitPartLbl:     { fontSize: 13, fontWeight: '800', color: colors.textDark },
+  splitPartVal:     { fontSize: 14, fontWeight: '800', color: colors.primary },
+
+  // Per-part full picker
+  splitPartCard:    { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 10 },
+  splitPartHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  splitPaidRow:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: colors.neutralLight },
+  splitPaidBox:     { width: 16, height: 16, borderRadius: 4, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
+  splitPaidBoxOn:   { backgroundColor: colors.success, borderColor: colors.success },
+  splitPaidLbl:     { fontSize: 11, fontWeight: '700', color: colors.neutralMid },
+  splitMethodRow:   { flexDirection: 'row', gap: 4 },
+  splitMethodBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: radius.sm, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.white },
+  splitMethodBtnActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+  splitMethodTxt:   { fontSize: 11, fontWeight: '700', color: colors.neutralMid },
+  splitMethodTxtActive: { color: '#fff' },
+  splitLoanWrap:    { marginTop: 8, gap: 6 },
+  splitLoanInput:   { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: 13, color: colors.textDark },
+
+  splitTotalsRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: 10, backgroundColor: colors.neutralLight, borderRadius: radius.sm, marginTop: 4 },
+  splitTotalsErr:   { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  splitTotalsLbl:   { fontSize: 12, fontWeight: '600', color: colors.neutralMid },
+  splitTotalsVal:   { fontWeight: '800', color: colors.textDark },
+
+  summaryCard:      { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  summaryHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.neutralLight },
+  summaryHeaderLbl: { fontSize: 11, fontWeight: '800', color: colors.neutralMid, letterSpacing: 0.8 },
+  summaryHeaderCount:{ fontSize: 12, fontWeight: '700', color: colors.primary },
+  summaryEmpty:     { fontSize: 13, color: colors.neutralMid, textAlign: 'center', paddingVertical: 16 },
+  summaryItem:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: 10 },
+  summaryItemName:  { fontSize: 13, fontWeight: '600', color: colors.textDark },
+  summaryItemQty:   { fontSize: 11, color: colors.neutralMid, marginTop: 2 },
+  summaryItemPrice: { fontSize: 13, fontWeight: '700', color: colors.textDark, marginLeft: 12 },
+  summaryTotals:    { paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: 8, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: '#FAFBFC' },
+  summaryTotalRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  summaryTotalLbl:  { fontSize: 13, color: colors.neutralMid },
+  summaryTotalVal:  { fontSize: 13, fontWeight: '700', color: colors.textDark },
+  summaryGrandRow:  { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 },
+  summaryGrandLbl:  { fontSize: 14, fontWeight: '800', color: colors.textDark },
+  summaryGrandVal:  { fontSize: 22, fontWeight: '900', color: colors.primary },
+  summaryDisc:      { color: colors.success },
+
+  methodIndicator:  { marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: spacing.md, paddingVertical: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  methodIndicatorTxt:{ fontSize: 13, fontWeight: '800', color: colors.textDark },
+  methodIndicatorSub:{ fontSize: 12, color: colors.neutralMid },
+
+  notesInput:       { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, fontSize: 14, color: colors.textDark, minHeight: 70, textAlignVertical: 'top' },
+
+  payCta:           { backgroundColor: colors.textDark, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15, borderRadius: radius.btn },
+  payCtaTxt:        { color: '#fff', fontWeight: '800', fontSize: 15 },
+  payCancel:        { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
+  payCancelTxt:     { color: colors.neutralMid, fontWeight: '600', fontSize: 14 },
+
+  calMask:          { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
 });

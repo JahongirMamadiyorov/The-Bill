@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   ScrollView, Modal, ActivityIndicator,
-  RefreshControl, Dimensions, TextInput, StatusBar,
+  RefreshControl, Dimensions, TextInput, StatusBar, SectionList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -21,6 +21,24 @@ const CARD_W = (SW - spacing.md * 4) / 3;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
+
+// ── Unit helpers (for kg/l weighed items) ────────────────────────────────────
+const isWeighedItem = (item) => {
+  const u = String(item?.unit || 'piece').toLowerCase();
+  return u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
+};
+const unitSuffix = (item) => {
+  const u = String(item?.unit || 'piece').toLowerCase();
+  return u === 'piece' ? '' : u;
+};
+const formatQtyLabel = (item, qty) => {
+  if (isWeighedItem(item)) {
+    const n = Number(qty || 0);
+    const trimmed = Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '');
+    return `${trimmed} ${unitSuffix(item)}`;
+  }
+  return `× ${qty}`;
+};
 
 const isStaleOrder = (openedAt) => {
   if (!openedAt) return false;
@@ -79,9 +97,19 @@ function Btn({ label, icon, onPress, color = colors.primary, outline = false, di
 function TableCard({ table, onPress }) {
   const { t } = useTranslation();
   const st        = ST[table.status] || ST.free;
-  const isBillReq = table.status === 'occupied' && table.bill_requested;
-  const elapsed   = fmtElapsed(table.opened_at, t);
-  const stale     = table.status === 'occupied' && isStaleOrder(table.opened_at);
+  const isBillReq = table.status === 'occupied'
+    && (table.bill_requested || table.order?.status === 'bill_requested');
+  // Prefer order.created_at (active session) over table.opened_at (stale once
+  // a table has been opened/closed multiple times). Falls back to opened_at
+  // for any table without an attached order so old data still renders.
+  const elapsedRef = table.order?.created_at || table.opened_at;
+  const elapsed    = fmtElapsed(elapsedRef, t);
+  const stale      = table.status === 'occupied' && isStaleOrder(elapsedRef);
+  const orderTotal = Number(table.order?.total_amount || table.order_total || 0);
+
+  // Prefer the human name (e.g. "Karavat 1"); fall back to T<number>.
+  const displayName = (table.name && String(table.name).trim())
+    || (table.table_number != null ? `T${table.table_number}` : '—');
 
   const cardBg = {
     free:     '#f0fdf4',
@@ -116,10 +144,17 @@ function TableCard({ table, onPress }) {
       {/* Icon */}
       <MaterialIcons name="table-restaurant" size={26} color={st.color} style={{ marginBottom: 5 }} />
 
-      {/* Table name */}
+      {/* Table name (e.g. "Karavat 1") */}
       <Text style={styles.tableNum} numberOfLines={1}>
-        {table.table_number || table.name}
+        {displayName}
       </Text>
+
+      {/* Section sub-label (e.g. "Indoor" / "Terrace") */}
+      {table.section ? (
+        <Text style={styles.tableSectionLbl} numberOfLines={1}>
+          {String(table.section).toUpperCase()}
+        </Text>
+      ) : null}
 
       {/* Status-specific detail */}
       {table.status === 'free' && (
@@ -132,9 +167,9 @@ function TableCard({ table, onPress }) {
           {elapsed ? (
             <Text style={[styles.tableDetail, { color: '#D97706', fontWeight: '700' }]}>{elapsed}</Text>
           ) : null}
-          {table.order_total > 0 ? (
+          {orderTotal > 0 ? (
             <Text style={[styles.tableDetail, { color: '#0f172a', fontWeight: '700', fontSize: 10 }]}>
-              {fmtMoney(table.order_total)}
+              {fmtMoney(orderTotal)}
             </Text>
           ) : null}
         </>
@@ -187,6 +222,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
   const [sending,     setSending]     = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialog,      setDialog]      = useState(null);
+  const [amountPicker, setAmountPicker] = useState(null); // { item, value }
   const catRef    = useRef(null);
   const searchRef = useRef(null);
 
@@ -195,6 +231,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
       setCart([]);
       setSearchQuery('');
       setSelCat(categories[0]?.id || null);
+      setAmountPicker(null);
     }
   }, [visible, categories]);
 
@@ -209,6 +246,16 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0);
 
   const addToCart = (item) => {
+    if (isWeighedItem(item)) {
+      const existing  = cart.find(c => c.menu_item_id === item.id);
+      const unitPrice = parseFloat(item.price) || 0;
+      const seedQty   = existing ? String(existing.quantity) : '';
+      const seedPrice = existing && unitPrice > 0
+        ? String(Math.round(existing.quantity * unitPrice))
+        : '';
+      setAmountPicker({ item, value: seedQty, priceValue: seedPrice });
+      return;
+    }
     setCart(prev => {
       const idx = prev.findIndex(c => c.menu_item_id === item.id);
       if (idx >= 0) {
@@ -216,7 +263,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
         next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
         return next;
       }
-      return [...prev, { menu_item_id: item.id, name: item.name, price: parseFloat(item.price), quantity: 1 }];
+      return [...prev, { menu_item_id: item.id, name: item.name, price: parseFloat(item.price), quantity: 1, unit: item.unit || 'piece' }];
     });
   };
   const removeFromCart = (itemId) => {
@@ -224,12 +271,35 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
       const idx = prev.findIndex(c => c.menu_item_id === itemId);
       if (idx < 0) return prev;
       const next = [...prev];
+      const entry = next[idx];
+      if (isWeighedItem(entry)) { next.splice(idx, 1); return next; }
       if (next[idx].quantity > 1) { next[idx] = { ...next[idx], quantity: next[idx].quantity - 1 }; }
       else next.splice(idx, 1);
       return next;
     });
   };
   const getQty = (itemId) => cart.find(c => c.menu_item_id === itemId)?.quantity || 0;
+  const getCartEntry = (itemId) => cart.find(c => c.menu_item_id === itemId) || null;
+
+  const confirmAmountPicker = () => {
+    if (!amountPicker) return;
+    const raw = String(amountPicker.value || '').replace(',', '.').trim();
+    const n = parseFloat(raw);
+    if (!isFinite(n) || n <= 0) {
+      setAmountPicker(null);
+      return;
+    }
+    const item = amountPicker.item;
+    setCart(prev => {
+      const idx = prev.findIndex(c => c.menu_item_id === item.id);
+      const entry = { menu_item_id: item.id, name: item.name, price: parseFloat(item.price), quantity: n, unit: item.unit || 'piece' };
+      if (idx >= 0) {
+        const next = [...prev]; next[idx] = entry; return next;
+      }
+      return [...prev, entry];
+    });
+    setAmountPicker(null);
+  };
 
   const handleSend = async () => {
     if (cart.length === 0) {
@@ -322,6 +392,7 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
           renderItem={({ item }) => {
             const qty = getQty(item.id);
+            const weighed = isWeighedItem(item);
             return (
               <TouchableOpacity
                 style={[styles.menuItem, qty > 0 && styles.menuItemSelected]}
@@ -335,17 +406,30 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
                   </Text>
                 </View>
                 <Text style={styles.menuItemName} numberOfLines={2}>{item.name}</Text>
-                <Text style={styles.menuItemPrice}>{fmtMoney(item.price)}</Text>
+                <Text style={styles.menuItemPrice}>
+                  {fmtMoney(item.price)}{weighed ? ` / ${unitSuffix(item)}` : ''}
+                </Text>
                 {qty > 0 && (
-                  <View style={styles.qtyRow}>
-                    <TouchableOpacity onPress={() => removeFromCart(item.id)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <MaterialIcons name="remove" size={16} color={colors.primary} />
-                    </TouchableOpacity>
-                    <Text style={styles.qtyNum}>{qty}</Text>
-                    <TouchableOpacity onPress={() => addToCart(item)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <MaterialIcons name="add" size={16} color={colors.primary} />
-                    </TouchableOpacity>
-                  </View>
+                  weighed ? (
+                    <View style={styles.qtyRow}>
+                      <TouchableOpacity onPress={() => removeFromCart(item.id)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="close" size={16} color={colors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => addToCart(item)} style={[styles.qtyNum, { paddingHorizontal: 10, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.primaryLight }]}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{formatQtyLabel(item, qty)}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.qtyRow}>
+                      <TouchableOpacity onPress={() => removeFromCart(item.id)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="remove" size={16} color={colors.primary} />
+                      </TouchableOpacity>
+                      <Text style={styles.qtyNum}>{qty}</Text>
+                      <TouchableOpacity onPress={() => addToCart(item)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="add" size={16} color={colors.primary} />
+                      </TouchableOpacity>
+                    </View>
+                  )
                 )}
               </TouchableOpacity>
             );
@@ -384,6 +468,103 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
         )}
 
         <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
+
+        {/* ── Amount picker modal (kg / l weighed items) ──────────────── */}
+        <Modal
+          visible={!!amountPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setAmountPicker(null)}
+        >
+          <View style={styles.pickerBackdrop}>
+            <View style={styles.pickerCard}>
+              <Text style={styles.pickerTitle} numberOfLines={1}>{amountPicker?.item?.name || ''}</Text>
+              <Text style={styles.pickerSub}>
+                {fmtMoney(amountPicker?.item?.price || 0)} / {unitSuffix(amountPicker?.item)}
+              </Text>
+
+              <Text style={styles.pickerFieldLbl}>{t('common.amount','Amount')}</Text>
+              <View style={styles.pickerInputWrap}>
+                <TextInput
+                  value={amountPicker?.value || ''}
+                  onChangeText={(v) => {
+                    const cleaned = v.replace(',', '.');
+                    const unit    = parseFloat(amountPicker?.item?.price || 0) || 0;
+                    const qty     = parseFloat(cleaned) || 0;
+                    const priceCalc = Math.round(qty * unit);
+                    setAmountPicker(p => p ? {
+                      ...p,
+                      value: cleaned,
+                      priceValue: qty > 0 && unit > 0 ? String(priceCalc) : '',
+                    } : p);
+                  }}
+                  placeholder="0.000"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="decimal-pad"
+                  autoFocus
+                  style={styles.pickerInput}
+                  selectionColor={colors.primary}
+                />
+                <Text style={styles.pickerUnit}>{unitSuffix(amountPicker?.item)}</Text>
+              </View>
+
+              {/* Quick presets */}
+              <View style={styles.pickerPresetsRow}>
+                {[0.25, 0.5, 1, 1.5, 2].map(p => (
+                  <TouchableOpacity
+                    key={p}
+                    onPress={() => {
+                      const unit = parseFloat(amountPicker?.item?.price || 0) || 0;
+                      const priceCalc = Math.round(p * unit);
+                      setAmountPicker(prev => prev ? {
+                        ...prev,
+                        value: String(p),
+                        priceValue: unit > 0 ? String(priceCalc) : '',
+                      } : prev);
+                    }}
+                    style={styles.pickerPresetBtn}
+                  >
+                    <Text style={styles.pickerPresetTxt}>{p}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Price input — bidirectional with amount */}
+              <Text style={[styles.pickerFieldLbl, { marginTop: spacing.md }]}>{t('common.price','Price')}</Text>
+              <View style={styles.pickerInputWrap}>
+                <TextInput
+                  value={amountPicker?.priceValue || ''}
+                  onChangeText={(v) => {
+                    const cleaned = v.replace(',', '.');
+                    const unit    = parseFloat(amountPicker?.item?.price || 0) || 0;
+                    const price   = parseFloat(cleaned) || 0;
+                    const qty     = unit > 0 ? Math.round((price / unit) * 1000) / 1000 : 0;
+                    setAmountPicker(p => p ? {
+                      ...p,
+                      priceValue: cleaned,
+                      value: price > 0 && unit > 0 ? String(qty) : '',
+                    } : p);
+                  }}
+                  placeholder="0"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="numeric"
+                  style={styles.pickerInput}
+                  selectionColor={colors.primary}
+                />
+                <Text style={styles.pickerUnit}>so'm</Text>
+              </View>
+
+              <View style={styles.pickerBtnRow}>
+                <TouchableOpacity onPress={() => setAmountPicker(null)} style={[styles.pickerBtn, styles.pickerBtnGhost]}>
+                  <Text style={styles.pickerBtnGhostTxt}>{t('common.cancel','Cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmAmountPicker} style={[styles.pickerBtn, styles.pickerBtnPrimary]}>
+                  <Text style={styles.pickerBtnPrimaryTxt}>{t('common.add','Add')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </Modal>
   );
@@ -475,7 +656,10 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
                   <View key={item.id} style={styles.orderItemRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.orderItemName}>{item.name || item.item_name}</Text>
-                      <Text style={styles.orderItemPrice}>×{item.quantity}  {fmtMoney((item.unit_price || item.custom_price || 0) * item.quantity)}</Text>
+                      <Text style={styles.orderItemPrice}>
+                        {isWeighedItem(item) ? `${formatQtyLabel(item, item.quantity)}  ` : `×${item.quantity}  `}
+                        {fmtMoney((item.unit_price || item.custom_price || 0) * (parseFloat(item.quantity) || 0))}
+                      </Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <Badge label={ist.label} color={ist.color} bg={ist.bg} small />
@@ -512,15 +696,18 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
           )
         }
 
-        {/* Footer actions */}
-        {!isLocked && !isPaid && (
+        {/* Footer actions — Add Items stays available even when bill is requested;
+            only the Request Bill button is hidden once already requested or paid. */}
+        {!isPaid && (
           <View style={styles.modalFooter}>
-            <View style={{ flex: 1, marginRight: spacing.sm }}>
+            <View style={{ flex: 1, marginRight: isBillReq ? 0 : spacing.sm }}>
               <Btn label={t('waitress.tables.addItems','Add Items')} icon="add" onPress={onAddItems} outline color={colors.primary} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Btn label={t('waitress.tables.requestBill','Request Bill')} icon="receipt-long" onPress={handleRequestBill} disabled={requestingBill} color="#7C3AED" />
-            </View>
+            {!isBillReq && (
+              <View style={{ flex: 1 }}>
+                <Btn label={t('waitress.tables.requestBill','Request Bill')} icon="receipt-long" onPress={handleRequestBill} disabled={requestingBill} color="#7C3AED" />
+              </View>
+            )}
           </View>
         )}
 
@@ -619,11 +806,24 @@ export default function WaitressTables() {
   const [orderReload, setOrderReload]= useState(false);
   const [dialog,      setDialog]     = useState(null);
 
-  // ── Load tables ──────────────────────────────────────────────────────────
+  // ── Load tables + active orders ──────────────────────────────────────────
+  // Pulls tables and the current active orders, then attaches the most recent
+  // active order to each table so cards can show accurate elapsed time + total.
   const loadTables = useCallback(async () => {
     try {
-      const res = await tablesAPI.getAll();
-      setTables(Array.isArray(res.data) ? res.data : []);
+      const [tRes, oRes] = await Promise.all([
+        tablesAPI.getAll(),
+        ordersAPI.getAll({ status: 'pending,sent_to_kitchen,preparing,ready,served,bill_requested' }),
+      ]);
+      const tableList = Array.isArray(tRes.data) ? tRes.data : [];
+      const orderList = Array.isArray(oRes.data) ? oRes.data : [];
+      const enriched = tableList.map(tb => ({
+        ...tb,
+        order: orderList
+          .filter(o => o.table_id === tb.id)
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null,
+      }));
+      setTables(enriched);
     } catch {
       // silently fail on poll; show error only on first load
     } finally {
@@ -739,9 +939,28 @@ export default function WaitressTables() {
   }, [flowTable, guestCount, loadTables]);
 
   // ── Add items to existing order ──────────────────────────────────────────
+  // Use PUT /orders/:id with merged items (existing + new) instead of
+  // POST /orders/:id/items — PUT always succeeds on bill_requested orders
+  // regardless of backend version, so Add Items keeps working.
   const handleAddItems = useCallback(async (cart) => {
     if (!flowOrder) return;
-    const res = await ordersAPI.addItems(flowOrder.id, cart.map(c => ({ menu_item_id: c.menu_item_id, quantity: c.quantity, unit_price: c.price })));
+    const newItems = cart.map(c => ({
+      menu_item_id: c.menu_item_id,
+      quantity:     c.quantity,
+      unit_price:   c.price,
+    }));
+    let merged = newItems;
+    try {
+      const fresh = await ordersAPI.getById(flowOrder.id);
+      const prior = Array.isArray(fresh?.data?.items) ? fresh.data.items : [];
+      const priorMapped = prior.map(it => ({
+        menu_item_id: it.menu_item_id,
+        quantity:     Number(it.quantity || 0),
+        unit_price:   parseFloat(it.unit_price || 0),
+      }));
+      merged = [...priorMapped, ...newItems];
+    } catch (_) { /* fall back to just new items */ }
+    const res = await ordersAPI.update(flowOrder.id, { items: merged });
     setFlowOrder(res.data);
     loadTables();
     // Re-open active order modal
@@ -802,13 +1021,26 @@ export default function WaitressTables() {
   // ── Filtered tables ──────────────────────────────────────────────────────
   const filtered = filter === 'all' ? tables : tables.filter(tb => tb.status === filter);
 
-  // Pad to multiple of 3 so last row always has equal-width cards
-  const gridData = useMemo(() => {
-    const rem = filtered.length % 3;
-    if (rem === 0) return filtered;
-    const fillers = Array.from({ length: 3 - rem }, (_, i) => ({ id: `__filler_${i}`, _filler: true }));
-    return [...filtered, ...fillers];
-  }, [filtered]);
+  // Group filtered tables by section, then chunk each section into rows of 3
+  // so the last row in every section always has equal-width cards.
+  const sectionedData = useMemo(() => {
+    const sectionMap = {};
+    filtered.forEach(tb => {
+      const key = (tb.section && String(tb.section).trim())
+        || t('waitress.tables.mainFloor', 'Main Floor');
+      if (!sectionMap[key]) sectionMap[key] = [];
+      sectionMap[key].push(tb);
+    });
+    return Object.entries(sectionMap).map(([title, rows]) => {
+      const chunked = [];
+      for (let i = 0; i < rows.length; i += 3) {
+        const row = rows.slice(i, i + 3);
+        while (row.length < 3) row.push({ id: `__filler_${title}_${i}_${row.length}`, _filler: true });
+        chunked.push({ id: `row_${title}_${i}`, items: row });
+      }
+      return { title, data: chunked };
+    });
+  }, [filtered, t]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const freeCount     = tables.filter(tb => tb.status === 'free').length;
@@ -897,19 +1129,34 @@ export default function WaitressTables() {
         })}
       </ScrollView>
 
-      {/* ── Table grid ── */}
-      <FlatList
+      {/* ── Table grid (grouped by section) ── */}
+      <SectionList
         style={{ flex: 1 }}
-        data={gridData}
-        keyExtractor={tb => String(tb.id)}
-        numColumns={3}
+        sections={sectionedData}
+        keyExtractor={row => String(row.id)}
+        stickySectionHeadersEnabled={false}
         contentContainerStyle={styles.grid}
-        columnWrapperStyle={{ gap: 8, paddingHorizontal: spacing.sm, marginBottom: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTables(); }} tintColor={colors.primary} />}
-        renderItem={({ item }) => {
-          if (item._filler) return <View style={{ flex: 1 }} />;
-          return <TableCard table={item} onPress={handleTablePress} />;
-        }}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionHeaderLine} />
+            <View style={styles.sectionHeaderBadge}>
+              <MaterialIcons name="place" size={12} color={colors.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.sectionHeaderText}>{String(section.title).toUpperCase()}</Text>
+            </View>
+            <View style={styles.sectionHeaderLine} />
+          </View>
+        )}
+        renderItem={({ item: row }) => (
+          <View style={styles.sectionRow}>
+            {row.items.map(tb =>
+              tb._filler
+                ? <View key={tb.id} style={{ flex: 1 }} />
+                : <TableCard key={tb.id} table={tb} onPress={handleTablePress} />
+            )}
+          </View>
+        )}
+        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         ListEmptyComponent={
           <View style={styles.empty}>
             <MaterialIcons name="table-restaurant" size={48} color={colors.border} />
@@ -1015,9 +1262,17 @@ const styles = StyleSheet.create({
   billDot:        { position: 'absolute', top: 6, left: 6, backgroundColor: '#F5F3FF', borderWidth: 1, borderColor: '#DDD6FE', borderRadius: 5, paddingHorizontal: 4, paddingVertical: 2 },
   billDotTxt:     { fontSize: 8, fontWeight: '800', color: '#7C3AED' },
   tableNum:       { fontSize: 13, fontWeight: '800', color: colors.textDark, textAlign: 'center' },
+  tableSectionLbl:{ fontSize: 9, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.5, textAlign: 'center', marginTop: 1 },
   tableDetail:    { fontSize: 11, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
   staleBadge:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.full, alignSelf: 'flex-start', marginTop: 5 },
   staleTxt:       { fontSize: 10, fontWeight: '700', color: '#92400E' },
+
+  // Section grouping (mirrors CashierTables look)
+  sectionRow:         { flexDirection: 'row', gap: 8, paddingHorizontal: spacing.sm },
+  sectionHeaderRow:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.sm },
+  sectionHeaderLine:  { flex: 1, height: 1, backgroundColor: colors.border },
+  sectionHeaderBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primaryLight || '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, marginHorizontal: 8 },
+  sectionHeaderText:  { fontSize: 11, fontWeight: '800', color: colors.primary, letterSpacing: 0.8 },
 
   // Empty
   empty:      { alignItems: 'center', paddingTop: 80 },
@@ -1090,4 +1345,26 @@ const styles = StyleSheet.create({
   totalAmt:      { fontSize: 20, fontWeight: '800', color: colors.primary },
   notesBox:      { flexDirection: 'row', backgroundColor: colors.background, padding: spacing.md, borderRadius: radius.md, marginTop: spacing.sm },
   modalFooter:   { flexDirection: 'row', paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, paddingBottom: 28, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.white },
+
+  // Amount picker (kg/l)
+  pickerBackdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  pickerCard:        { width: '100%', maxWidth: 360, backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, ...shadow.lg },
+  pickerTitle:       { fontSize: 18, fontWeight: '800', color: colors.textDark, marginBottom: 4 },
+  pickerSub:         { fontSize: 13, color: colors.textMuted, marginBottom: spacing.lg },
+  pickerFieldLbl:    { fontSize: 11, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.5, marginBottom: 4, textTransform: 'uppercase' },
+  pickerInputWrap:   { flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, marginBottom: spacing.md, backgroundColor: '#F9FAFB' },
+  pickerInput:       { flex: 1, fontSize: 28, fontWeight: '800', color: colors.textDark, paddingVertical: spacing.md },
+  pickerUnit:        { fontSize: 16, fontWeight: '700', color: colors.primary, marginLeft: spacing.sm },
+  pickerPresetsRow:  { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  pickerPresetBtn:   { flex: 1, backgroundColor: colors.primaryLight, paddingVertical: 10, borderRadius: radius.sm, alignItems: 'center' },
+  pickerPresetTxt:   { color: colors.primary, fontWeight: '700', fontSize: 13 },
+  pickerTotalRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: spacing.lg },
+  pickerTotalLbl:    { fontSize: 14, fontWeight: '700', color: colors.textMuted },
+  pickerTotalVal:    { fontSize: 18, fontWeight: '800', color: colors.primary },
+  pickerBtnRow:      { flexDirection: 'row', gap: spacing.sm },
+  pickerBtn:         { flex: 1, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' },
+  pickerBtnGhost:    { backgroundColor: '#F3F4F6' },
+  pickerBtnGhostTxt: { color: colors.textDark, fontWeight: '700', fontSize: 14 },
+  pickerBtnPrimary:  { backgroundColor: colors.primary },
+  pickerBtnPrimaryTxt: { color: colors.white, fontWeight: '800', fontSize: 14 },
 });

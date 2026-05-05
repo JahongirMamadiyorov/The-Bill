@@ -24,6 +24,7 @@ import AdminOrders from './pages/admin/AdminOrders';
 import AdminStaff from './pages/admin/AdminStaff';
 import AdminProfile from './pages/admin/AdminProfile';
 import AdminNewOrder from './pages/admin/AdminNewOrder';
+import AdminLoans from './pages/admin/AdminLoans';
 
 // Cashier pages
 import CashierOrders from './pages/cashier/CashierOrders';
@@ -88,6 +89,7 @@ export default function App() {
         <Route path="menu" element={<AdminMenu />} />
         <Route path="inventory" element={<AdminInventory />} />
         <Route path="orders" element={<AdminOrders />} />
+        <Route path="loans" element={<AdminLoans />} />
         <Route path="staff" element={<AdminStaff />} />
         <Route path="profile" element={<AdminProfile />} />
         <Route path="new-order" element={<AdminNewOrder />} />

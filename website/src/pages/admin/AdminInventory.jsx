@@ -138,6 +138,7 @@ export default function AdminInventory() {
   const [delivDetailLoading, setDelivDetailLoading] = useState(false);
   const [supplierDetail, setSupplierDetail] = useState(null); // supplier detail view
   const [expandedDebtSupplier, setExpandedDebtSupplier] = useState(null); // expanded debt section
+  const [expandedOutputItems, setExpandedOutputItems] = useState(new Set()); // expanded stock output items
   const [pendingStatusChange, setPendingStatusChange] = useState(null); // { delivId, newStatus } — awaiting confirm
   const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Mobile Payment', 'Check', 'Other'];
 
@@ -784,7 +785,6 @@ export default function AdminInventory() {
                           </td>
                           <td className="px-5 py-3.5">
                             <div className="flex justify-end gap-1.5 flex-wrap">
-                              <button onClick={() => openReceiveFor(item)} className="px-2.5 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-medium hover:bg-emerald-100 border border-emerald-100 transition-colors">{t('admin.inventory.goodsArrival')}</button>
                               <button onClick={() => openOutputFor(item)} className="px-2.5 py-1.5 bg-orange-50 text-orange-600 rounded-lg text-xs font-medium hover:bg-orange-100 border border-orange-100 transition-colors">{t('admin.inventory.outputTypes.out')}</button>
                               <button onClick={() => openOutputFor(item, 'ADJUST')} className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 border border-indigo-100 transition-colors">{t('admin.inventory.outputTypes.adjust')}</button>
                               <button onClick={() => openEditItem(item)} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium hover:bg-blue-100 border border-blue-100 transition-colors">{t('common.edit')}</button>
@@ -813,10 +813,6 @@ export default function AdminInventory() {
         {activeTab === 'deliveries' && (
           <div className="space-y-5">
             <div className="flex flex-wrap gap-3">
-              <button onClick={() => { setReceiveForm(emptyReceiveForm); setModal('receive'); }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 font-medium text-sm shadow-sm">
-                <ArrowDownToLine className="w-4 h-4" />{t('admin.inventory.goodsArrival')}
-              </button>
               <button onClick={() => { setDelivForm(emptyDelivForm); setModal('delivery'); }}
                 className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium text-sm shadow-sm">
                 <Truck className="w-4 h-4" />{t('admin.inventory.deliveryRecorded')}
@@ -1052,37 +1048,87 @@ export default function AdminInventory() {
               </div>
             </div>
 
-            {/* Output Table */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">{t('common.date')}</th>
-                      <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">{t('admin.inventory.item')}</th>
-                      <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">{t('admin.inventory.qty')}</th>
-                      <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">{t('admin.inventory.type')}</th>
-                      <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">{t('admin.inventory.reason')}</th>
-                      <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">{t('admin.inventory.cost')}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {filteredOutMoves.length > 0 ? filteredOutMoves.map(m => (
-                      <tr key={m.id} className="hover:bg-gray-50">
-                        <td className="px-5 py-2.5 text-xs text-gray-600">{fmtDate(m.createdAt)}</td>
-                        <td className="px-5 py-2.5 text-sm font-medium text-gray-900">{m.itemName}</td>
-                        <td className="px-5 py-2.5 text-sm font-bold text-red-600">-{m.quantity}</td>
-                        <td className="px-5 py-2.5"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${TYPE_COLORS[m.type] || 'bg-gray-100 text-gray-700'}`}>{m.type}</span></td>
-                        <td className="px-5 py-2.5"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${REASON_COLORS[m.reason] || 'bg-gray-100 text-gray-700'}`}>{m.reason}</span></td>
-                        <td className="px-5 py-2.5 text-xs text-gray-600">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</td>
-                      </tr>
-                    )) : (
-                      <tr><td colSpan="6" className="px-6 py-8 text-center text-gray-400 text-sm">{t('common.noResults')}</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {/* Output — grouped by item */}
+            {(() => {
+              // Group movements by itemName
+              const grouped = {};
+              filteredOutMoves.forEach(m => {
+                const key = m.itemName || t('common.unknownItem');
+                if (!grouped[key]) grouped[key] = { name: key, unit: m.unit || '', totalQty: 0, totalCost: 0, moves: [] };
+                grouped[key].totalQty  += toNum(m.quantity);
+                grouped[key].totalCost += toNum(m.quantity) * toNum(m.costPerUnit);
+                grouped[key].moves.push(m);
+              });
+              const groups = Object.values(grouped).sort((a, b) => b.totalQty - a.totalQty);
+
+              if (groups.length === 0) {
+                return (
+                  <div className="bg-white rounded-xl border border-gray-200 px-6 py-8 text-center text-gray-400 text-sm shadow-sm">
+                    {t('common.noResults')}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-2">
+                  {groups.map(g => {
+                    const isOpen = expandedOutputItems.has(g.name);
+                    return (
+                      <div key={g.name} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                        {/* Item header row — click to expand */}
+                        <button
+                          onClick={() => setExpandedOutputItems(prev => {
+                            const next = new Set(prev);
+                            isOpen ? next.delete(g.name) : next.add(g.name);
+                            return next;
+                          })}
+                          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <ArrowUpFromLine className="w-4 h-4 text-orange-500" />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-sm font-semibold text-gray-900">{g.name}</p>
+                              <p className="text-xs text-gray-500">{g.moves.length} {t('admin.inventory.outputTypes.out').toLowerCase()}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-6">
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-red-600">-{fmtNum(g.totalQty)} {g.unit}</p>
+                              <p className="text-xs text-gray-500">{money(g.totalCost)}</p>
+                            </div>
+                            {isOpen
+                              ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                              : <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            }
+                          </div>
+                        </button>
+
+                        {/* Expanded detail rows */}
+                        {isOpen && (
+                          <div className="border-t border-gray-100 divide-y divide-gray-50 bg-gray-50/50">
+                            {g.moves.map(m => (
+                              <div key={m.id} className="flex items-center justify-between px-5 py-3">
+                                <div className="flex items-center gap-3">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${TYPE_COLORS[m.type] || 'bg-gray-100 text-gray-700'}`}>{m.type}</span>
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${REASON_COLORS[m.reason] || 'bg-gray-100 text-gray-700'}`}>{m.reason}</span>
+                                </div>
+                                <div className="flex items-center gap-6 text-right">
+                                  <p className="text-xs text-gray-500">{fmtDate(m.createdAt)}</p>
+                                  <p className="text-sm font-bold text-red-500 w-20">-{fmtNum(toNum(m.quantity))} {m.unit || ''}</p>
+                                  <p className="text-xs text-gray-500 w-24">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 

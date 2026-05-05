@@ -24,9 +24,21 @@ export function LanguageProvider({ children }) {
     AsyncStorage.setItem(STORAGE_KEY, l);
   }, []);
 
-  // t('admin.dashboard.title')  ->  looks up LANGS[lang].admin.dashboard.title
-  // t('hello', { name: 'Ali' }) ->  replaces {name} with Ali
-  const t = useCallback((key, params) => {
+  // t('admin.dashboard.title')                     -> LANGS[lang].admin.dashboard.title
+  // t('admin.dashboard.title', 'Fallback')          -> uses 'Fallback' when missing
+  // t('hello', { name: 'Ali' })                     -> replaces {name} with Ali
+  // t('hello', 'Hello {name}', { name: 'Ali' })     -> fallback with params
+  const t = useCallback((key, fallbackOrParams, maybeParams) => {
+    // Normalise signature: fallback can be a string, params is an object.
+    let fallback = null;
+    let params   = null;
+    if (typeof fallbackOrParams === 'string') {
+      fallback = fallbackOrParams;
+      params   = maybeParams || null;
+    } else if (fallbackOrParams && typeof fallbackOrParams === 'object') {
+      params = fallbackOrParams;
+    }
+
     const keys = key.split('.');
     let val = LANGS[lang];
     for (const k of keys) {
@@ -41,8 +53,8 @@ export function LanguageProvider({ children }) {
         val = val[k];
       }
     }
-    // Still missing -- return the key itself
-    if (val == null) return key;
+    // Still missing -- use string fallback if provided, else the key itself
+    if (val == null) val = fallback != null ? fallback : key;
     // If it's not a string, return as-is (arrays, objects)
     if (typeof val !== 'string') return val;
     // Interpolate {param}

@@ -12,6 +12,24 @@ import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 
 const fmt = (n) => Number(n || 0).toLocaleString('uz-UZ') + " so'm";
 
+// ─── Unit helpers (for kg / l weighed items) ───────────────────────────────
+const isWeighedItem = (item) => {
+  const u = String(item?.unit || 'piece').toLowerCase();
+  return u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
+};
+const unitSuffix = (item) => {
+  const u = String(item?.unit || 'piece').toLowerCase();
+  return u === 'piece' ? '' : u;
+};
+const formatQtyLabel = (item, qty) => {
+  if (isWeighedItem(item)) {
+    const n = Number(qty || 0);
+    const trimmed = Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '');
+    return `${trimmed} ${unitSuffix(item)}`;
+  }
+  return String(qty);
+};
+
 const ORDER_TYPES = [
   { id: 'dine_in',  icon: 'restaurant' },
   { id: 'to_go',    icon: 'takeout-dining' },
@@ -108,6 +126,9 @@ export default function CashierWalkin({ navigation, route }) {
   const [customerPhone,    setCustomerPhone]    = useState('');
   const [deliveryAddress,  setDeliveryAddress]  = useState('');
 
+  /* ── amount picker (weighed items: kg / l) ── */
+  const [amountPicker, setAmountPicker] = useState(null); // { item, value }
+
   /* ── load data ── */
   useEffect(() => {
     (async () => {
@@ -131,13 +152,55 @@ export default function CashierWalkin({ navigation, route }) {
   }, []);
 
   /* ── cart helpers ── */
-  const addItem    = (item) => setCart(c => {
-    const ex = c.find(x => x.id === item.id);
-    return ex ? c.map(x => x.id === item.id ? { ...x, qty: x.qty + 1 } : x) : [...c, { ...item, qty: 1 }];
-  });
+  const addItem = (item) => {
+    // Weighed items (kg / l / g / ml) → open picker so cashier types the amount
+    if (isWeighedItem(item)) {
+      const existing  = cart.find(x => x.id === item.id);
+      const unitPrice = parseFloat(item.price) || 0;
+      const seedQty   = existing ? String(existing.qty) : '';
+      const seedPrice = existing && unitPrice > 0
+        ? String(Math.round(existing.qty * unitPrice))
+        : '';
+      setAmountPicker({ item, value: seedQty, priceValue: seedPrice });
+      return;
+    }
+    setCart(c => {
+      const ex = c.find(x => x.id === item.id);
+      return ex
+        ? c.map(x => x.id === item.id ? { ...x, qty: x.qty + 1 } : x)
+        : [...c, { ...item, qty: 1 }];
+    });
+  };
   const removeItem = (id) => setCart(c =>
-    c.flatMap(x => x.id === id ? (x.qty > 1 ? [{ ...x, qty: x.qty - 1 }] : []) : [x])
+    c.flatMap(x => {
+      if (x.id !== id) return [x];
+      // For weighed items a single tap removes the line entirely
+      if (isWeighedItem(x)) return [];
+      return x.qty > 1 ? [{ ...x, qty: x.qty - 1 }] : [];
+    })
   );
+
+  const confirmAmountPicker = () => {
+    if (!amountPicker) return;
+    const raw = String(amountPicker.value || '').replace(',', '.').trim();
+    const n = parseFloat(raw);
+    if (!isFinite(n) || n <= 0) {
+      setAmountPicker(null);
+      return;
+    }
+    const item = amountPicker.item;
+    setCart(prev => {
+      const idx = prev.findIndex(x => x.id === item.id);
+      const entry = { ...item, qty: n };
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = entry;
+        return next;
+      }
+      return [...prev, entry];
+    });
+    setAmountPicker(null);
+  };
 
   const subtotal     = cart.reduce((s, x) => s + (x.price || 0) * x.qty, 0);
   const visibleItems = menuItems
@@ -202,7 +265,22 @@ export default function CashierWalkin({ navigation, route }) {
     setSending(true);
     try {
       if (editModeOrder) {
-        await ordersAPI.addItems(editModeOrder.id, cart.map(x => ({ menu_item_id: x.id, quantity: x.qty })));
+        // Use PUT /orders/:id with merged items (existing + new) so
+        // Add Items succeeds even on bill_requested orders regardless
+        // of backend deployment state.
+        const newItems = cart.map(x => ({ menu_item_id: x.id, quantity: x.qty }));
+        let merged = newItems;
+        try {
+          const fresh = await ordersAPI.getById(editModeOrder.id);
+          const prior = Array.isArray(fresh?.data?.items) ? fresh.data.items : [];
+          const priorMapped = prior.map(it => ({
+            menu_item_id: it.menu_item_id,
+            quantity:     Number(it.quantity || 0),
+            unit_price:   parseFloat(it.unit_price || 0),
+          }));
+          merged = [...priorMapped, ...newItems];
+        } catch (_) { /* fall back to just new items */ }
+        await ordersAPI.update(editModeOrder.id, { items: merged });
         setDialog({ title: t('cashier.walkin.itemsAdded', 'Added'), message: t('cashier.walkin.itemsAppended', 'Items appended to order successfully'), type: 'success' });
       } else {
         const noteStr =
@@ -476,22 +554,25 @@ export default function CashierWalkin({ navigation, route }) {
           {visibleItems.map(item => {
             const inCart = cart.find(x => x.id === item.id);
             const avail = item.is_available !== false;
+            const weighed = isWeighedItem(item);
             return (
               <View key={item.id} style={[S.menuItem, !avail && { opacity: 0.45, backgroundColor: '#f3f4f6' }]}>
                 <View style={S.flex}>
                   <Text style={[S.itemName, !avail && { color: '#9ca3af' }]}>{item.name}</Text>
-                  <Text style={[S.itemPrice, !avail && { color: '#9ca3af' }]}>{fmt(item.price)}</Text>
+                  <Text style={[S.itemPrice, !avail && { color: '#9ca3af' }]}>
+                    {fmt(item.price)}{weighed ? ` / ${unitSuffix(item)}` : ''}
+                  </Text>
                   {!avail && <Text style={{ fontSize: 10, color: '#dc2626', fontWeight: '700', marginTop: 2 }}>{t('cashier.walkin.inactive', 'Inactive')}</Text>}
                 </View>
                 {avail ? (
                   inCart ? (
                     <View style={S.qtyRow}>
                       <TouchableOpacity style={S.qtyBtn} onPress={() => removeItem(item.id)}>
-                        <MaterialIcons name="remove" size={16} color={colors.textDark} />
+                        <MaterialIcons name={weighed ? 'delete-outline' : 'remove'} size={16} color={colors.textDark} />
                       </TouchableOpacity>
-                      <Text style={S.qtyVal}>{inCart.qty}</Text>
+                      <Text style={S.qtyVal}>{formatQtyLabel(item, inCart.qty)}</Text>
                       <TouchableOpacity style={[S.qtyBtn, S.qtyBtnBlue]} onPress={() => addItem(item)}>
-                        <MaterialIcons name="add" size={16} color="#fff" />
+                        <MaterialIcons name={weighed ? 'edit' : 'add'} size={16} color="#fff" />
                       </TouchableOpacity>
                     </View>
                   ) : (
@@ -551,6 +632,103 @@ export default function CashierWalkin({ navigation, route }) {
         </View>
       )}
       <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
+
+      {/* ── Amount picker modal (kg / l weighed items) ────────────────── */}
+      <Modal
+        visible={!!amountPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAmountPicker(null)}
+      >
+        <View style={S.pickerBackdrop}>
+          <View style={S.pickerCard}>
+            <Text style={S.pickerTitle} numberOfLines={1}>{amountPicker?.item?.name || ''}</Text>
+            <Text style={S.pickerSub}>
+              {fmt(amountPicker?.item?.price || 0)} / {unitSuffix(amountPicker?.item)}
+            </Text>
+
+            <Text style={S.pickerFieldLbl}>{t('common.amount', 'Amount')}</Text>
+            <View style={S.pickerInputWrap}>
+              <TextInput
+                value={amountPicker?.value || ''}
+                onChangeText={(v) => {
+                  const cleaned = v.replace(',', '.');
+                  const unit    = parseFloat(amountPicker?.item?.price || 0) || 0;
+                  const qty     = parseFloat(cleaned) || 0;
+                  const price   = Math.round(qty * unit);
+                  setAmountPicker(p => p ? {
+                    ...p,
+                    value: cleaned,
+                    priceValue: qty > 0 && unit > 0 ? String(price) : '',
+                  } : p);
+                }}
+                placeholder="0.000"
+                placeholderTextColor={colors.neutralMid}
+                keyboardType="decimal-pad"
+                autoFocus
+                style={S.pickerInput}
+                selectionColor={colors.primary}
+              />
+              <Text style={S.pickerUnit}>{unitSuffix(amountPicker?.item)}</Text>
+            </View>
+
+            {/* Quick presets */}
+            <View style={S.pickerPresetsRow}>
+              {[0.25, 0.5, 1, 1.5, 2].map(p => (
+                <TouchableOpacity
+                  key={p}
+                  onPress={() => {
+                    const unit  = parseFloat(amountPicker?.item?.price || 0) || 0;
+                    const price = Math.round(p * unit);
+                    setAmountPicker(prev => prev ? {
+                      ...prev,
+                      value: String(p),
+                      priceValue: unit > 0 ? String(price) : '',
+                    } : prev);
+                  }}
+                  style={S.pickerPresetBtn}
+                >
+                  <Text style={S.pickerPresetTxt}>{p}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Price input (bidirectional) */}
+            <Text style={S.pickerFieldLbl}>{t('common.price', 'Price')}</Text>
+            <View style={[S.pickerInputWrap, { marginBottom: spacing.lg }]}>
+              <TextInput
+                value={amountPicker?.priceValue || ''}
+                onChangeText={(v) => {
+                  const cleaned = v.replace(',', '.').replace(/[^0-9.]/g, '');
+                  const unit    = parseFloat(amountPicker?.item?.price || 0) || 0;
+                  const price   = parseFloat(cleaned) || 0;
+                  const qty     = unit > 0 ? Math.round((price / unit) * 1000) / 1000 : 0;
+                  setAmountPicker(p => p ? {
+                    ...p,
+                    priceValue: cleaned,
+                    value: price > 0 && unit > 0 ? String(qty) : '',
+                  } : p);
+                }}
+                placeholder="0"
+                placeholderTextColor={colors.neutralMid}
+                keyboardType="numeric"
+                style={S.pickerInput}
+                selectionColor={colors.primary}
+              />
+              <Text style={S.pickerUnit}>{t('common.currency', "so'm")}</Text>
+            </View>
+
+            <View style={S.pickerBtnRow}>
+              <TouchableOpacity onPress={() => setAmountPicker(null)} style={[S.pickerBtn, S.pickerBtnGhost]}>
+                <Text style={S.pickerBtnGhostTxt}>{t('common.cancel', 'Cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmAmountPicker} style={[S.pickerBtn, S.pickerBtnPrimary]}>
+                <Text style={S.pickerBtnPrimaryTxt}>{t('common.add', 'Add')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -657,4 +835,26 @@ const S = StyleSheet.create({
   payBtn:        { flex: 1, backgroundColor: colors.primary, borderRadius: radius.btn, paddingVertical: 13, alignItems: 'center' },
   payBtnTxt:     { fontWeight: '700', color: '#fff', fontSize: 13 },
   btnDisabled:   { opacity: 0.4 },
+
+  /* Amount picker modal (kg / l weighed items) */
+  pickerBackdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  pickerCard:        { width: '100%', maxWidth: 360, backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, ...shadow.lg },
+  pickerTitle:       { fontSize: 18, fontWeight: '800', color: colors.textDark, marginBottom: 4 },
+  pickerSub:         { fontSize: 13, color: colors.neutralMid, marginBottom: spacing.lg },
+  pickerFieldLbl:    { fontSize: 11, fontWeight: '700', color: colors.neutralMid, letterSpacing: 0.5, marginBottom: 4, textTransform: 'uppercase' },
+  pickerInputWrap:   { flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, marginBottom: spacing.md, backgroundColor: '#F9FAFB' },
+  pickerInput:       { flex: 1, fontSize: 28, fontWeight: '800', color: colors.textDark, paddingVertical: spacing.md },
+  pickerUnit:        { fontSize: 16, fontWeight: '700', color: colors.primary, marginLeft: spacing.sm },
+  pickerPresetsRow:  { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  pickerPresetBtn:   { flex: 1, backgroundColor: '#E0F2FE', paddingVertical: 10, borderRadius: radius.sm, alignItems: 'center' },
+  pickerPresetTxt:   { color: colors.primary, fontWeight: '700', fontSize: 13 },
+  pickerTotalRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: spacing.lg },
+  pickerTotalLbl:    { fontSize: 14, fontWeight: '700', color: colors.neutralMid },
+  pickerTotalVal:    { fontSize: 18, fontWeight: '800', color: colors.primary },
+  pickerBtnRow:      { flexDirection: 'row', gap: spacing.sm },
+  pickerBtn:         { flex: 1, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' },
+  pickerBtnGhost:    { backgroundColor: '#F3F4F6' },
+  pickerBtnGhostTxt: { color: colors.textDark, fontWeight: '700', fontSize: 14 },
+  pickerBtnPrimary:  { backgroundColor: colors.primary },
+  pickerBtnPrimaryTxt: { color: '#fff', fontWeight: '800', fontSize: 14 },
 });

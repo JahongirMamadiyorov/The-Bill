@@ -4,6 +4,8 @@ Use good design with the correct colour patterns thath match the website and the
 
 Check for the CamelCase and snake_case mismatches between the website and app
 
-Always work with to do list and update it. After finishing the task remove it
+Always plan and ask for things give questions if you need to know more about it
 
 Work smart do not guess!
+
+TheBill2026SecurePass for supabase password

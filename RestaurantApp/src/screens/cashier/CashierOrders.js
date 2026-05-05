@@ -245,7 +245,7 @@ const LD = StyleSheet.create({
 });
 
 // ── Order Details & Payment Screen ─────────────────────────────────────────────
-function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettings, restSettings, setDialog, t }) {
+function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettings, restSettings, setDialog, t, autoPay }) {
   const DISC_REASONS = getDiscReasons(t);
   const [fullOrder, setFullOrder]       = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
@@ -268,6 +268,189 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
   const [loanDueDate,    setLoanDueDate]    = useState('');
   const [showLoanCal,    setShowLoanCal]    = useState(false);
 
+  // Edit Order modal state (mirrors website cashier edit)
+  const [editingOrder,    setEditingOrder]    = useState(null);
+  const [editFormData,    setEditFormData]    = useState({ guestCount: 1, items: [], notes: '' });
+  const [allMenuItems,    setAllMenuItems]    = useState([]);
+  const [menuLoaded,      setMenuLoaded]      = useState(false);
+  const [searchMenuQuery, setSearchMenuQuery] = useState('');
+  const [amountPicker,    setAmountPicker]    = useState(null);
+  const [savingEdit,      setSavingEdit]      = useState(false);
+
+  const isWeighedUnit = (unit) => {
+    const u = String(unit || 'piece').toLowerCase();
+    return u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
+  };
+  const unitSuffix = (unit) => {
+    const u = String(unit || 'piece').toLowerCase();
+    return u === 'piece' ? '' : u;
+  };
+  const formatItemQty = (item) => {
+    const n = Number(item?.quantity) || 0;
+    if (isWeighedUnit(item?.unit)) {
+      const trimmed = Number.isInteger(n) ? String(n) : parseFloat(n.toFixed(3)).toString();
+      return `${trimmed} ${unitSuffix(item?.unit)}`;
+    }
+    return String(Math.round(n) || 1);
+  };
+
+  const ensureMenuLoaded = async () => {
+    if (menuLoaded) return;
+    try {
+      const res = await menuAPI.getItems();
+      setAllMenuItems(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      // noop
+    } finally {
+      setMenuLoaded(true);
+    }
+  };
+
+  const openEditModal = () => {
+    const src = fullOrder || order;
+    setEditingOrder(src);
+    setEditFormData({
+      guestCount: Number(src.guest_count || src.guestCount) || 1,
+      items: (src.items || src.order_items || []).map(it => ({
+        id:         it.id,
+        menuItemId: it.menu_item_id || it.menuItemId || it.id,
+        name:       it.name || it.menu_item_name || it.itemName,
+        unitPrice:  Number(it.unit_price || it.unitPrice || it.price) || 0,
+        quantity:   Number(it.quantity || it.qty) || 1,
+        unit:       String(it.unit || 'piece').toLowerCase(),
+      })),
+      notes: src.notes || '',
+    });
+    setSearchMenuQuery('');
+    setAmountPicker(null);
+    ensureMenuLoaded();
+  };
+
+  const closeEditModal = () => {
+    setEditingOrder(null);
+    setAmountPicker(null);
+    setSearchMenuQuery('');
+  };
+
+  const updateEditItemQty = (idx, delta) => {
+    const it = editFormData.items[idx];
+    if (!it) return;
+    if (isWeighedUnit(it.unit)) {
+      const unitPrice = Number(it.unitPrice || 0);
+      const seedQty   = it.quantity ? String(it.quantity) : '';
+      const seedPrice = it.quantity && unitPrice > 0 ? String(Math.round(Number(it.quantity) * unitPrice)) : '';
+      setAmountPicker({ idx, item: { ...it, price: unitPrice }, draft: seedQty, priceDraft: seedPrice });
+      return;
+    }
+    setEditFormData(f => ({
+      ...f,
+      items: f.items.map((x, i) => i === idx ? { ...x, quantity: Math.max(1, (Number(x.quantity) || 1) + delta) } : x),
+    }));
+  };
+
+  const removeEditItem = (idx) => {
+    setEditFormData(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  };
+
+  const addMenuItemToOrder = (menuItem) => {
+    if (isWeighedUnit(menuItem.unit)) {
+      setAmountPicker({ idx: null, item: menuItem, draft: '', priceDraft: '' });
+      return;
+    }
+    const existsIdx = editFormData.items.findIndex(x => x.menuItemId === menuItem.id || x.id === menuItem.id);
+    if (existsIdx >= 0) {
+      updateEditItemQty(existsIdx, 1);
+    } else {
+      setEditFormData(f => ({
+        ...f,
+        items: [...f.items, {
+          id: menuItem.id,
+          menuItemId: menuItem.id,
+          name: menuItem.name,
+          unitPrice: Number(menuItem.price) || 0,
+          quantity: 1,
+          unit: String(menuItem.unit || 'piece').toLowerCase(),
+        }],
+      }));
+    }
+    setSearchMenuQuery('');
+  };
+
+  const onAmountQtyChange = (v) => {
+    const unit = Number(amountPicker?.item?.price || amountPicker?.item?.unitPrice || 0);
+    const qty  = parseFloat(String(v || '').replace(',', '.')) || 0;
+    const priceCalc = Math.round(qty * unit);
+    setAmountPicker(p => p ? { ...p, draft: v, priceDraft: qty > 0 && unit > 0 ? String(priceCalc) : '' } : p);
+  };
+  const onAmountPriceChange = (v) => {
+    const unit  = Number(amountPicker?.item?.price || amountPicker?.item?.unitPrice || 0);
+    const price = parseFloat(String(v || '').replace(',', '.')) || 0;
+    const qty   = unit > 0 ? Math.round((price / unit) * 1000) / 1000 : 0;
+    setAmountPicker(p => p ? { ...p, priceDraft: v, draft: price > 0 && unit > 0 ? String(qty) : '' } : p);
+  };
+
+  const confirmAmountPicker = () => {
+    if (!amountPicker) return;
+    const raw = String(amountPicker.draft || '').replace(',', '.').trim();
+    const amt = parseFloat(raw);
+    if (!isFinite(amt) || amt <= 0) { setAmountPicker(null); return; }
+    const rounded = Math.round(amt * 1000) / 1000;
+    const { idx, item } = amountPicker;
+    if (idx != null) {
+      setEditFormData(f => ({
+        ...f,
+        items: f.items.map((x, i) => i === idx ? { ...x, quantity: rounded } : x),
+      }));
+    } else {
+      const existsIdx = editFormData.items.findIndex(x => x.menuItemId === item.id || x.id === item.id);
+      if (existsIdx >= 0) {
+        setEditFormData(f => ({
+          ...f,
+          items: f.items.map((x, i) => i === existsIdx ? { ...x, quantity: rounded } : x),
+        }));
+      } else {
+        setEditFormData(f => ({
+          ...f,
+          items: [...f.items, {
+            id: item.id,
+            menuItemId: item.id,
+            name: item.name,
+            unitPrice: Number(item.price || item.unitPrice) || 0,
+            quantity: rounded,
+            unit: String(item.unit || 'piece').toLowerCase(),
+          }],
+        }));
+      }
+    }
+    setAmountPicker(null);
+    setSearchMenuQuery('');
+  };
+
+  const getFilteredMenuItems = () =>
+    allMenuItems.filter(it => (it.name || '').toLowerCase().includes(searchMenuQuery.toLowerCase()));
+
+  const saveEditedOrder = async () => {
+    if (!editingOrder) return;
+    setSavingEdit(true);
+    try {
+      await ordersAPI.update(editingOrder.id, {
+        guestCount: editFormData.guestCount,
+        items: editFormData.items,
+        notes: editFormData.notes,
+      });
+      closeEditModal();
+      // Reload full order so items/totals refresh in detail screen
+      try {
+        const res = await ordersAPI.getById(order.id);
+        setFullOrder(res.data);
+      } catch {}
+    } catch (e) {
+      setDialog({ title: t('common.error'), message: e?.error || e?.message || t('cashier.orders.couldNotLoadOrder'), type: 'error' });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -281,6 +464,13 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
       }
     })();
   }, [order.id]);
+
+  // Auto-open payment view when we were navigated here with autoPay (from Tables → Collect Payment)
+  useEffect(() => {
+    if (autoPay && fullOrder && !isPaying) {
+      setIsPaying(true);
+    }
+  }, [autoPay, fullOrder]);
 
   // ── Live tax/service from admin settings ─────────────────────────────────
   // tax_rate in DB is stored as percentage (e.g. 12 = 12%), and tax_enabled controls whether it applies
@@ -704,10 +894,10 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <TouchableOpacity
               style={[S.kitchenBtn, { flex: 1, paddingVertical: 15 }]}
-              onPress={() => { onBack(); navigation.navigate('CashierWalkin', { order: fullOrder }); }}
+              onPress={openEditModal}
             >
-              <MaterialIcons name="add" size={20} color={colors.textDark} />
-              <Text style={[S.kitchenBtnTxt, { fontSize: 14 }]}>{t('cashier.orders.addItems')}</Text>
+              <MaterialIcons name="edit" size={20} color={colors.textDark} />
+              <Text style={[S.kitchenBtnTxt, { fontSize: 14 }]}>{t('common.edit', 'Edit')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[S.payBtn, { flex: 1.5 }]} onPress={() => setIsPaying(true)}>
               <Text style={S.payBtnTxt}>{t('cashier.orders.proceedToPayment')}</Text>
@@ -749,6 +939,193 @@ function OrderDetailsScreen({ order, onBack, onPaid, user, navigation, taxSettin
           ))}
         </View>
       </Modal>
+
+      {/* ── Edit Order Modal ─────────────────────────────────────────── */}
+      <Modal visible={!!editingOrder} transparent animationType="slide" onRequestClose={closeEditModal}>
+        <View style={EO.backdrop}>
+          <View style={EO.sheet}>
+            {/* Header */}
+            <View style={EO.header}>
+              <TouchableOpacity onPress={closeEditModal} style={EO.hBtn} hitSlop={10}>
+                <MaterialIcons name="close" size={22} color={colors.textDark} />
+              </TouchableOpacity>
+              <Text style={EO.hTitle} numberOfLines={1}>
+                {t('common.editOrder', 'Edit Order')} {editingOrder ? fmtOrderNum(editingOrder) : ''}
+              </Text>
+              <TouchableOpacity
+                onPress={saveEditedOrder}
+                disabled={savingEdit || (editFormData.items?.length || 0) === 0}
+                style={[EO.saveBtn, (savingEdit || (editFormData.items?.length || 0) === 0) && { opacity: 0.5 }]}
+              >
+                {savingEdit
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={EO.saveBtnTxt}>{t('common.save', 'Save')}</Text>
+                }
+              </TouchableOpacity>
+            </View>
+
+            {/* Body */}
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+              {/* Guests */}
+              <Text style={EO.fieldLabel}>{t('admin.newOrder.guests', 'Guests')}</Text>
+              <View style={EO.guestBox}>
+                <TouchableOpacity
+                  onPress={() => setEditFormData(f => ({ ...f, guestCount: Math.max(1, (f.guestCount || 1) - 1) }))}
+                  style={EO.guestBtn}
+                >
+                  <MaterialIcons name="remove" size={18} color="#0891B2" />
+                </TouchableOpacity>
+                <Text style={EO.guestCount}>{editFormData.guestCount || 1}</Text>
+                <TouchableOpacity
+                  onPress={() => setEditFormData(f => ({ ...f, guestCount: (f.guestCount || 1) + 1 }))}
+                  style={EO.guestBtn}
+                >
+                  <MaterialIcons name="add" size={18} color="#0891B2" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Current Items */}
+              <Text style={[EO.sectionLbl, { color: '#0891B2' }]}>{t('common.items', 'Items')}</Text>
+              {editFormData.items.length > 0 ? (
+                <View style={{ gap: 8 }}>
+                  {editFormData.items.map((item, idx) => (
+                    <View key={idx} style={EO.itemRow}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={EO.itemName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={EO.itemPrice}>{fmt(item.unitPrice || 0)}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => updateEditItemQty(idx, -1)} style={EO.qtyBtn}>
+                        <MaterialIcons name="remove" size={14} color="#6B7280" />
+                      </TouchableOpacity>
+                      <Text style={[EO.qtyVal, isWeighedUnit(item.unit) && { minWidth: 64 }]}>
+                        {formatItemQty(item)}
+                      </Text>
+                      <TouchableOpacity onPress={() => updateEditItemQty(idx, 1)} style={[EO.qtyBtn, { backgroundColor: '#CFFAFE' }]}>
+                        <MaterialIcons name="add" size={14} color="#0891B2" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => removeEditItem(idx)} style={[EO.qtyBtn, { backgroundColor: '#FEE2E2', marginLeft: 4 }]}>
+                        <MaterialIcons name="close" size={14} color="#DC2626" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={EO.emptyTxt}>{t('common.noResults', 'No items')}</Text>
+              )}
+
+              {/* Add items */}
+              <Text style={[EO.sectionLbl, { color: '#0891B2', marginTop: spacing.lg }]}>
+                {t('admin.orders.addItemsToOrder', 'Add Items to Order')}
+              </Text>
+              <TextInput
+                placeholder={t('admin.menu.searchPlaceholder', 'Search items...')}
+                placeholderTextColor={colors.neutralMid}
+                value={searchMenuQuery}
+                onChangeText={setSearchMenuQuery}
+                style={EO.searchInput}
+              />
+              <View style={{ gap: 8 }}>
+                {!menuLoaded ? (
+                  <Text style={EO.emptyTxt}>{t('common.loading', 'Loading...')}</Text>
+                ) : getFilteredMenuItems().length > 0 ? (
+                  getFilteredMenuItems().slice(0, 50).map(it => (
+                    <View key={it.id} style={EO.itemRow}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={EO.itemName} numberOfLines={1}>{it.name}</Text>
+                        <Text style={EO.itemPrice}>
+                          {fmt(it.price || 0)}{isWeighedUnit(it.unit) ? ` / ${unitSuffix(it.unit)}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => addMenuItemToOrder(it)}
+                        style={[EO.qtyBtn, { backgroundColor: '#CFFAFE', width: 34, height: 34, borderRadius: 17 }]}
+                      >
+                        <MaterialIcons name="add" size={18} color="#0891B2" />
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={EO.emptyTxt}>{t('common.noResults', 'No items')}</Text>
+                )}
+              </View>
+
+              {/* Notes */}
+              <Text style={[EO.fieldLabel, { marginTop: spacing.lg }]}>{t('common.notes', 'Notes')}</Text>
+              <TextInput
+                multiline
+                value={editFormData.notes}
+                onChangeText={v => setEditFormData(f => ({ ...f, notes: v }))}
+                placeholder={t('placeholders.orderNotes', 'Add order notes...')}
+                placeholderTextColor={colors.neutralMid}
+                style={[EO.searchInput, { height: 70, textAlignVertical: 'top' }]}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Amount Picker (kg/L) ─────────────────────────────────────── */}
+      <Modal visible={!!amountPicker} transparent animationType="fade" onRequestClose={() => setAmountPicker(null)}>
+        <View style={EO.pickerBackdrop}>
+          <View style={EO.pickerCard}>
+            <View style={EO.pickerHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={EO.pickerSub}>{t('admin.newOrder.enterAmount', 'Enter amount')}</Text>
+                <Text style={EO.pickerName} numberOfLines={1}>{amountPicker?.item?.name || ''}</Text>
+                <Text style={EO.pickerUnitPrice}>
+                  {Number(amountPicker?.item?.price || amountPicker?.item?.unitPrice || 0).toLocaleString()} so'm / {unitSuffix(amountPicker?.item?.unit)}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setAmountPicker(null)} style={{ padding: 6 }}>
+                <MaterialIcons name="close" size={20} color={colors.neutralMid} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={EO.fieldLabel}>{t('admin.newOrder.amount', 'Amount')}</Text>
+            <View style={{ position: 'relative', marginBottom: 4 }}>
+              <TextInput
+                autoFocus
+                keyboardType="decimal-pad"
+                value={amountPicker?.draft || ''}
+                onChangeText={onAmountQtyChange}
+                placeholder="0.000"
+                placeholderTextColor={colors.border}
+                style={EO.pickerInput}
+              />
+              <Text style={EO.pickerSuffix}>{unitSuffix(amountPicker?.item?.unit)}</Text>
+            </View>
+            <View style={EO.chipRow}>
+              {['0.25', '0.5', '1', '1.5', '2'].map(p => (
+                <TouchableOpacity key={p} onPress={() => onAmountQtyChange(p)} style={EO.chip}>
+                  <Text style={EO.chipTxt}>{p}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[EO.fieldLabel, { marginTop: 14 }]}>{t('admin.newOrder.price', 'Price')}</Text>
+            <View style={{ position: 'relative' }}>
+              <TextInput
+                keyboardType="numeric"
+                value={amountPicker?.priceDraft || ''}
+                onChangeText={onAmountPriceChange}
+                placeholder="0"
+                placeholderTextColor={colors.border}
+                style={EO.pickerInput}
+              />
+              <Text style={EO.pickerSuffix}>so'm</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+              <TouchableOpacity onPress={() => setAmountPicker(null)} style={[EO.pickerBtn, { backgroundColor: '#F3F4F6' }]}>
+                <Text style={[EO.pickerBtnTxt, { color: colors.textDark }]}>{t('common.cancel', 'Cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmAmountPicker} style={[EO.pickerBtn, { backgroundColor: '#0891B2' }]}>
+                <Text style={[EO.pickerBtnTxt, { color: '#fff' }]}>{t('common.confirm', 'Confirm')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -768,6 +1145,7 @@ export default function CashierOrders({ navigation, route }) {
   const [activeTab, setActiveTab]         = useState('Restaurant Orders');
   const [billToast, setBillToast]         = useState(null);   // toast message string | null
   const [dialog, setDialog]               = useState(null);
+  const [autoPay, setAutoPay]             = useState(false);
   const prevBillIds = useRef(new Set());                       // track known bill_requested IDs
   const toastTimer  = useRef(null);                            // auto-hide timer
 
@@ -847,21 +1225,25 @@ export default function CashierOrders({ navigation, route }) {
     return unsubscribe;
   }, [navigation, fetchOrders, fetchStats]);
 
-  // ── Auto-open payment sheet when coming from "Skip — Pay Now" ─────────────
+  // ── Auto-open payment sheet when coming from "Skip — Pay Now" or CashierTables ─────
   useEffect(() => {
     const openId = route?.params?.openPayForOrderId;
     if (!openId) return;
-    // Clear the param so it doesn't re-trigger on next focus
-    navigation.setParams({ openPayForOrderId: undefined });
+    const wantAutoPay = !!route?.params?.autoPay;
+    // Clear the params so they don't re-trigger on next focus
+    navigation.setParams({ openPayForOrderId: undefined, autoPay: undefined });
     // Wait for orders to load, then find and open the order
     const tryOpen = async () => {
       try {
         const res = await ordersAPI.getById(openId);
-        if (res?.data) setSelectedOrder(res.data);
+        if (res?.data) {
+          setAutoPay(wantAutoPay);
+          setSelectedOrder(res.data);
+        }
       } catch { /* silently ignore */ }
     };
     tryOpen();
-  }, [route?.params?.openPayForOrderId]);
+  }, [route?.params?.openPayForOrderId, route?.params?.autoPay]);
 
   const handlePaid = async ({ order, payment }) => {
     setSelectedOrder(null);
@@ -876,7 +1258,7 @@ export default function CashierOrders({ navigation, route }) {
     return (
       <OrderDetailsScreen
         order={selectedOrder}
-        onBack={() => setSelectedOrder(null)}
+        onBack={() => { setSelectedOrder(null); setAutoPay(false); }}
         onPaid={handlePaid}
         user={user}
         navigation={navigation}
@@ -884,6 +1266,7 @@ export default function CashierOrders({ navigation, route }) {
         restSettings={restSettings}
         setDialog={setDialog}
         t={t}
+        autoPay={autoPay}
       />
     );
   }
@@ -1264,4 +1647,40 @@ const S = StyleSheet.create({
     zIndex: 9999,
   },
   billToastTxt: { flex: 1, color: '#fff', fontWeight: '700', fontSize: 14 },
+});
+
+// ── Edit Order modal styles ──────────────────────────────────────────────────
+const EO = StyleSheet.create({
+  backdrop:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet:           { backgroundColor: '#F9FAFB', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '92%' },
+  header:          { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: '#fff', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  hBtn:            { padding: 6, borderRadius: 10 },
+  hTitle:          { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '800', color: colors.textDark },
+  saveBtn:         { backgroundColor: '#0891B2', paddingHorizontal: 18, paddingVertical: 9, borderRadius: 12, minWidth: 70, alignItems: 'center' },
+  saveBtnTxt:      { color: '#fff', fontWeight: '800', fontSize: 13 },
+  fieldLabel:      { fontSize: 11, fontWeight: '700', color: colors.neutralMid, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 6 },
+  sectionLbl:      { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8, marginTop: 6 },
+  guestBox:        { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', overflow: 'hidden', alignSelf: 'flex-start', marginBottom: spacing.md },
+  guestBtn:        { paddingHorizontal: 14, paddingVertical: 8 },
+  guestCount:      { paddingHorizontal: 18, fontSize: 15, fontWeight: '800', color: colors.textDark, minWidth: 48, textAlign: 'center' },
+  itemRow:         { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', paddingHorizontal: spacing.md, paddingVertical: 10 },
+  itemName:        { fontSize: 14, fontWeight: '700', color: colors.textDark },
+  itemPrice:       { fontSize: 12, fontWeight: '600', color: '#0891B2', marginTop: 2 },
+  qtyBtn:          { width: 30, height: 30, borderRadius: 15, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  qtyVal:          { minWidth: 30, textAlign: 'center', fontSize: 14, fontWeight: '800', color: colors.textDark, paddingHorizontal: 4 },
+  emptyTxt:        { fontSize: 13, color: colors.neutralMid, paddingVertical: 6 },
+  searchInput:     { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: 14, color: colors.textDark, marginBottom: spacing.sm },
+  pickerBackdrop:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  pickerCard:      { backgroundColor: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 400 },
+  pickerHeader:    { flexDirection: 'row', marginBottom: 14 },
+  pickerSub:       { fontSize: 10, fontWeight: '700', color: colors.neutralMid, letterSpacing: 0.4, textTransform: 'uppercase' },
+  pickerName:      { fontSize: 16, fontWeight: '800', color: colors.textDark, marginTop: 2 },
+  pickerUnitPrice: { fontSize: 12, color: colors.neutralMid, marginTop: 2 },
+  pickerInput:     { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 22, fontWeight: '800', color: colors.textDark, paddingRight: 56 },
+  pickerSuffix:    { position: 'absolute', right: 14, top: 14, fontSize: 16, fontWeight: '700', color: colors.neutralMid },
+  chipRow:         { flexDirection: 'row', gap: 6, marginTop: 8 },
+  chip:            { flex: 1, backgroundColor: '#F3F4F6', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  chipTxt:         { fontSize: 13, fontWeight: '700', color: '#4B5563' },
+  pickerBtn:       { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  pickerBtnTxt:    { fontSize: 14, fontWeight: '800' },
 });

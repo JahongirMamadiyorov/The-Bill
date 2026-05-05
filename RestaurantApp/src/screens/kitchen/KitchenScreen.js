@@ -453,7 +453,10 @@ export default function KitchenScreen({ navigation }) {
 
       if (prevQueueLen.current >= 0 && data.length > prevQueueLen.current) {
         setNewOrderAlert(true);
-        Vibration.vibrate([0, 300, 100, 300, 100, 500]);
+        // Vibrate is guarded — some devices / user-profiles revoke VIBRATE and
+        // throw SecurityException which would otherwise crash the notification path.
+        try { Vibration.vibrate([0, 300, 100, 300, 100, 500]); }
+        catch (vibErr) { console.warn('Vibration blocked:', vibErr?.message); }
         // Audible alarm — synced with the vibration pattern.
         playKitchenAlarm();
         setTimeout(() => setNewOrderAlert(false), 5000);

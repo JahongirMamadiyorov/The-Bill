@@ -67,6 +67,7 @@ export default function AdminMenu() {
   const [itemForm,      setItemForm]      = useState({
     name: '', price: '', description: '', categoryId: '',
     isAvailable: true, itemType: 'food', station: '', imageUrl: '',
+    unit: 'piece',
   });
 
   // ── Custom kitchen stations (persisted in backend DB — shared with app) ─────
@@ -251,6 +252,7 @@ export default function AdminMenu() {
         itemType: item.itemType || item.item_type || 'food',
         station: item.kitchenStation || item.kitchen_station || item.station || '',
         imageUrl: item.imageUrl || item.image_url || '',
+        unit: (item.unit || 'piece').toLowerCase(),
       });
       setNewIngredient({ warehouseItemId: '', quantityPerDish: '' });
       try {
@@ -265,6 +267,7 @@ export default function AdminMenu() {
         name: '', price: '', description: '',
         categoryId: selectedCat || (categories[0]?.id ?? ''),
         isAvailable: true, itemType: 'food', station: '', imageUrl: '',
+        unit: 'piece',
       });
       setIngredients([]);
       setPendingIngredients([]);
@@ -282,6 +285,7 @@ export default function AdminMenu() {
         kitchenStation: itemForm.station || null, // interceptor → kitchen_station for backend
         price: parseInt(itemForm.price),
         itemType: itemForm.itemType || 'food',
+        unit: (itemForm.unit || 'piece').toLowerCase(),
       };
       if (modal === 'add-item') {
         const created = await call(menuAPI.createItem, payload);
@@ -838,9 +842,48 @@ export default function AdminMenu() {
                   {/* Price (so'm) */}
                   <div>
                     <label className={LabelCls}>{t("admin.menu.priceSom")}</label>
-                    <input type="number" placeholder={t('placeholders.zero', '0')} value={itemForm.price}
-                      onChange={e => setItemForm({ ...itemForm, price: e.target.value })}
-                      className={InputCls} />
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder={t('placeholders.zero', '0')}
+                        value={itemForm.price}
+                        onChange={e => setItemForm({ ...itemForm, price: e.target.value })}
+                        className={InputCls + (itemForm.unit !== 'piece' ? ' pr-14' : '')}
+                      />
+                      {itemForm.unit !== 'piece' && (
+                        <span className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-blue-600 pointer-events-none">
+                          / {itemForm.unit}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Unit selector */}
+                  <div>
+                    <label className={LabelCls}>{t('admin.menu.unit', 'Unit')}</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'piece', label: t('admin.menu.unitPiece', 'piece') },
+                        { id: 'kg',    label: 'kg' },
+                        { id: 'l',     label: 'l'  },
+                      ].map(u => {
+                        const active = (itemForm.unit || 'piece') === u.id;
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => setItemForm({ ...itemForm, unit: u.id })}
+                            className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                              active
+                                ? 'bg-blue-600 border-blue-600 text-white'
+                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600'
+                            }`}
+                          >
+                            {u.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Description */}

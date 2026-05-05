@@ -1,17 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  TableProperties, Plus, X, Loader2, Receipt, CreditCard,
-  QrCode, Wallet, Check, Users, Clock, AlertCircle,
-  ChevronRight, Minus, Search, ShoppingCart,
-  CalendarClock, Phone, User, Trash2,
-  Utensils, TrendingUp, Activity, Zap, Printer,
+  TableProperties, Plus, X, Loader2, Receipt, Wallet,
+  Users, Clock, CalendarClock, Phone, User,
+  Utensils, Activity, Zap,
 } from 'lucide-react';
-import { tablesAPI, ordersAPI, menuAPI, accountingAPI } from '../../api/client';
-import { usePrinter } from '../../hooks/usePrinter';
+import { tablesAPI, ordersAPI, accountingAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { money } from '../../hooks/useApi';
 import { useTranslation } from '../../context/LanguageContext';
+import PayModal from '../../components/PayModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const elapsed = (iso, t) => {
@@ -104,383 +102,27 @@ function LoanDatePicker({ value, onChange, onClose }) {
   );
 }
 
-// ── Payment Panel (within TableDetail) ───────────────────────────────────────
-const PAY_METHOD_KEYS = ['Cash', 'Card', 'QR Code', 'Loan'];
-const PAY_METHOD_TKEYS = { 'Cash': 'paymentMethods.cash', 'Card': 'paymentMethods.card', 'QR Code': 'paymentMethods.qrCode', 'Loan': 'paymentMethods.loan' };
-
-function PaymentPanel({ order, taxSettings, restSettings, onPaid, onBack }) {
-  const { t } = useTranslation();
-  const [method, setMethod] = useState('Cash');
-  const [cashGiven, setCashGiven] = useState('');
-  const [cardOk, setCardOk] = useState(false);
-  const [qrOk, setQrOk] = useState(false);
-  const [loanName, setLoanName] = useState('');
-  const [loanPhone, setLoanPhone] = useState('');
-  const [loanDue, setLoanDue] = useState('');
-  const [showCal, setShowCal] = useState(false);
-  const [discPct, setDiscPct] = useState(0);
-  const [paying, setPaying] = useState(false);
-  const [err, setErr] = useState('');
-
-  // ── Printer ───────────────────────────────────────────────────────────────
-  const { printReceipt, printing: isPrinting, printerIp, setPrinterIp } = usePrinter();
-  const [showPrinterCfg, setShowPrinterCfg] = useState(false);
-  const [printerIpDraft, setPrinterIpDraft] = useState('');
-
-  // Fetch full order with items so the receipt can list them
-  const [fullOrder, setFullOrder] = useState(null);
-  useEffect(() => {
-    if (!order?.id) return;
-    ordersAPI.getById(order.id)
-      .then(d => setFullOrder(d))
-      .catch(() => setFullOrder(null));
-  }, [order?.id]);
-
-  const items = fullOrder?.items || fullOrder?.orderItems || order.items || [];
-  const subtotal = items.reduce((s, i) => s + (parseFloat(i.unitPrice || 0) * (i.quantity || 1)), 0) || parseFloat(order.totalAmount || 0);
-  const taxRate = taxSettings?.taxEnabled ? (parseFloat(taxSettings?.taxRate) || 0) / 100 : 0;
-  const taxInclusive = taxSettings?.taxInclusive;
-  const svcRate = restSettings?.serviceChargeEnabled ? (parseFloat(restSettings?.serviceChargeRate) || 0) / 100 : 0;
-
-  const base = taxInclusive ? subtotal / (1 + taxRate) : subtotal;
-  const taxAmt = taxInclusive ? subtotal - base : base * taxRate;
-  const svcAmt = (taxInclusive ? base : subtotal) * svcRate;
-  const gross = subtotal + (taxInclusive ? 0 : taxAmt) + svcAmt;
-  const discAmt = Math.min(gross, (gross * discPct) / 100);
-  const total = Math.max(0, gross - discAmt);
-  const change = Math.max(0, (parseFloat(cashGiven) || 0) - total);
-
-  const canPay = () => {
-    if (method === 'Cash') return (parseFloat(cashGiven) || 0) >= total;
-    if (method === 'Card') return cardOk;
-    if (method === 'QR Code') return qrOk;
-    if (method === 'Loan') return loanName.trim().length > 0 && loanDue.length >= 8;
-    return false;
-  };
-
-  const handlePay = async () => {
-    if (!canPay()) return;
-    setPaying(true);
-    setErr('');
-    try {
-      await ordersAPI.pay(order.id, {
-        paymentMethod: method,
-        discountAmount: discAmt > 0 ? discAmt : 0,
-        ...(method === 'Loan' ? { loanCustomerName: loanName, loanCustomerPhone: loanPhone, loanDueDate: loanDue } : {}),
-      });
-      onPaid();
-    } catch (e) {
-      setErr(e?.error || e?.message || t('cashier.tables.paymentFailed'));
-    } finally {
-      setPaying(false);
-    }
-  };
-
-  const methodIcons = {
-    'Cash': <Wallet className="w-4 h-4" />,
-    'Card': <CreditCard className="w-4 h-4" />,
-    'QR Code': <QrCode className="w-4 h-4" />,
-    'Loan': <Receipt className="w-4 h-4" />,
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={onBack} className="p-1.5 hover:bg-gray-100 rounded-lg transition text-gray-500">
-          <ChevronRight className="w-5 h-5 rotate-180" />
-        </button>
-        <h3 className="font-bold text-gray-900 text-base">{t('cashier.orders.processPayment')}</h3>
-        <span className="ml-auto text-sm text-gray-500 font-medium">{fmtOrderNum(order)}</span>
-      </div>
-
-      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-        {/* Totals */}
-        <div className="bg-gray-50 rounded-xl p-4 space-y-1.5 text-sm">
-          <div className="flex justify-between text-gray-600">
-            <span>{t('common.subtotal')}</span><span className="font-medium text-gray-900">{money(subtotal)}</span>
-          </div>
-          {taxAmt > 0 && (
-            <div className="flex justify-between text-gray-600">
-              <span>{taxSettings?.taxName || t('cashier.orders.tax')} ({taxSettings?.taxRate}%{taxInclusive?' incl':''})</span>
-              <span className="font-medium text-gray-900">{money(taxAmt)}</span>
-            </div>
-          )}
-          {svcAmt > 0 && (
-            <div className="flex justify-between text-gray-600">
-              <span>Service Charge ({restSettings?.serviceChargeRate}%)</span>
-              <span className="font-medium text-gray-900">{money(svcAmt)}</span>
-            </div>
-          )}
-          {discAmt > 0 && (
-            <div className="flex justify-between text-green-600">
-              <span>{t('common.discount')} ({discPct}%)</span><span className="font-medium">-{money(discAmt)}</span>
-            </div>
-          )}
-          <div className="flex justify-between pt-2 border-t border-gray-200 font-bold text-base" style={{ color: '#0891B2' }}>
-            <span>{t('common.total')}</span><span>{money(total)}</span>
-          </div>
-        </div>
-
-        {/* Discount */}
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('common.discount')}</p>
-          <div className="flex gap-2 flex-wrap">
-            {[0, 5, 10, 15, 20].map(p => (
-              <button
-                key={p}
-                onClick={() => setDiscPct(p)}
-                className="px-3 py-1.5 rounded-lg text-sm font-semibold transition border"
-                style={discPct === p
-                  ? { backgroundColor: '#0891B2', color: '#fff', borderColor: '#0891B2' }
-                  : { backgroundColor: '#fff', color: '#374151', borderColor: '#E5E7EB' }
-                }
-              >{p}%</button>
-            ))}
-          </div>
-        </div>
-
-        {/* Payment Method */}
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('cashier.orders.paymentMethod')}</p>
-          <div className="grid grid-cols-2 gap-2">
-            {PAY_METHOD_KEYS.map(m => (
-              <button
-                key={m}
-                onClick={() => { setMethod(m); setCardOk(false); setQrOk(false); setCashGiven(''); }}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition border"
-                style={method === m
-                  ? { backgroundColor: '#0891B2', color: '#fff', borderColor: '#0891B2' }
-                  : { backgroundColor: '#fff', color: '#374151', borderColor: '#E5E7EB' }
-                }
-              >
-                {methodIcons[m]}{t(PAY_METHOD_TKEYS[m])}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Cash Input */}
-        {method === 'Cash' && (
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{t('cashier.orders.amountReceived')}</p>
-            <input
-              type="number"
-              placeholder={`Min ${money(total)}`}
-              value={cashGiven}
-              onChange={e => setCashGiven(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base font-semibold focus:outline-none focus:ring-2 text-gray-900"
-              style={{ focusRingColor: '#0891B2' }}
-            />
-            {(parseFloat(cashGiven) || 0) >= total && (
-              <div className="mt-2 flex justify-between items-center bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-                <span className="text-green-700 text-sm font-medium">{t('cashier.orders.change')}</span>
-                <span className="text-green-700 font-bold text-base">{money(change)}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Card Confirm */}
-        {method === 'Card' && (
-          <button
-            onClick={() => setCardOk(!cardOk)}
-            className="w-full flex items-center gap-3 p-3 rounded-xl border transition"
-            style={cardOk ? { borderColor: '#0891B2', backgroundColor: '#F0F9FF' } : { borderColor: '#E5E7EB', backgroundColor: '#fff' }}
-          >
-            <div className="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0"
-              style={cardOk ? { backgroundColor: '#0891B2', borderColor: '#0891B2' } : { borderColor: '#D1D5DB' }}>
-              {cardOk && <Check className="w-3 h-3 text-white" />}
-            </div>
-            <span className="text-sm font-medium text-gray-700">{t('cashier.orders.cardConfirmed')}</span>
-          </button>
-        )}
-
-        {/* QR Confirm */}
-        {method === 'QR Code' && (
-          <div className="space-y-3">
-            <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-              <QrCode className="w-12 h-12 text-gray-300 mb-2" />
-              <p className="text-sm text-gray-500">{t('cashier.orders.qrScanToPay')}</p>
-            </div>
-            <button
-              onClick={() => setQrOk(!qrOk)}
-              className="w-full flex items-center gap-3 p-3 rounded-xl border transition"
-              style={qrOk ? { borderColor: '#0891B2', backgroundColor: '#F0F9FF' } : { borderColor: '#E5E7EB', backgroundColor: '#fff' }}
-            >
-              <div className="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0"
-                style={qrOk ? { backgroundColor: '#0891B2', borderColor: '#0891B2' } : { borderColor: '#D1D5DB' }}>
-                {qrOk && <Check className="w-3 h-3 text-white" />}
-              </div>
-              <span className="text-sm font-medium text-gray-700">{t('cashier.orders.qrConfirmed')}</span>
-            </button>
-          </div>
-        )}
-
-        {/* Loan Form */}
-        {method === 'Loan' && (
-          <div className="space-y-3">
-            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700 font-medium">{t('cashier.orders.loanNotice')}</p>
-            </div>
-            <input
-              type="text"
-              placeholder={t('cashier.orders.customerName')}
-              value={loanName}
-              onChange={e => setLoanName(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 text-gray-900"
-            />
-            <input
-              type="tel"
-              placeholder={t('common.phone')}
-              value={loanPhone}
-              onChange={e => setLoanPhone(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 text-gray-900"
-            />
-            <div className="relative">
-              <button
-                onClick={() => setShowCal(!showCal)}
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-left flex items-center justify-between"
-                style={loanDue ? { color: '#111827' } : { color: '#9CA3AF' }}
-              >
-                <span>{loanDue || t('cashier.orders.selectDueDate')}</span>
-                <Clock className="w-4 h-4 text-gray-400" />
-              </button>
-              {showCal && (
-                <LoanDatePicker value={loanDue} onChange={setLoanDue} onClose={() => setShowCal(false)} />
-              )}
-            </div>
-          </div>
-        )}
-
-        {err && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{err}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Buttons */}
-      <div className="pt-4 border-t border-gray-100 space-y-2">
-        {/* Print Check */}
-        <button
-          onClick={() => {
-            const restName   = restSettings?.restaurantName || t('common.brandRestaurant', 'The Bill Restaurant');
-            const orderLabel = fmtOrderNum(order);
-            const tableName  = order.tableName || order.customerName || 'Table';
-            const receiptInner = `
-              <div class="center">
-                <div class="rest-name">${restName}</div>
-                <div class="gray">${orderLabel} &nbsp;·&nbsp; ${tableName}</div>
-                <div class="gray">${fmtDateTime()}</div>
-              </div>
-              <div class="dashed"></div>
-              ${items.map(it => {
-                const p = parseFloat(it.unitPrice || 0);
-                const q = it.quantity || 1;
-                return `<div class="row"><span class="row-label">${it.name || it.menuItemName || '—'} × ${q}</span><span>${money(p * q)}</span></div>`;
-              }).join('')}
-              <div class="dashed"></div>
-              <div class="row"><span>Subtotal</span><span>${money(subtotal)}</span></div>
-              ${taxAmt > 0 ? `<div class="row"><span>${taxSettings?.taxName || t('cashier.orders.tax')} (${taxSettings?.taxRate}%)</span><span>${money(taxAmt)}</span></div>` : ''}
-              ${svcAmt > 0 ? `<div class="row"><span>Service (${restSettings?.serviceChargeRate}%)</span><span>${money(svcAmt)}</span></div>` : ''}
-              ${discAmt > 0 ? `<div class="row green"><span>Discount (${discPct}%)</span><span>−${money(discAmt)}</span></div>` : ''}
-              <div class="dashed"></div>
-              <div class="row total-row"><span>TOTAL</span><span>${money(total)}</span></div>
-              <div class="dashed"></div>
-              <div class="row"><span>Method</span><span>${method}</span></div>
-              ${method === 'Cash' && change > 0 ? `<div class="row"><span>${t('cashier.orders.change')}</span><span>${money(change)}</span></div>` : ''}
-              <div class="dashed"></div>
-              <div class="center footer">${restSettings?.receiptHeader || t('receipt.thankYou', 'Thank you for dining with us!')}</div>`;
-            printReceipt({
-              restaurantName: restName,
-              orderNum: orderLabel,
-              tableName,
-              dateTime: fmtDateTime(),
-              items: items.map(it => ({
-                name: it.name || it.menuItemName || '—',
-                qty: it.quantity || 1,
-                total: money(parseFloat(it.unitPrice || 0) * (it.quantity || 1)),
-              })),
-              subtotal: money(subtotal),
-              taxRate: taxSettings?.taxRate,
-              tax: taxAmt > 0 ? money(taxAmt) : undefined,
-              serviceRate: restSettings?.serviceChargeRate,
-              service: svcAmt > 0 ? money(svcAmt) : undefined,
-              discount: discAmt > 0 ? `-${money(discAmt)}` : undefined,
-              total: money(total),
-              method,
-              change: method === 'Cash' && change > 0 ? money(change) : undefined,
-              footer: restSettings?.receiptHeader || t('receipt.thankYou', 'Thank you for dining with us!'),
-              browserHtml: receiptInner,
-            });
-          }}
-          disabled={isPrinting}
-          className="w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition border-2 disabled:opacity-50"
-          style={{ borderColor: '#E5E7EB', color: '#374151', backgroundColor: '#F9FAFB' }}
-        >
-          {isPrinting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-          {isPrinting ? t('common.processing') : t('cashier.orders.printReceipt')}
-        </button>
-
-        {/* Printer IP config */}
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs flex items-center gap-1.5" style={{ color: '#9CA3AF' }}>
-            <Printer className="w-3 h-3" />
-            {printerIp
-              ? <span style={{ color: '#374151', fontWeight: 500 }}>{printerIp}</span>
-              : <span>{t('cashier.tables.noPrinterBrowser')}</span>}
-          </span>
-          <button
-            onClick={() => { setShowPrinterCfg(v => !v); setPrinterIpDraft(printerIp); }}
-            className="text-xs font-semibold hover:underline"
-            style={{ color: '#0891B2' }}
-          >
-            {showPrinterCfg ? t('common.cancel') : (printerIp ? t('common.edit') : t('common.settings'))}
-          </button>
-        </div>
-        {showPrinterCfg && (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={printerIpDraft}
-              onChange={e => setPrinterIpDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { setPrinterIp(printerIpDraft.trim()); setShowPrinterCfg(false); } }}
-              placeholder={t('placeholders.ipAddress', '192.168.1.100')}
-              className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none"
-              autoFocus
-            />
-            <button
-              onClick={() => { setPrinterIp(printerIpDraft.trim()); setShowPrinterCfg(false); }}
-              className="px-4 py-2 text-xs font-bold text-white rounded-lg"
-              style={{ backgroundColor: '#0891B2' }}
-            >
-              {t('common.save')}
-            </button>
-          </div>
-        )}
-
-        <button
-          onClick={handlePay}
-          disabled={!canPay() || paying}
-          className="w-full py-3.5 rounded-xl text-white font-bold flex items-center justify-center gap-2 transition disabled:opacity-50"
-          style={{ backgroundColor: '#0891B2' }}
-        >
-          {paying ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
-          {paying ? t('common.processing') : `${t('cashier.orders.confirmPayment')} — ${money(total)}`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── TableDetailPanel ─────────────────────────────────────────────────────────
 function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, onPaid }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [view, setView] = useState('details'); // 'details' | 'payment'
   const [cancelling, setCancelling] = useState(false);
+  // Full-screen centered PayModal (same as CashierOrders) — overlays the whole page
+  const [showPayModal, setShowPayModal] = useState(false);
+
+  // Fetch full order with items — the list endpoint doesn't include them
+  const [fullOrder, setFullOrder] = useState(null);
+  useEffect(() => {
+    if (!order?.id) { setFullOrder(null); return; }
+    let cancelled = false;
+    ordersAPI.getById(order.id)
+      .then(d => { if (!cancelled) setFullOrder(d); })
+      .catch(() => { if (!cancelled) setFullOrder(null); });
+    return () => { cancelled = true; };
+  }, [order?.id]);
+
+  // Close the Pay modal if the selected table/order changes out from under us
+  useEffect(() => { setShowPayModal(false); }, [table?.id, order?.id]);
 
   if (!table) return null;
 
@@ -488,8 +130,8 @@ function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, on
   const hasOrder = !!order;
   const isReserved = table.status === 'reserved';
   const billRequested = order?.status === 'bill_requested';
-  const items = order?.items || [];
-  const subtotal = items.reduce((s, i) => s + (parseFloat(i.unitPrice || 0) * (i.quantity || 1)), 0) || parseFloat(order?.totalAmount || 0);
+  const items = fullOrder?.items || fullOrder?.orderItems || order?.items || [];
+  const subtotal = items.reduce((s, i) => s + (parseFloat(i.unitPrice || 0) * (Number(i.quantity) || 1)), 0) || parseFloat(order?.totalAmount || 0);
 
   const handleCancelReservation = async () => {
     setCancelling(true);
@@ -507,6 +149,7 @@ function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, on
   };
 
   return (
+    <>
     <div className="flex flex-col h-full">
         {/* Header */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
@@ -520,8 +163,7 @@ function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, on
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
-          {view === 'details' ? (
-            hasOrder ? (
+          {hasOrder ? (
               <div className="space-y-4">
                 {/* Bill requested banner */}
                 {billRequested && (
@@ -560,7 +202,7 @@ function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, on
                         <div className="flex items-center gap-3 flex-shrink-0 ml-3">
                           <span className="text-sm text-gray-500">×{item.quantity}</span>
                           <span className="text-sm font-semibold" style={{ color: '#0891B2' }}>
-                            {money((parseFloat(item.unitPrice || 0)) * (item.quantity || 1))}
+                            {money((parseFloat(item.unitPrice || 0)) * (Number(item.quantity) || 1))}
                           </span>
                         </div>
                       </div>
@@ -585,7 +227,7 @@ function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, on
                     {t('cashier.orders.addItems')}
                   </button>
                   <button
-                    onClick={() => setView('payment')}
+                    onClick={() => setShowPayModal(true)}
                     className="flex-1 py-3 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition"
                     style={{ backgroundColor: '#0891B2' }}
                   >
@@ -688,18 +330,20 @@ function TableDetailPanel({ table, order, taxSettings, restSettings, onClose, on
                   {t('admin.orders.newOrder')}
                 </button>
               </div>
-            )
-          ) : (
-            <PaymentPanel
-              order={order}
-              taxSettings={taxSettings}
-              restSettings={restSettings}
-              onPaid={() => { onPaid(); onClose(); }}
-              onBack={() => setView('details')}
-            />
-          )}
+            )}
         </div>
     </div>
+
+    {/* Full-screen centered Pay Modal — same design as CashierOrders */}
+    <PayModal
+      isOpen={showPayModal && hasOrder}
+      order={fullOrder || order}
+      taxSettings={taxSettings}
+      restSettings={restSettings}
+      onClose={() => setShowPayModal(false)}
+      onPaid={() => { setShowPayModal(false); onPaid && onPaid(); }}
+    />
+    </>
   );
 }
 

@@ -73,7 +73,9 @@
     "other": "Other",
     "notProvided": "Not provided",
     "allPurpose": "All-purpose",
-    "preview": "Preview"
+    "preview": "Preview",
+    "table": "Table",
+    "orderNumber": "Order #"
   },
 
   "login": {
@@ -385,8 +387,8 @@
       "people": "people",
       "guest": "Guest",
       "time": "Time",
-      "tableCountInSystem": "{count} total {count, plural, one {table} other {tables}} in system",
-      "tableCountLabel": "{count} {count, plural, one {table} other {tables}}",
+      "tableCountInSystem": "{count} tables in system",
+      "tableCountLabel": "{count} tables",
       "refresh": "Refresh",
       "percentOfTables": "{percent}% of tables",
       "occupancyPercent": "{percent}% occupancy",
@@ -404,6 +406,7 @@
       "sectionsWithTablesHint": "Sections with tables cannot be removed.",
       "removeSection": "Remove section",
       "cannotRemoveSection": "Cannot remove -- section has tables",
+      "renameSection": "Rename section",
       "orderNumber": "Order #{number}",
       "itemsCount": "{count} items",
       "startNewOrderHint": "Start a new order from the table card",
@@ -442,6 +445,8 @@
       "itemName": "Item Name *",
       "itemNamePlaceholder": "e.g. Caesar Salad",
       "priceSom": "Price (so'm) *",
+      "unit": "Unit",
+      "unitPiece": "piece",
       "descriptionPlaceholder": "Optional description shown on menu",
       "activeVisibleOnMenu": "Active -- visible on menu",
       "hiddenFromMenu": "Hidden from menu",
@@ -847,8 +852,11 @@
       "menuLabel": "Menu",
       "off": "OFF",
       "noItemsInCategory": "No items in this category",
-      "itemCount": "{count} {count, plural, one {item} other {items}}",
-      "priceEach": "{price} each"
+      "itemCount": "{count} items",
+      "priceEach": "{price} each",
+      "enterAmount": "Enter amount",
+      "amount": "Amount",
+      "price": "Price"
     }
   },
 
@@ -947,6 +955,7 @@
   },
 
   "cashier": {
+    "printItem": "Print item",
     "orders": {
       "title": "Cashier Orders",
       "allActive": "All Active",
@@ -1050,7 +1059,15 @@
       "failedToLoad": "Failed to load loans",
       "unknown": "Unknown",
       "allStatuses": "All",
-      "tapDateHint": "Tap a date to set start/end"
+      "tapDateHint": "Tap a date to set start/end",
+      "loanDetails": "Loan Details",
+      "takenOn": "Taken on",
+      "paidOn": "Paid on",
+      "orderItems": "Order Items",
+      "noOrderLinked": "No order linked to this loan",
+      "noItems": "No items on this order",
+      "paidVia": "Paid via",
+      "couldNotLoadOrder": "Could not load order"
     },
     "profile": {
       "ordersToday": "Orders Today",

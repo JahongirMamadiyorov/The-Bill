@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 //   Android emulator   → http://10.0.2.2:3000/api  (host machine alias)
 //   Real device        → http://<Metro host>:3000/api
 const PROD_API_URL      = 'https://the-bill-backend.onrender.com/api';
-const USE_LOCAL_BACKEND = false;
+const USE_LOCAL_BACKEND = true;
 
 function resolveLocalApiUrl() {
   let host = 'localhost';
@@ -82,6 +82,8 @@ export const tablesAPI = {
   getSections: () => api.get('/tables/sections'),
   addSection: (name) => api.post('/tables/sections', { name }),
   deleteSection: (name) => api.delete(`/tables/sections/${encodeURIComponent(name)}`),
+  renameSection: (oldName, newName) =>
+    api.patch(`/tables/sections/${encodeURIComponent(oldName)}`, { newName }),
 };
 
 // ─── Menu ───────────────────────────────────────────────────────────

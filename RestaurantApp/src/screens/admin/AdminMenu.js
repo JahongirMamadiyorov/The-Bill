@@ -311,7 +311,7 @@ export default function AdminMenu() {
   const [editingItem, setEditingItem] = useState(null);
   const [itemForm,    setItemForm]    = useState({
     name: '', price: '', description: '', category_id: '', available: true,
-    item_type: 'food', kitchen_station: null, image_url: '',
+    item_type: 'food', kitchen_station: null, image_url: '', unit: 'piece',
   });
   const [saving,        setSaving]        = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
@@ -467,6 +467,7 @@ export default function AdminMenu() {
       item_type: 'food',
       kitchen_station: null,
       image_url: '',
+      unit: 'piece',
     });
     setFormIngs([]);
     setOriginalIngs([]);
@@ -488,6 +489,7 @@ export default function AdminMenu() {
       item_type:       item.item_type       || 'food',
       kitchen_station: item.kitchen_station || null,
       image_url:       item.image_url       || '',
+      unit:            (item.unit || 'piece').toLowerCase(),
     });
     setFormIngs([]);
     setOriginalIngs([]);
@@ -620,6 +622,7 @@ export default function AdminMenu() {
         item_type:       itemForm.item_type || 'food',
         kitchen_station: itemForm.kitchen_station || null,
         image_url:       itemForm.image_url || null,
+        unit:            itemForm.unit || 'piece',
       };
 
       // Create or update the item and capture its ID
@@ -1013,6 +1016,46 @@ export default function AdminMenu() {
             placeholder={t('warehouse.zero','0')}
             keyboardType="decimal-pad"
           />
+          {!!itemForm.unit && itemForm.unit !== 'piece' && (
+            <Text style={{ marginTop: 4, fontSize: 11, fontWeight: '700', color: '#0891B2' }}>
+              {`/ ${itemForm.unit}`}
+            </Text>
+          )}
+        </Field>
+
+        {/* ── Unit (piece / kg / l) — pricing & cart entry mode ───────────── */}
+        <Field label={t('admin.menu.unit', 'Unit')} hint={t('admin.menu.unitHint', '')}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[
+              { id: 'piece', label: t('admin.menu.unitPiece', 'piece') },
+              { id: 'kg',    label: 'kg' },
+              { id: 'l',     label: 'l'  },
+            ].map(u => {
+              const active = (itemForm.unit || 'piece') === u.id;
+              return (
+                <TouchableOpacity
+                  key={u.id}
+                  onPress={() => fi('unit', u.id)}
+                  style={[
+                    {
+                      flex: 1,
+                      paddingVertical: 11,
+                      borderRadius: 10,
+                      borderWidth: 1.5,
+                      borderColor: active ? colors.admin : '#e2e8f0',
+                      backgroundColor: active ? colors.admin : '#f8fafc',
+                      alignItems: 'center',
+                    },
+                  ]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: active ? '#fff' : '#475569' }}>
+                    {u.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </Field>
 
         <Field label={t('common.description')}>
