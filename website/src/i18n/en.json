@@ -141,7 +141,8 @@
     "loans": "Loans",
     "notifications": "Notifications",
     "performance": "Performance",
-    "newOrder": "New Order"
+    "newOrder": "New Order",
+    "settings": "Settings"
   },
 
   "datePicker": {
@@ -951,6 +952,97 @@
       "filingMonthly": "Monthly",
       "filingQuarterly": "Quarterly",
       "filingAnnually": "Annually"
+    }
+  },
+
+  "settings": {
+    "title": "Restaurant Settings",
+    "saved": "Settings saved",
+    "saveFailed": "Failed to save settings",
+    "loadFailed": "Failed to load settings",
+    "saving": "Saving...",
+
+    "sections": {
+      "restaurantInfo": "Restaurant Info",
+      "financial": "Financial",
+      "printers": "Printers",
+      "receiptTemplate": "Receipt Template",
+      "kitchenTemplate": "Kitchen Order Template"
+    },
+
+    "info": {
+      "name": "Restaurant Name",
+      "namePlaceholder": "e.g. The Bill",
+      "address": "Address",
+      "addressPlaceholder": "e.g. Tashkent, Chilonzor",
+      "phone": "Phone",
+      "phonePlaceholder": "+998 90 000 00 00",
+      "logoUrl": "Logo URL",
+      "logoUrlPlaceholder": "https://example.com/logo.png",
+      "logoPreview": "Logo preview",
+      "uploadLogo": "Upload logo",
+      "uploadLogoHint": "JPG, PNG or WebP · max 8 MB",
+      "uploading": "Uploading...",
+      "removeLogo": "Remove"
+    },
+
+    "financial": {
+      "taxRate": "Tax Rate (%)",
+      "taxEnabled": "Enable Tax",
+      "serviceChargeRate": "Service Charge (%)",
+      "serviceChargeEnabled": "Enable Service Charge",
+      "currencySymbol": "Currency Symbol",
+      "currencyPlaceholder": "e.g. so'm"
+    },
+
+    "printers": {
+      "receiptPrinters": "Receipt Printers",
+      "addReceiptPrinter": "Add receipt printer",
+      "kitchenPrinters": "Kitchen Printers",
+      "addKitchenPrinter": "Add kitchen printer",
+      "printerName": "Printer name",
+      "receiptPrinterNamePlaceholder": "e.g. Front Desk",
+      "kitchenPrinterNamePlaceholder": "e.g. Hot Kitchen",
+      "ip": "Printer IP",
+      "ipPlaceholder": "192.168.1.100",
+      "port": "Port",
+      "notConfigured": "Not configured — will use browser print",
+      "assignedStations": "Assigned stations",
+      "noStations": "No stations yet",
+      "noStationsHint": "Add stations below, then assign them to kitchen printers.",
+      "removePrinter": "Remove printer",
+      "emptyReceiptPrinters": "No receipt printers yet",
+      "emptyKitchenPrinters": "No kitchen printers yet",
+      "stationsLoadFailed": "Failed to load stations",
+      "confirmAddPrinter": "Add printer",
+      "noStationsConfigured": "Leave blank to receive all kitchen orders",
+      "stationsFromMenu": "Stations come from Menu settings — assign here to route orders to the right printer"
+    },
+
+    "receipt": {
+      "title": "Show on Customer Receipt",
+      "headerText": "Receipt Header Text",
+      "headerPlaceholder": "e.g. Thank you for visiting!",
+      "showLogo": "Logo",
+      "showTax": "Tax line",
+      "showServiceCharge": "Service charge line",
+      "showFooter": "Footer text",
+      "showOrderNumber": "Order number",
+      "showTableName": "Table name",
+      "footerText": "Footer Text",
+      "footerPlaceholder": "e.g. Thank you! Come again."
+    },
+
+    "kitchen": {
+      "title": "Show on Kitchen Order Slip",
+      "showOrderType": "Order type (Dine-in / To-go / Delivery)",
+      "showTableName": "Table name",
+      "showOrderNumber": "Order number",
+      "showCustomerName": "Customer name",
+      "showItemPrice": "Item price",
+      "showQtyUnit": "Quantity with measurement unit",
+      "showNotes": "Item notes",
+      "showTimestamp": "Timestamp"
     }
   },
 

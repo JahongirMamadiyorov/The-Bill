@@ -141,7 +141,8 @@
     "loans": "Qarzlar",
     "notifications": "Bildirishnomalar",
     "performance": "Samaradorlik",
-    "newOrder": "Yangi buyurtma"
+    "newOrder": "Yangi buyurtma",
+    "settings": "Sozlamalar"
   },
 
   "datePicker": {
@@ -951,6 +952,97 @@
       "filingMonthly": "Oylik",
       "filingQuarterly": "Choraklik",
       "filingAnnually": "Yillik"
+    }
+  },
+
+  "settings": {
+    "title": "Restoran sozlamalari",
+    "saved": "Sozlamalar saqlandi",
+    "saveFailed": "Sozlamalarni saqlashda xatolik",
+    "loadFailed": "Sozlamalarni yuklashda xatolik",
+    "saving": "Saqlanmoqda...",
+
+    "sections": {
+      "restaurantInfo": "Restoran ma'lumotlari",
+      "financial": "Moliyaviy",
+      "printers": "Printerlar",
+      "receiptTemplate": "Chek shabloni",
+      "kitchenTemplate": "Oshxona buyurtma shabloni"
+    },
+
+    "info": {
+      "name": "Restoran nomi",
+      "namePlaceholder": "masalan: The Bill",
+      "address": "Manzil",
+      "addressPlaceholder": "masalan: Toshkent, Chilonzor",
+      "phone": "Telefon",
+      "phonePlaceholder": "+998 90 000 00 00",
+      "logoUrl": "Logo URL",
+      "logoUrlPlaceholder": "https://example.com/logo.png",
+      "logoPreview": "Logo ko'rinishi",
+      "uploadLogo": "Logo yuklash",
+      "uploadLogoHint": "JPG, PNG yoki WebP · maks 8 MB",
+      "uploading": "Yuklanmoqda...",
+      "removeLogo": "O'chirish"
+    },
+
+    "financial": {
+      "taxRate": "Soliq stavkasi (%)",
+      "taxEnabled": "Soliqni yoqish",
+      "serviceChargeRate": "Xizmat to'lovi (%)",
+      "serviceChargeEnabled": "Xizmat to'lovini yoqish",
+      "currencySymbol": "Valyuta belgisi",
+      "currencyPlaceholder": "masalan: so'm"
+    },
+
+    "printers": {
+      "receiptPrinters": "Chek printerlari",
+      "addReceiptPrinter": "Chek printeri qo'shish",
+      "kitchenPrinters": "Oshxona printerlari",
+      "addKitchenPrinter": "Oshxona printeri qo'shish",
+      "printerName": "Printer nomi",
+      "receiptPrinterNamePlaceholder": "masalan: Old stol",
+      "kitchenPrinterNamePlaceholder": "masalan: Issiq Oshxona",
+      "ip": "Printer IP",
+      "ipPlaceholder": "192.168.1.100",
+      "port": "Port",
+      "notConfigured": "Sozlanmagan — brauzer orqali chiqariladi",
+      "assignedStations": "Tegishli stansiyalar",
+      "noStations": "Hali stansiyalar yo'q",
+      "noStationsHint": "Quyida stansiya qo'shing, so'ng printerlarga belgilang.",
+      "removePrinter": "Printerni o'chirish",
+      "emptyReceiptPrinters": "Hali chek printeri yo'q",
+      "emptyKitchenPrinters": "Hali oshxona printeri yo'q",
+      "stationsLoadFailed": "Stansiyalarni yuklab bo'lmadi",
+      "confirmAddPrinter": "Printer qo'shish",
+      "noStationsConfigured": "Bo'sh qoldiring — barcha oshxona buyurtmalarini qabul qiladi",
+      "stationsFromMenu": "Stansiyalar Menyu sozlamalaridan keladi — buyurtmalarni to'g'ri printerga yo'naltirish uchun bu yerda belgilang"
+    },
+
+    "receipt": {
+      "title": "Mijoz chekida ko'rsatish",
+      "headerText": "Chek sarlavha matni",
+      "headerPlaceholder": "masalan: Tashrif buyurganingiz uchun rahmat!",
+      "showLogo": "Logo",
+      "showTax": "Soliq qatori",
+      "showServiceCharge": "Xizmat to'lovi qatori",
+      "showFooter": "Pastki matn",
+      "showOrderNumber": "Buyurtma raqami",
+      "showTableName": "Stol nomi",
+      "footerText": "Pastki matn",
+      "footerPlaceholder": "masalan: Rahmat! Yana keling."
+    },
+
+    "kitchen": {
+      "title": "Oshxona buyurtma varaqasida ko'rsatish",
+      "showOrderType": "Buyurtma turi (Stolda / Olib ketish / Yetkazib berish)",
+      "showTableName": "Stol nomi",
+      "showOrderNumber": "Buyurtma raqami",
+      "showCustomerName": "Mijoz ismi",
+      "showItemPrice": "Mahsulot narxi",
+      "showQtyUnit": "Miqdor va o'lchov birligi",
+      "showNotes": "Mahsulot izohlari",
+      "showTimestamp": "Vaqt tamg'asi"
     }
   },
 
