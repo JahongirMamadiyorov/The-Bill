@@ -90,6 +90,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss(), localTcpPrintPlugin()],
     server: {
+      host: true,   // listen on 0.0.0.0 so LAN devices can connect
       port: 5173,
       proxy: {
         '/api': {

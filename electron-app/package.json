@@ -1,0 +1,75 @@
+{
+  "name": "the-bill",
+  "productName": "The Bill",
+  "version": "1.0.0",
+  "description": "The Bill — Restaurant Management System",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-store": "7.0.3",
+    "electron-updater": "6.1.7",
+    "ws": "8.17.1"
+  },
+  "devDependencies": {
+    "electron": "28.3.3",
+    "electron-builder": "24.9.1"
+  },
+  "build": {
+    "appId": "com.thebill.app",
+    "productName": "The Bill",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "printer.js",
+      "tray.js",
+      "setup.html",
+      "build/**/*",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "The Bill",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.business"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "jahongirmamadiyorov",
+      "repo": "the-bill-website"
+    }
+  }
+}

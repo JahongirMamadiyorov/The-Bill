@@ -1,0 +1,12 @@
+{
+  "name": "the-bill-print-agent",
+  "version": "1.0.0",
+  "description": "Standalone kitchen print agent — connects to Render WebSocket and sends ESC/POS to LAN thermal printers",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
