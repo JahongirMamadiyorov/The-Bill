@@ -144,6 +144,16 @@ export const ordersAPI = {
   markItemServed: (id, itemId) => api.put(`/orders/${id}/items/${itemId}/serve`),
 };
 
+export const settingsAPI = {
+  get:    ()     => api.get('/settings'),
+  update: (data) => api.put('/settings', data),
+  uploadLogo: (file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post('/menu/upload-image', formData);
+  },
+};
+
 export const suppliersAPI = {
   getAll: () => api.get('/suppliers'),
   create: (data) => api.post('/suppliers', data),

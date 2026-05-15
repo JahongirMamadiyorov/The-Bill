@@ -221,8 +221,21 @@ export default function AdminNewOrder({ isModal = false, initialTable = null, on
     const qtyLabel = weighed ? `${qty} ${unitSuffix(item)}` : `× ${qty}`;
     const lineTotal = (Number(qty) * parseFloat(item.price || 0)).toLocaleString('uz-UZ');
 
+    // Destination line: table name for dine-in, or order type label
+    let destination = '';
+    if (orderType === 'dine_in') {
+      destination = selectedTable
+        ? (selectedTable.name || `${t('admin.orders.tablePrefix')} ${selectedTable.tableNumber}`)
+        : '';
+    } else if (orderType === 'delivery') {
+      destination = t('admin.newOrder.delivery');
+    } else if (orderType === 'to_go') {
+      destination = t('admin.newOrder.toGo');
+    }
+
     const browserHtml = `
       <div class="center">
+        ${destination ? `<div class="gray">${destination}</div>` : ''}
         <div class="rest-name">${name}</div>
         <div class="dashed"></div>
         <div class="row">
@@ -236,7 +249,7 @@ export default function AdminNewOrder({ isModal = false, initialTable = null, on
       browserHtml,
       items: [{ name, qty: String(qty), total: lineTotal }],
     });
-  }, [printReceipt]);
+  }, [printReceipt, orderType, selectedTable, t]);
 
   // ── Validation ──
   const canPlace = () => {

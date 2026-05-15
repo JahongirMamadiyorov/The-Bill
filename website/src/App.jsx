@@ -25,6 +25,7 @@ import AdminStaff from './pages/admin/AdminStaff';
 import AdminProfile from './pages/admin/AdminProfile';
 import AdminNewOrder from './pages/admin/AdminNewOrder';
 import AdminLoans from './pages/admin/AdminLoans';
+import AdminRestaurantSettings from './pages/admin/AdminRestaurantSettings';
 
 // Cashier pages
 import CashierOrders from './pages/cashier/CashierOrders';
@@ -93,6 +94,7 @@ export default function App() {
         <Route path="staff" element={<AdminStaff />} />
         <Route path="profile" element={<AdminProfile />} />
         <Route path="new-order" element={<AdminNewOrder />} />
+        <Route path="settings" element={<AdminRestaurantSettings />} />
       </Route>
 
       {/* Cashier */}

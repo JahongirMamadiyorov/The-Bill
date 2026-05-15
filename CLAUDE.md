@@ -8,4 +8,7 @@ Always plan and ask for things give questions if you need to know more about it
 
 Work smart do not guess!
 
+Database is on the Supabase paid plan
+Backend is on the Render also paid plan
+
 TheBill2026SecurePass for supabase password

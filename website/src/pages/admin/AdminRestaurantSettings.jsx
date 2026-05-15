@@ -3,6 +3,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import {
   Store, DollarSign, Percent, Printer, UtensilsCrossed,
   Receipt, Check, AlertCircle, Upload, X, ImageIcon, Plus, Trash2,
+  Wifi, Network, MonitorCheck, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { settingsAPI, menuAPI } from '../../api/client';
 
@@ -356,83 +357,93 @@ function FinancialPanel({ form, set, t }) {
   );
 }
 
-// ── Empty add-form state helpers ─────────────────────────────────────────────
+// ── Printer setup guide ───────────────────────────────────────────────────────
+function PrinterSetupGuide({ t }) {
+  const [open, setOpen] = useState(false);
+
+  const steps = [
+    { icon: Wifi,         titleKey: 'settings.printers.step1Title', descKey: 'settings.printers.step1Desc' },
+    { icon: Network,      titleKey: 'settings.printers.step2Title', descKey: 'settings.printers.step2Desc' },
+    { icon: Printer,      titleKey: 'settings.printers.step3Title', descKey: 'settings.printers.step3Desc' },
+    { icon: UtensilsCrossed, titleKey: 'settings.printers.step4Title', descKey: 'settings.printers.step4Desc' },
+    { icon: MonitorCheck, titleKey: 'settings.printers.step5Title', descKey: 'settings.printers.step5Desc' },
+  ];
+
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50/40 overflow-hidden">
+      {/* Header — always visible */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-blue-50/60 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <Printer size={16} className="text-blue-600 flex-shrink-0" />
+          <span className="text-sm font-semibold text-blue-800">{t('settings.printers.howToConnect')}</span>
+        </div>
+        {open
+          ? <ChevronUp size={15} className="text-blue-500 flex-shrink-0" />
+          : <ChevronDown size={15} className="text-blue-500 flex-shrink-0" />}
+      </button>
+
+      {/* Expandable content */}
+      {open && (
+        <div className="px-5 pb-5 flex flex-col gap-4 border-t border-blue-200">
+
+          {/* Steps */}
+          <div className="flex flex-col gap-3 pt-4">
+            {steps.map(({ icon: Icon, titleKey, descKey }, i) => (
+              <div key={i} className="flex gap-3">
+                <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+                    {i + 1}
+                  </div>
+                  {i < steps.length - 1 && <div className="w-px flex-1 bg-blue-200 min-h-3" />}
+                </div>
+                <div className="pb-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Icon size={13} className="text-blue-600 flex-shrink-0" />
+                    <p className="text-sm font-semibold text-gray-800">{t(titleKey)}</p>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">{t(descKey)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Compatible printers */}
+          <div className="rounded-xl bg-white border border-blue-100 px-4 py-3 flex flex-col gap-1.5">
+            <p className="text-xs font-semibold text-gray-700">Compatible printers</p>
+            <p className="text-xs text-gray-500 leading-relaxed">{t('settings.printers.compatiblePrinters')}</p>
+          </div>
+
+          {/* Troubleshooting */}
+          <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex gap-2.5">
+            <AlertCircle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 leading-relaxed">{t('settings.printers.troubleshooting')}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Same preset station names the Menu page uses ──────────────────────────────
+const PRESET_STATION_NAMES = ['Salad', 'Grill', 'Bar', 'Pastry', 'Cold', 'Hot'];
+
+// ── Empty add-form state helpers ──────────────────────────────────────────────
 const EMPTY_RECEIPT_FORM = { name: '', ip: '', port: '9100' };
 const emptyKitchenForm = () => ({ name: '', ip: '', port: '9100', stations: [] });
 
-function PrintersPanel({ form, set, t }) {
-  // ── Stations — loaded from Menu's custom_stations, read-only here ──
-  const [stations,        setStations]        = useState([]);
-  const [stationsLoading, setStationsLoading] = useState(true);
-  const [stationError,    setStationError]    = useState(null);
-
-  // ── Add-form panels ──
-  const [showReceiptForm, setShowReceiptForm] = useState(false);
-  const [receiptDraft,    setReceiptDraft]    = useState(EMPTY_RECEIPT_FORM);
-  const [showKitchenForm, setShowKitchenForm] = useState(false);
-  const [kitchenDraft,    setKitchenDraft]    = useState(emptyKitchenForm());
-
-  // ── Load stations ──
-  const loadStations = async () => {
-    setStationsLoading(true);
-    setStationError(null);
-    try {
-      const data = await menuAPI.getStations();
-      setStations(Array.isArray(data) ? data : []);
-    } catch {
-      setStationError(t('settings.printers.stationsLoadFailed'));
-    } finally {
-      setStationsLoading(false);
-    }
-  };
-  useEffect(() => { loadStations(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Receipt printer helpers ──
-  const confirmAddReceiptPrinter = () => {
-    const p = {
-      id: Date.now().toString(),
-      name: receiptDraft.name,
-      ip:   receiptDraft.ip,
-      port: Number(receiptDraft.port) || 9100,
-    };
-    set('receiptPrinters')([...(form.receiptPrinters || []), p]);
-    setReceiptDraft(EMPTY_RECEIPT_FORM);
-    setShowReceiptForm(false);
-  };
-  const updateReceiptPrinter = (id, field, value) =>
-    set('receiptPrinters')((form.receiptPrinters || []).map(p => p.id === id ? { ...p, [field]: value } : p));
-  const removeReceiptPrinter = (id) =>
-    set('receiptPrinters')((form.receiptPrinters || []).filter(p => p.id !== id));
-
-  // ── Kitchen printer helpers ──
-  const confirmAddKitchenPrinter = () => {
-    const p = {
-      id:       Date.now().toString(),
-      name:     kitchenDraft.name,
-      ip:       kitchenDraft.ip,
-      port:     Number(kitchenDraft.port) || 9100,
-      stations: kitchenDraft.stations,
-    };
-    set('kitchenPrinters')([...(form.kitchenPrinters || []), p]);
-    setKitchenDraft(emptyKitchenForm());
-    setShowKitchenForm(false);
-  };
-  const updateKitchenPrinter = (id, field, value) =>
-    set('kitchenPrinters')((form.kitchenPrinters || []).map(p => p.id === id ? { ...p, [field]: value } : p));
-  const removeKitchenPrinter = (id) =>
-    set('kitchenPrinters')((form.kitchenPrinters || []).filter(p => p.id !== id));
-
-  const toggleDraftStation = (name) => {
-    setKitchenDraft(prev => ({
-      ...prev,
-      stations: prev.stations.includes(name)
-        ? prev.stations.filter(s => s !== name)
-        : [...prev.stations, name],
-    }));
-  };
-
-  // ── Shared add-form panel ──
-  const AddFormPanel = ({ draft, setDraft, namePlaceholder, onConfirm, onCancel, showStationPicker }) => (
+// ── Add-form panel — MUST be a top-level component (not defined inside
+//    PrintersPanel) otherwise React re-mounts it on every keystroke and
+//    the input loses focus after each character. ────────────────────────────────
+function AddFormPanel({
+  draft, setDraft, namePlaceholder, onConfirm, onCancel,
+  showStationPicker, stations, stationsLoading, stationError, onRetryStations,
+  toggleDraftStation, t,
+}) {
+  return (
     <Card className="border-blue-200 bg-blue-50/20">
       <div className="px-5 py-4 flex flex-col gap-4">
         <Field label={t('settings.printers.printerName')}>
@@ -474,7 +485,7 @@ function PrintersPanel({ form, set, t }) {
             {stationError && (
               <p className="text-xs text-red-500 flex items-center gap-1">
                 <AlertCircle size={12} />{stationError}
-                <button type="button" onClick={loadStations} className="underline ml-1">{t('common.retry')}</button>
+                <button type="button" onClick={onRetryStations} className="underline ml-1">{t('common.retry')}</button>
               </p>
             )}
             {!stationsLoading && !stationError && stations.length === 0 && (
@@ -527,9 +538,98 @@ function PrintersPanel({ form, set, t }) {
       </div>
     </Card>
   );
+}
+
+function PrintersPanel({ form, set, t }) {
+  const [stations,        setStations]        = useState([]);
+  const [stationsLoading, setStationsLoading] = useState(true);
+  const [stationError,    setStationError]    = useState(null);
+
+  const [showReceiptForm, setShowReceiptForm] = useState(false);
+  const [receiptDraft,    setReceiptDraft]    = useState(EMPTY_RECEIPT_FORM);
+  const [showKitchenForm, setShowKitchenForm] = useState(false);
+  const [kitchenDraft,    setKitchenDraft]    = useState(emptyKitchenForm());
+
+  // ── Load stations — merges 3 sources to match AdminMenu.jsx ──
+  const loadStations = async () => {
+    setStationsLoading(true);
+    setStationError(null);
+    try {
+      const [customData, itemsData] = await Promise.all([
+        menuAPI.getStations(),
+        menuAPI.getItems(),
+      ]);
+
+      const seen   = new Set();
+      const merged = [];
+
+      for (const name of PRESET_STATION_NAMES) {
+        const key = name.toLowerCase();
+        if (!seen.has(key)) { seen.add(key); merged.push({ name }); }
+      }
+
+      const itemStations = (Array.isArray(itemsData) ? itemsData : [])
+        .map(i => (i.kitchenStation || '').trim()).filter(Boolean);
+      for (const name of itemStations) {
+        const key = name.toLowerCase();
+        if (!seen.has(key)) { seen.add(key); merged.push({ name }); }
+      }
+
+      const dbStations = (Array.isArray(customData) ? customData : [])
+        .map(s => (s.name || '').trim()).filter(Boolean);
+      for (const name of dbStations) {
+        const key = name.toLowerCase();
+        if (!seen.has(key)) { seen.add(key); merged.push({ name }); }
+      }
+
+      setStations(merged);
+    } catch (err) {
+      console.error('loadStations error:', err);
+      setStationError(t('settings.printers.stationsLoadFailed'));
+    } finally {
+      setStationsLoading(false);
+    }
+  };
+  useEffect(() => { loadStations(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Receipt printer helpers ──
+  const confirmAddReceiptPrinter = () => {
+    const p = { id: Date.now().toString(), name: receiptDraft.name, ip: receiptDraft.ip, port: Number(receiptDraft.port) || 9100 };
+    set('receiptPrinters')([...(form.receiptPrinters || []), p]);
+    setReceiptDraft(EMPTY_RECEIPT_FORM);
+    setShowReceiptForm(false);
+  };
+  const updateReceiptPrinter = (id, field, value) =>
+    set('receiptPrinters')((form.receiptPrinters || []).map(p => p.id === id ? { ...p, [field]: value } : p));
+  const removeReceiptPrinter = (id) =>
+    set('receiptPrinters')((form.receiptPrinters || []).filter(p => p.id !== id));
+
+  // ── Kitchen printer helpers ──
+  const confirmAddKitchenPrinter = () => {
+    const p = { id: Date.now().toString(), name: kitchenDraft.name, ip: kitchenDraft.ip, port: Number(kitchenDraft.port) || 9100, stations: kitchenDraft.stations };
+    set('kitchenPrinters')([...(form.kitchenPrinters || []), p]);
+    setKitchenDraft(emptyKitchenForm());
+    setShowKitchenForm(false);
+  };
+  const updateKitchenPrinter = (id, field, value) =>
+    set('kitchenPrinters')((form.kitchenPrinters || []).map(p => p.id === id ? { ...p, [field]: value } : p));
+  const removeKitchenPrinter = (id) =>
+    set('kitchenPrinters')((form.kitchenPrinters || []).filter(p => p.id !== id));
+
+  const toggleDraftStation = (name) => {
+    setKitchenDraft(prev => ({
+      ...prev,
+      stations: prev.stations.includes(name)
+        ? prev.stations.filter(s => s !== name)
+        : [...prev.stations, name],
+    }));
+  };
 
   return (
     <div className="flex flex-col gap-6">
+
+      {/* ── Setup guide ──────────────────────────────────────────────── */}
+      <PrinterSetupGuide t={t} />
 
       {/* ── Receipt Printers ─────────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
@@ -555,6 +655,12 @@ function PrintersPanel({ form, set, t }) {
             onConfirm={confirmAddReceiptPrinter}
             onCancel={() => { setShowReceiptForm(false); setReceiptDraft(EMPTY_RECEIPT_FORM); }}
             showStationPicker={false}
+            stations={[]}
+            stationsLoading={false}
+            stationError={null}
+            onRetryStations={loadStations}
+            toggleDraftStation={toggleDraftStation}
+            t={t}
           />
         )}
 
@@ -610,6 +716,12 @@ function PrintersPanel({ form, set, t }) {
             onConfirm={confirmAddKitchenPrinter}
             onCancel={() => { setShowKitchenForm(false); setKitchenDraft(emptyKitchenForm()); }}
             showStationPicker={true}
+            stations={stations}
+            stationsLoading={stationsLoading}
+            stationError={stationError}
+            onRetryStations={loadStations}
+            toggleDraftStation={toggleDraftStation}
+            t={t}
           />
         )}
 

@@ -1016,7 +1016,20 @@
       "stationsLoadFailed": "Failed to load stations",
       "confirmAddPrinter": "Add printer",
       "noStationsConfigured": "Leave blank to receive all kitchen orders",
-      "stationsFromMenu": "Stations come from Menu settings — assign here to route orders to the right printer"
+      "stationsFromMenu": "Stations come from Menu settings — assign here to route orders to the right printer",
+      "howToConnect": "How to connect a printer",
+      "step1Title": "Connect printer to your network",
+      "step1Desc": "Plug the printer into your WiFi router with an ethernet cable (or connect via WiFi if supported). It must be on the same local network as this computer.",
+      "step2Title": "Set a static IP address",
+      "step2Desc": "Hold the Feed button while powering on — the printer will print a config page showing its current IP. Then in your router's admin panel, assign that printer a fixed/reserved IP so it never changes (e.g. 192.168.1.100).",
+      "step3Title": "Add the printer here",
+      "step3Desc": "Click Add kitchen printer or Add receipt printer. Enter the static IP and leave the port as 9100 (the standard port for all ESC/POS network printers).",
+      "step4Title": "Assign stations (kitchen printers only)",
+      "step4Desc": "Select which kitchen stations this printer handles — e.g. Tandir, Grill. Orders with items from those stations will print here automatically. Leave blank and it receives all kitchen orders.",
+      "step5Title": "Save and test",
+      "step5Desc": "Click Save Changes, then place a test order. The kitchen ticket will be sent instantly to the printer over your local network.",
+      "compatiblePrinters": "Works with any ESC/POS network thermal printer: Epson TM-T20 / TM-T88, Xprinter XP-58 / XP-80, Star TSP100, and others. USB-only printers will not work.",
+      "troubleshooting": "Not printing? Check that the printer and this computer are on the same WiFi/LAN, the IP is correct, and your router does not block port 9100."
     },
 
     "receipt": {

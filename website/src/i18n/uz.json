@@ -1016,7 +1016,20 @@
       "stationsLoadFailed": "Stansiyalarni yuklab bo'lmadi",
       "confirmAddPrinter": "Printer qo'shish",
       "noStationsConfigured": "Bo'sh qoldiring — barcha oshxona buyurtmalarini qabul qiladi",
-      "stationsFromMenu": "Stansiyalar Menyu sozlamalaridan keladi — buyurtmalarni to'g'ri printerga yo'naltirish uchun bu yerda belgilang"
+      "stationsFromMenu": "Stansiyalar Menyu sozlamalaridan keladi — buyurtmalarni to'g'ri printerga yo'naltirish uchun bu yerda belgilang",
+      "howToConnect": "Printerni qanday ulash mumkin",
+      "step1Title": "Printerni tarmoqqa ulang",
+      "step1Desc": "Printerni WiFi routeringizga ethernet kabel orqali ulang (yoki WiFi qo'llab-quvvatlasa, u orqali). U bu kompyuter bilan bir xil mahalliy tarmoqda bo'lishi kerak.",
+      "step2Title": "Statik IP-manzil o'rnating",
+      "step2Desc": "Printerning Feed tugmasini bosib ushlab turib, uni yoqing — printer o'zining joriy IP-manzilini chop etadi. Keyin router admin panelida shu printerga doimiy IP-manzil belgilang (masalan, 192.168.1.100).",
+      "step3Title": "Bu yerda printerni qo'shing",
+      "step3Desc": "Oshxona printeri qo'shish yoki Chek printeri qo'shish tugmasini bosing. Statik IP-manzilni kiriting va portni 9100 qolding (bu barcha ESC/POS tarmoq printerlari uchun standart port).",
+      "step4Title": "Stansiyalarni belgilang (faqat oshxona printerlari uchun)",
+      "step4Desc": "Bu printer qaysi oshxona stansiyalarini boshqarishini tanlang — masalan, Tandir, Grill. O'sha stansiyalardagi buyurtmalar avtomatik ravishda bu yerda chop etiladi. Bo'sh qoldirsangiz, barcha oshxona buyurtmalarini qabul qiladi.",
+      "step5Title": "Saqlang va sinab ko'ring",
+      "step5Desc": "O'zgarishlarni saqlang tugmasini bosing, keyin sinov buyurtmasini bering. Oshxona chiptasi mahalliy tarmoq orqali printerga darhol yuboriladi.",
+      "compatiblePrinters": "Har qanday ESC/POS tarmoq termal printeri bilan ishlaydi: Epson TM-T20 / TM-T88, Xprinter XP-58 / XP-80, Star TSP100 va boshqalar. Faqat USB-printer ishlamaydi.",
+      "troubleshooting": "Chop etilmayaptimi? Printer va bu kompyuter bir xil WiFi/LAN tarmog'ida ekanligini, IP to'g'riligini va router 9100 portini bloklamasligini tekshiring."
     },
 
     "receipt": {
