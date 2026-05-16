@@ -39,17 +39,17 @@ const RECONNECT_DELAY  = 5_000;
 const PING_INTERVAL    = 25_000;
 
 // ── State ──────────────────────────────────────────────────────────────────────
-let _status         = 'disconnected';
-let _statusCb       = null;
-let _logCb          = null;
-let _ws             = null;
-let _token          = null;
-let _credentials    = null;
-let _printerCache   = null;
-let _cacheTimestamp = 0;
-let _reconnectTimer = null;
-let _pingTimer      = null;
-let _stopped        = false;
+let _status          = 'disconnected';
+let _statusCb        = null;
+let _logCb           = null;
+let _ws              = null;
+let _token           = null;
+let _credentials     = null;
+let _settingsCache   = null;   // full /api/settings response
+let _cacheTimestamp  = 0;
+let _reconnectTimer  = null;
+let _pingTimer       = null;
+let _stopped         = false;
 
 // ── Logger ─────────────────────────────────────────────────────────────────────
 // All printer output goes through log() so it can be forwarded to DevTools.
@@ -119,34 +119,48 @@ async function login(credentials) {
   return res.body.token;
 }
 
-// ── Printer config ─────────────────────────────────────────────────────────────
-async function fetchPrinters(forceRefresh = false) {
+// ── Settings (printers + show flags) ──────────────────────────────────────────
+async function fetchSettings(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && _printerCache && (now - _cacheTimestamp) < PRINTER_CACHE_MS) {
-    return _printerCache;
+  if (!forceRefresh && _settingsCache && (now - _cacheTimestamp) < PRINTER_CACHE_MS) {
+    return _settingsCache;
   }
 
   const res = await request('GET', '/api/settings', null, _token);
   if (res.status === 401) {
-    // Token expired — re-login
     log('warn', '[printer] Token expired, re-logging in…');
     _token = await login(_credentials);
     const res2 = await request('GET', '/api/settings', null, _token);
-    if (res2.status !== 200) throw new Error('Failed to fetch printer settings');
-    _printerCache   = res2.body.kitchen_printers || [];
+    if (res2.status !== 200) throw new Error('Failed to fetch settings');
+    _settingsCache  = res2.body;
     _cacheTimestamp = Date.now();
-    log('log', `[printer] Fetched ${_printerCache.length} printer(s) from settings`);
-    return _printerCache;
+    log('log', `[printer] Settings fetched — ${(_settingsCache.kitchen_printers || []).length} printer(s)`);
+    return _settingsCache;
   }
   if (res.status !== 200) throw new Error(`Settings fetch failed: ${res.status}`);
 
-  _printerCache   = res.body.kitchen_printers || [];
+  _settingsCache  = res.body;
   _cacheTimestamp = Date.now();
-  log('log', `[printer] Fetched ${_printerCache.length} printer(s) from settings`);
-  return _printerCache;
+  log('log', `[printer] Settings fetched — ${(_settingsCache.kitchen_printers || []).length} printer(s)`);
+  return _settingsCache;
 }
 
-// ── ESC/POS builder (Node.js port of kitchenEscPos.js) ────────────────────────
+/** Extract kitchen_show_* flags from the settings object, defaulting all to true. */
+function parseShowFlags(settings) {
+  const b = (v, def = true) => (v === undefined || v === null ? def : Boolean(v));
+  return {
+    tableName:    b(settings.kitchen_show_table_name),
+    orderNumber:  b(settings.kitchen_show_order_number),
+    customerName: b(settings.kitchen_show_customer_name),
+    notes:        b(settings.kitchen_show_notes),
+    timestamp:    b(settings.kitchen_show_timestamp),
+    orderType:    b(settings.kitchen_show_order_type),
+    itemPrice:    b(settings.kitchen_show_item_price, false),
+    qtyUnit:      b(settings.kitchen_show_qty_unit),
+  };
+}
+
+// ── ESC/POS builder ───────────────────────────────────────────────────────────
 function encode(str) {
   return Buffer.from(str, 'utf8');
 }
@@ -155,64 +169,109 @@ function concat(...parts) {
   return Buffer.concat(parts.map((p) => (Buffer.isBuffer(p) ? p : Buffer.from(p))));
 }
 
-// Fill name and amount with dashes: "Osh Kabob-----------2 dona"
-function dashFill(name, amountStr) {
-  const dashes = Math.max(2, LINE_WIDTH - name.length - amountStr.length);
-  return name + '-'.repeat(dashes) + amountStr;
+// Right-align amount with space padding: "Osh Kabob           2 dona"
+function spaceFill(name, amountStr) {
+  const spaces = Math.max(2, LINE_WIDTH - name.length - amountStr.length);
+  return name + ' '.repeat(spaces) + amountStr;
 }
 
-function buildKitchenTicket({ order, items, stationLabel }) {
-  const station  = stationLabel ? stationLabel.toUpperCase() : 'KITCHEN';
-  const parts    = [];
-  const isToGo   = order.order_type === 'to_go'   || order.order_type === 'takeaway';
-  const isDeli   = order.order_type === 'delivery';
+/**
+ * Build an ESC/POS kitchen ticket.
+ *
+ * ESC ! bitmask reference:
+ *   0x08 = bold
+ *   0x10 = double-height
+ *   0x18 = double-height + bold
+ *   0x20 = double-width  (halves chars per line — only for station header)
+ *   0x38 = double-height + double-width + bold  (station header)
+ *
+ * @param {object} params.order       – order row
+ * @param {Array}  params.items       – order items
+ * @param {string} params.stationLabel
+ * @param {object} [params.showFlags] – kitchen_show_* toggles from settings
+ */
+function buildKitchenTicket({ order, items, stationLabel, showFlags = {} }) {
+  const station = stationLabel ? stationLabel.toUpperCase() : 'KITCHEN';
+  const isToGo  = order.order_type === 'to_go' || order.order_type === 'takeaway';
+  const isDeli  = order.order_type === 'delivery';
+
+  // Default every flag to ON if not explicitly set to false
+  const show = {
+    tableName:    showFlags.tableName    !== false,
+    orderNumber:  showFlags.orderNumber  !== false,
+    customerName: showFlags.customerName !== false,
+    notes:        showFlags.notes        !== false,
+    timestamp:    showFlags.timestamp    !== false,
+    orderType:    showFlags.orderType    !== false,
+    qtyUnit:      showFlags.qtyUnit      !== false,
+  };
+
+  const parts = [];
 
   // Init + code page
   parts.push(Buffer.from([ESC, 0x40]));
   parts.push(Buffer.from([ESC, 0x74, 0x00]));
 
-  // ── 1. Kitchen station — big, centered ────────────────────────────────────
+  // ── 1. Station header — double-height + double-width + bold, centered ────
   parts.push(ALIGN_CENTER);
-  parts.push(Buffer.from([ESC, 0x21, 0x38]));   // double-height + double-width + bold
+  parts.push(Buffer.from([ESC, 0x21, 0x38]));
   parts.push(encode(`${station}\n`));
   parts.push(Buffer.from([ESC, 0x21, 0x00]));
 
-  // ── 2. Table name — centered (only for dine-in) ───────────────────────────
-  if (!isToGo && !isDeli) {
+  // ── 2. Table name — bold, centered (dine-in only, if enabled) ────────────
+  if (!isToGo && !isDeli && show.tableName) {
     const tableLabel = order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in');
     parts.push(ALIGN_CENTER);
-    parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
+    parts.push(Buffer.from([ESC, 0x21, 0x08]));
     parts.push(encode(`${tableLabel}\n`));
     parts.push(Buffer.from([ESC, 0x21, 0x00]));
   }
 
-  // ── 3. Order number + time — centered ─────────────────────────────────────
-  const now      = new Date();
-  const time     = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const orderNum = order.daily_number ? `#${order.daily_number}` : '';
-  parts.push(ALIGN_CENTER);
-  parts.push(encode(`${orderNum}  ${time}\n`));
+  // ── 3. Order number and/or timestamp — centered ───────────────────────────
+  const now  = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh   = String(now.getHours()).padStart(2, '0');
+  const min  = String(now.getMinutes()).padStart(2, '0');
+  const datestamp = `${dd}.${mm}.${yyyy}`;
+  const timestamp  = `${hh}:${min}`;
+
+  const metaParts = [];
+  if (show.orderNumber && order.daily_number) metaParts.push(`#${order.daily_number}`);
+  if (show.timestamp)                          metaParts.push(`${datestamp}  ${timestamp}`);
+
+  if (metaParts.length > 0) {
+    parts.push(ALIGN_CENTER);
+    parts.push(encode(metaParts.join('   ') + '\n'));
+  }
 
   // ── 4. Separator ──────────────────────────────────────────────────────────
   parts.push(ALIGN_LEFT);
   parts.push(encode(`${SEP}\n`));
 
-  // ── 5. Items: Name-----------qty unit ─────────────────────────────────────
+  // ── 5. Items — double-height + bold for name+amount, normal for notes ─────
   for (const item of items) {
-    const name      = item.name || item.item_name || 'Item';
-    const qty       = item.quantity || 1;
-    const unit      = item.unit || 'piece';
-    const amountStr = `${qty} ${unit}`;
+    const name = item.name || item.item_name || 'Item';
+    const qty  = item.quantity || 1;
 
-    // Truncate name if too long to fit with amount
+    let amountStr;
+    if (show.qtyUnit) {
+      const unit = item.unit || 'piece';
+      amountStr  = `${qty} ${unit}`;
+    } else {
+      amountStr = `x${qty}`;
+    }
+
+    // Double-height + bold: character width stays at LINE_WIDTH (48 chars)
     const maxNameLen = LINE_WIDTH - amountStr.length - 2;
     const safeName   = name.length > maxNameLen ? name.slice(0, maxNameLen) : name;
 
-    parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
-    parts.push(encode(dashFill(safeName, amountStr) + '\n'));
+    parts.push(Buffer.from([ESC, 0x21, 0x18])); // double-height + bold
+    parts.push(encode(spaceFill(safeName, amountStr) + '\n'));
     parts.push(Buffer.from([ESC, 0x21, 0x00]));
 
-    if (item.notes) {
+    if (show.notes && item.notes) {
       parts.push(encode(`  * ${item.notes}\n`));
     }
   }
@@ -220,21 +279,34 @@ function buildKitchenTicket({ order, items, stationLabel }) {
   // ── 6. Separator ──────────────────────────────────────────────────────────
   parts.push(encode(`${SEP}\n`));
 
-  // ── 7. Order type ─────────────────────────────────────────────────────────
-  const typeLabel = isDeli ? 'Delivery' : isToGo ? 'To Go' : 'Dine In';
-  parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
-  parts.push(encode(`${typeLabel}\n`));
-  parts.push(Buffer.from([ESC, 0x21, 0x00]));
+  // ── 7. Order type — double-height + bold (if enabled) ─────────────────────
+  if (show.orderType) {
+    const typeLabel = isDeli ? 'DELIVERY' : isToGo ? 'TO GO' : 'DINE IN';
+    parts.push(ALIGN_CENTER);
+    parts.push(Buffer.from([ESC, 0x21, 0x18])); // double-height + bold
+    parts.push(encode(`${typeLabel}\n`));
+    parts.push(Buffer.from([ESC, 0x21, 0x00]));
+  }
 
   // ── 8. Delivery details ───────────────────────────────────────────────────
   if (isDeli) {
-    if (order.customer_name)  parts.push(encode(`${order.customer_name}\n`));
-    if (order.customer_phone) parts.push(encode(`${order.customer_phone}\n`));
-    if (order.delivery_address) parts.push(encode(`${order.delivery_address}\n`));
+    if (show.customerName && order.customer_name) {
+      parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
+      parts.push(encode(`${order.customer_name}\n`));
+      parts.push(Buffer.from([ESC, 0x21, 0x00]));
+    }
+    if (order.customer_phone) {
+      parts.push(Buffer.from([ESC, 0x21, 0x10])); // double-height
+      parts.push(encode(`${order.customer_phone}\n`));
+      parts.push(Buffer.from([ESC, 0x21, 0x00]));
+    }
+    if (order.delivery_address) {
+      parts.push(encode(`${order.delivery_address}\n`));
+    }
   }
 
-  // ── 9. Notes / comment ───────────────────────────────────────────────────
-  if (order.notes) {
+  // ── 9. Order-level notes ──────────────────────────────────────────────────
+  if (show.notes && order.notes) {
     parts.push(encode(`* ${order.notes}\n`));
   }
 
@@ -284,13 +356,16 @@ function sendToTcpPrinter(ip, port, data) {
 async function handlePrintEvent({ order, items }) {
   log('log', `[printer] kitchen_print event — order #${order?.daily_number}, ${items?.length} items`);
 
-  let printers;
+  let settings;
   try {
-    printers = await fetchPrinters();
+    settings = await fetchSettings();
   } catch (err) {
-    log('error', `[printer] Failed to fetch printer config: ${err.message}`);
+    log('error', `[printer] Failed to fetch settings: ${err.message}`);
     return;
   }
+
+  const printers  = settings.kitchen_printers || [];
+  const showFlags = parseShowFlags(settings);
 
   if (!Array.isArray(printers) || printers.length === 0) {
     log('warn', '[printer] No kitchen printers configured — add printers in Admin > Settings');
@@ -298,12 +373,12 @@ async function handlePrintEvent({ order, items }) {
   }
 
   log('log', `[printer] Using ${printers.length} printer(s): ${printers.map((p) => `${p.name}(${p.ip})`).join(', ')}`);
+  log('log', `[printer] Show flags: ${JSON.stringify(showFlags)}`);
 
   const groups = groupItemsByStation(items);
   log('log', `[printer] Stations in this order: ${Object.keys(groups).join(', ')}`);
 
   for (const [station, stationItems] of Object.entries(groups)) {
-    // Find matching printer
     let printer = printers.find((p) =>
       Array.isArray(p.stations) &&
       p.stations.some((s) => s.toLowerCase() === station.toLowerCase())
@@ -323,6 +398,7 @@ async function handlePrintEvent({ order, items }) {
         order,
         items:        stationItems,
         stationLabel: station !== 'default' ? station : (printer.name || 'Kitchen'),
+        showFlags,
       });
 
       const port = printer.port || 9100;

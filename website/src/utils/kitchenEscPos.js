@@ -48,20 +48,27 @@ export function uint8ToBase64(bytes) {
 
 // ── Ticket builder ────────────────────────────────────────────────────────────
 
+// Right-align amount with spaces: "Osh Kabob           2 dona"
+function spaceFill(name, amountStr) {
+  const spaces = Math.max(2, LINE_WIDTH - name.length - amountStr.length);
+  return name + ' '.repeat(spaces) + amountStr;
+}
+
 /**
  * Build an ESC/POS kitchen ticket.
  *
+ * ESC ! bitmask reference:
+ *   0x08 = bold
+ *   0x10 = double-height  (character width stays the same — still 48 chars/line)
+ *   0x18 = double-height + bold
+ *   0x38 = double-height + double-width + bold  (station header only)
+ *
  * @param {object} params
- * @param {object} params.order        - { daily_number, table_number, order_type, notes, customer_name }
- * @param {Array}  params.items        - [{ name, item_name, quantity, notes, kitchen_station }]
+ * @param {object} params.order        - { daily_number, table_number, table_name, order_type, notes, customer_name, customer_phone, delivery_address }
+ * @param {Array}  params.items        - [{ name, item_name, quantity, unit, notes, kitchen_station }]
  * @param {string} [params.stationLabel] - Station name shown at top (e.g. 'GRILL'). Defaults to 'KITCHEN'.
  * @returns {Uint8Array}
  */
-function dashFill(name, amountStr) {
-  const dashes = Math.max(2, LINE_WIDTH - name.length - amountStr.length);
-  return name + '-'.repeat(dashes) + amountStr;
-}
-
 export function buildKitchenTicket({ order, items, stationLabel }) {
   const station = stationLabel ? stationLabel.toUpperCase() : 'KITCHEN';
   const isToGo  = order.order_type === 'to_go'   || order.order_type === 'takeaway';
@@ -73,32 +80,39 @@ export function buildKitchenTicket({ order, items, stationLabel }) {
   parts.push(new Uint8Array([ESC, 0x40]));
   parts.push(new Uint8Array([ESC, 0x74, 0x00]));
 
-  // ── 1. Kitchen station — big, centered ───────────────────────────────────
+  // ── 1. Station header — double-height + double-width + bold, centered ────
   parts.push(ALIGN_CENTER);
-  parts.push(new Uint8Array([ESC, 0x21, 0x38])); // double-height + double-width + bold
+  parts.push(new Uint8Array([ESC, 0x21, 0x38]));
   parts.push(encode(`${station}\n`));
   parts.push(new Uint8Array([ESC, 0x21, 0x00]));
 
-  // ── 2. Table name — centered (dine-in only) ───────────────────────────────
+  // ── 2. Table name — bold, centered (dine-in only) ─────────────────────────
   if (!isToGo && !isDeli) {
     const tableLabel = order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in');
     parts.push(ALIGN_CENTER);
-    parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
+    parts.push(new Uint8Array([ESC, 0x21, 0x08]));
     parts.push(encode(`${tableLabel}\n`));
     parts.push(new Uint8Array([ESC, 0x21, 0x00]));
   }
 
-  // ── 3. Order number + time — centered ─────────────────────────────────────
-  const time     = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const orderNum = order.daily_number ? `#${order.daily_number}` : '';
+  // ── 3. Order number + date + time — centered ──────────────────────────────
+  const now  = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh   = String(now.getHours()).padStart(2, '0');
+  const min  = String(now.getMinutes()).padStart(2, '0');
+
+  const orderNum    = order.daily_number ? `#${order.daily_number}` : '';
+  const datetimeStr = `${dd}.${mm}.${yyyy}  ${hh}:${min}`;
   parts.push(ALIGN_CENTER);
-  parts.push(encode(`${orderNum}  ${time}\n`));
+  parts.push(encode(`${orderNum}   ${datetimeStr}\n`));
 
   // ── 4. Separator ──────────────────────────────────────────────────────────
   parts.push(ALIGN_LEFT);
   parts.push(encode(`${SEP}\n`));
 
-  // ── 5. Items: Name-----------qty unit ─────────────────────────────────────
+  // ── 5. Items — double-height + bold, space-padded amount ──────────────────
   for (const item of items) {
     const name      = item.name || item.item_name || 'Item';
     const qty       = item.quantity || 1;
@@ -108,8 +122,8 @@ export function buildKitchenTicket({ order, items, stationLabel }) {
     const maxNameLen = LINE_WIDTH - amountStr.length - 2;
     const safeName   = name.length > maxNameLen ? name.slice(0, maxNameLen) : name;
 
-    parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
-    parts.push(encode(dashFill(safeName, amountStr) + '\n'));
+    parts.push(new Uint8Array([ESC, 0x21, 0x18])); // double-height + bold
+    parts.push(encode(spaceFill(safeName, amountStr) + '\n'));
     parts.push(new Uint8Array([ESC, 0x21, 0x00]));
 
     if (item.notes) {
@@ -120,16 +134,25 @@ export function buildKitchenTicket({ order, items, stationLabel }) {
   // ── 6. Separator ──────────────────────────────────────────────────────────
   parts.push(encode(`${SEP}\n`));
 
-  // ── 7. Order type ─────────────────────────────────────────────────────────
-  const typeLabel = isDeli ? 'Delivery' : isToGo ? 'To Go' : 'Dine In';
-  parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
+  // ── 7. Order type — double-height + bold, centered ────────────────────────
+  const typeLabel = isDeli ? 'DELIVERY' : isToGo ? 'TO GO' : 'DINE IN';
+  parts.push(ALIGN_CENTER);
+  parts.push(new Uint8Array([ESC, 0x21, 0x18])); // double-height + bold
   parts.push(encode(`${typeLabel}\n`));
   parts.push(new Uint8Array([ESC, 0x21, 0x00]));
 
   // ── 8. Delivery details ───────────────────────────────────────────────────
   if (isDeli) {
-    if (order.customer_name)    parts.push(encode(`${order.customer_name}\n`));
-    if (order.customer_phone)   parts.push(encode(`${order.customer_phone}\n`));
+    if (order.customer_name) {
+      parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
+      parts.push(encode(`${order.customer_name}\n`));
+      parts.push(new Uint8Array([ESC, 0x21, 0x00]));
+    }
+    if (order.customer_phone) {
+      parts.push(new Uint8Array([ESC, 0x21, 0x10])); // double-height
+      parts.push(encode(`${order.customer_phone}\n`));
+      parts.push(new Uint8Array([ESC, 0x21, 0x00]));
+    }
     if (order.delivery_address) parts.push(encode(`${order.delivery_address}\n`));
   }
 

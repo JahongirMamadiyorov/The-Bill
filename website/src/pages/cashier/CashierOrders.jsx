@@ -361,7 +361,12 @@ function OrderPanel({ order, taxSettings, restSettings, user, onBack, onPaid, au
 
   // ── Order items ───────────────────────────────────────────────────────────
   const items = full?.items || full?.orderItems || [];
-  const orderTotal = Number(order.totalAmount) || items.reduce((s, x) => s + (Number(x.unitPrice) || Number(x.price) || 0) * (Number(x.quantity) || Number(x.qty) || 1), 0);
+  // Always compute from item prices (unit_price × qty, tax-exclusive) when items
+  // are loaded.  Stored totalAmount may include a stale tax amount from when the
+  // order was created, so it is only used as a last-resort fallback.
+  const orderTotal = items.length > 0
+    ? items.reduce((s, x) => s + (Number(x.unitPrice) || Number(x.price) || 0) * (Number(x.quantity) || Number(x.qty) || 1), 0)
+    : Number(order.totalAmount) || 0;
 
   // ── Payment helpers ───────────────────────────────────────────────────────
   const getDiscountAmt = (pf) => {

@@ -307,11 +307,37 @@ export default function PayModal({ isOpen, order, onClose, onPaid, taxSettings, 
 
   // ── Print receipt ─────────────────────────────────────────────────────────
   const handlePrintCheck = () => {
-    const restaurantName = restSettings?.restaurantName || t('common.brandRestaurant', 'The Bill Restaurant');
+    // ── Resolve settings flags (default everything ON if not set) ────────────
+    const rs = restSettings || {};
+    const showLogo          = rs.receipt_show_logo          !== false;
+    const showOrderNum      = rs.receipt_show_order_number  !== false;
+    const showTableName     = rs.receipt_show_table_name    !== false;
+    const showTax           = rs.receipt_show_tax           !== false;
+    const showServiceCharge = rs.receipt_show_service_charge !== false;
+    const showFooter        = rs.receipt_show_footer        !== false;
+
+    const restaurantName = rs.restaurant_name || t('common.brandRestaurant', 'The Bill Restaurant');
+    const headerText     = rs.receipt_header  || '';
+    const footerText     = rs.receipt_footer  || rs.receipt_header || t('cashier.orders.thankYou');
+    const methodLabel    = (pf.paymentMethod || 'cash').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+    // ── Tax / service charge ─────────────────────────────────────────────────
+    const taxEnabled      = taxSettings?.tax_enabled && showTax;
+    const taxRate         = taxEnabled ? (Number(taxSettings.tax_rate) || 0) : 0;
+    const taxAmt          = taxEnabled ? Math.round(modalOrderTotal * taxRate / 100) : 0;
+
+    const svcEnabled      = rs.service_charge_enabled && showServiceCharge;
+    const svcRate         = svcEnabled ? (Number(rs.service_charge_rate) || 0) : 0;
+    const svcAmt          = svcEnabled ? Math.round(modalOrderTotal * svcRate / 100) : 0;
+
+    // ── Build browser HTML ────────────────────────────────────────────────────
     const receiptInner = `
+      ${showLogo ? `<div class="center"><div class="rest-name">${restaurantName}</div></div>` : ''}
+      ${headerText ? `<div class="center gray">${headerText}</div>` : ''}
       <div class="center">
-        <div class="rest-name">${restaurantName}</div>
-        <div class="gray">${fmtOrderNum(order)} &nbsp;·&nbsp; ${dname}</div>
+        <div class="gray">
+          ${[showOrderNum ? fmtOrderNum(order) : '', showTableName ? dname : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')}
+        </div>
         <div class="gray">${fmtDate(new Date())}</div>
       </div>
       <div class="dashed"></div>
@@ -322,37 +348,52 @@ export default function PayModal({ isOpen, order, onClose, onPaid, taxSettings, 
         const weighed = u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
         const qtyLabel = weighed
           ? `${Number.isInteger(q) ? q : parseFloat(q.toFixed(3))} ${u}`
-          : `× ${q}`;
+          : `× ${q}`;
         return `<div class="row"><span class="row-label">${it.name || it.menuItemName || '—'} ${qtyLabel}</span><span>${money(p * q)}</span></div>`;
       }).join('')}
       <div class="dashed"></div>
       <div class="row"><span>${t('common.subtotal')}</span><span>${money(modalOrderTotal)}</span></div>
+      ${taxAmt > 0 ? `<div class="row gray"><span>${taxSettings.tax_name || 'Tax'} (${taxRate}%)</span><span>${money(taxAmt)}</span></div>` : ''}
+      ${svcAmt > 0 ? `<div class="row gray"><span>${t('cashier.orders.serviceCharge', 'Service')} (${svcRate}%)</span><span>${money(svcAmt)}</span></div>` : ''}
       ${discountAmt > 0 ? `<div class="row green"><span>${t('common.discount')}${pf.discReason ? ` (${pf.discReason})` : ''}</span><span>−${money(discountAmt)}</span></div>` : ''}
       <div class="dashed"></div>
       <div class="row total-row"><span>${t('cashier.orders.receiptTotal')}</span><span>${money(totalToPay)}</span></div>
       <div class="dashed"></div>
-      <div class="row"><span>${t('cashier.orders.method')}</span><span>${(pf.paymentMethod || 'cash').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</span></div>
+      <div class="row"><span>${t('cashier.orders.method')}</span><span>${methodLabel}</span></div>
       ${pf.paymentMethod === 'cash' && chg > 0 ? `<div class="row"><span>${t('cashier.orders.change')}</span><span>${money(chg)}</span></div>` : ''}
-      <div class="dashed"></div>
-      <div class="center footer">${restSettings?.receiptHeader || t('cashier.orders.thankYou')}</div>`;
+      ${showFooter ? `<div class="dashed"></div><div class="center footer">${footerText}</div>` : ''}`;
+
     printReceipt({
       restaurantName,
-      orderNum: fmtOrderNum(order),
-      tableName: dname,
-      dateTime: fmtDate(new Date()),
+      headerText,
+      orderNum:   showOrderNum  ? fmtOrderNum(order) : '',
+      tableName:  showTableName ? dname               : '',
+      dateTime:   fmtDate(new Date()),
       items: orderItems.map(it => ({
-        name: it.name || it.menuItemName || '—',
-        qty: parseFloat(it.quantity ?? it.qty) || 1,
-        unit: String(it.unit || 'piece').toLowerCase(),
+        name:  it.name || it.menuItemName || '—',
+        qty:   parseFloat(it.quantity ?? it.qty) || 1,
+        unit:  String(it.unit || 'piece').toLowerCase(),
         total: money((it.unitPrice || it.price || 0) * (parseFloat(it.quantity ?? it.qty) || 1)),
       })),
-      subtotal: money(modalOrderTotal),
+      subtotal:      money(modalOrderTotal),
+      taxRate:       taxRate   || undefined,
+      tax:           taxAmt    > 0 ? money(taxAmt)  : undefined,
+      serviceRate:   svcRate   || undefined,
+      service:       svcAmt    > 0 ? money(svcAmt)  : undefined,
       discountReason: pf.discReason || undefined,
-      discount: discountAmt > 0 ? `-${money(discountAmt)}` : undefined,
-      total: money(totalToPay),
-      method: (pf.paymentMethod || 'cash').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()),
-      change: chg > 0 ? money(chg) : undefined,
-      footer: restSettings?.receiptHeader || t('cashier.orders.thankYou'),
+      discount:      discountAmt > 0 ? `-${money(discountAmt)}` : undefined,
+      total:         money(totalToPay),
+      method:        methodLabel,
+      change:        chg > 0 ? money(chg) : undefined,
+      footer:        footerText,
+      show: {
+        logo:          showLogo,
+        orderNumber:   showOrderNum,
+        tableName:     showTableName,
+        tax:           showTax,
+        serviceCharge: showServiceCharge,
+        footer:        showFooter,
+      },
       browserHtml: receiptInner,
     });
   };
