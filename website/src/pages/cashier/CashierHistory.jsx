@@ -5,7 +5,7 @@ import {
   RefreshCcw, User, TableProperties, Check, Clock, Hash,
   Banknote, Percent, StickyNote,
 } from 'lucide-react';
-import { ordersAPI } from '../../api/client';
+import { ordersAPI, accountingAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { money } from '../../hooks/useApi';
 import { useTranslation } from '../../context/LanguageContext';
@@ -350,7 +350,7 @@ function FilterPanel({ visible, onClose, filters, onChange, waitressOptions, tab
 }
 
 // ── Order Detail Modal ────────────────────────────────────────────────────────
-function OrderDetailModal({ order, onClose, onRefund }) {
+function OrderDetailModal({ order, onClose, onRefund, taxSettings }) {
   const { t } = useTranslation();
   const [fullOrder, setFullOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
@@ -370,10 +370,18 @@ function OrderDetailModal({ order, onClose, onRefund }) {
   const data = fullOrder || order;
   const items = data.items || data.orderItems || [];
   const itemCount = Math.round(items.reduce((s, x) => s + (Number(x.quantity) || 1), 0));
-  const subtotal  = items.reduce((s, x) => s + (parseFloat(x.unitPrice || x.price || 0) * (Number(x.quantity) || 1)), 0);
-  const tax  = parseFloat(data.taxAmount) || 0;
+  // Always compute subtotal from item prices (tax-exclusive)
+  const subtotal  = items.length > 0
+    ? items.reduce((s, x) => s + (parseFloat(x.unitPrice || x.price || 0) * (Number(x.quantity) || 1)), 0)
+    : parseFloat(data.totalAmount) || 0;
+  // Only show tax if currently enabled in settings; ignore stale stored taxAmount
+  const taxEnabled = taxSettings?.taxEnabled ?? taxSettings?.tax_enabled ?? false;
+  const tax  = taxEnabled ? (parseFloat(data.taxAmount) || 0) : 0;
   const disc = parseFloat(data.discountAmount ?? data.discount) || 0;
-  const total = parseFloat(data.totalAmount) || 0;
+  // Total = subtotal + tax (from current settings) - discount
+  const total = taxEnabled
+    ? (parseFloat(data.totalAmount) || subtotal + tax - disc)
+    : Math.max(0, subtotal - disc);
 
   const isRefunded = data.status === 'cancelled' || data.status === 'refunded';
   const methodKey  = (data.paymentMethod || 'cash').toLowerCase();
@@ -699,6 +707,12 @@ export default function CashierHistory() {
   const [refundTarget, setRefundTarget] = useState(null);
   const [refunding, setRefunding] = useState(false);
   const [toast, setToast] = useState(null);
+  const [taxSettings, setTaxSettings] = useState(null);
+
+  // Load tax settings once so the detail modal knows whether to show the tax line
+  useEffect(() => {
+    accountingAPI.getTaxSettings().then(d => { if (d) setTaxSettings(d); }).catch(() => {});
+  }, []);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -991,6 +1005,7 @@ export default function CashierHistory() {
           order={detailOrder}
           onClose={() => setDetailOrder(null)}
           onRefund={(order) => { setDetailOrder(null); setRefundTarget(order); }}
+          taxSettings={taxSettings}
         />
       )}
 

@@ -1680,6 +1680,7 @@ export default function CashierOrders() {
     try {
       const data = await ordersAPI.getAll({
         status: 'pending,sent_to_kitchen,preparing,ready,served,bill_requested',
+        include_items: 'true',
       });
       const list = Array.isArray(data) ? data : [];
       setOrders(list);
@@ -1881,7 +1882,10 @@ export default function CashierOrders() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map(order => {
-              const grand   = parseFloat(order.totalAmount) || 0;
+              const cardItemList = order.items || [];
+              const grand = cardItemList.length > 0
+                ? cardItemList.reduce((s, x) => s + (Number(x.unitPrice) || Number(x.price) || 0) * (Number(x.quantity) || Number(x.qty) || 1), 0)
+                : parseFloat(order.totalAmount) || 0;
               const count   = parseInt(order.itemCount) || (order.items?.length ?? 0);
               const isToGo  = order.orderType === 'to_go' || order.orderType === 'takeaway';
               const isDeli  = order.orderType === 'delivery';
