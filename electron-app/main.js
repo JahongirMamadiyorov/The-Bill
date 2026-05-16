@@ -1,12 +1,38 @@
 'use strict';
 
+// ── Electron runtime guard ─────────────────────────────────────────────────────
+// If ELECTRON_RUN_AS_NODE is set, require('electron') returns the binary path
+// (a string), not the Electron API — causing every API call to crash.
+// Catch this early with a clear message instead of a confusing TypeError.
+if (process.env.ELECTRON_RUN_AS_NODE) {
+  process.stderr.write(
+    '\n[The Bill] ERROR: ELECTRON_RUN_AS_NODE is set in your environment.\n' +
+    'This prevents Electron from loading its native API.\n' +
+    'Fix: run  unset ELECTRON_RUN_AS_NODE  in your terminal, then try again.\n\n'
+  );
+  process.exit(1);
+}
+
+const _electron = require('electron');
+
+// Verify we got the real Electron API (not the npm shim string)
+if (!_electron || typeof _electron !== 'object' || !_electron.app) {
+  process.stderr.write(
+    '\n[The Bill] ERROR: require("electron") did not return the Electron API.\n' +
+    `Got type: ${typeof _electron}\n` +
+    'This usually means ELECTRON_RUN_AS_NODE=1 is set, or the electron binary\n' +
+    'is corrupted. Try: rm -rf node_modules && npm install\n\n'
+  );
+  process.exit(1);
+}
+
 const {
   app,
   BrowserWindow,
   ipcMain,
   shell,
   Notification,
-} = require('electron');
+} = _electron;
 const path       = require('path');
 const Store      = require('electron-store');
 const { createTray, updateTrayStatus } = require('./tray');
@@ -141,64 +167,47 @@ function openMainWindow() {
     minWidth:        1024,
     minHeight:       600,
     show:            false,
+    // Dark background shown while the page loads — no JS overlay needed
     backgroundColor: '#0f172a',
     icon:            ICON_PATH,
     webPreferences: {
-      nodeIntegration:         false,
-      contextIsolation:        true,
-      preload:                 PRELOAD,
-      webviewTag:              false,
+      nodeIntegration:             false,
+      contextIsolation:            true,
+      preload:                     PRELOAD,
+      webviewTag:                  false,
       allowRunningInsecureContent: false,
+      // Named persistent partition — keeps cookies/localStorage/session
+      // across restarts so the user stays logged in to the Vercel app
+      partition: 'persist:thebill',
     },
   });
 
-  // Loading screen while Vercel loads
-  mainWindow.webContents.on('did-start-loading', () => {
-    if (!mainWindow) return;
-    mainWindow.webContents.executeJavaScript(`
-      if (!document.getElementById('__tb_loader__')) {
-        const el = document.createElement('div');
-        el.id = '__tb_loader__';
-        el.style.cssText = 'position:fixed;inset:0;background:#0f172a;display:flex;align-items:center;justify-content:center;z-index:99999;font-family:system-ui,sans-serif;';
-        el.innerHTML = '<div style="text-align:center;color:#e2e8f0"><div style="font-size:2rem;font-weight:700;letter-spacing:.05em;color:#0891b2">THE BILL</div><div style="margin-top:12px;font-size:.85rem;opacity:.6">Loading...</div></div>';
-        document.documentElement.appendChild(el);
-      }
-    `).catch(() => {});
-  });
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    if (!mainWindow) return;
-    mainWindow.webContents.executeJavaScript(`
-      const el = document.getElementById('__tb_loader__');
-      if (el) el.remove();
-    `).catch(() => {});
-  });
-
+  // Load Vercel directly — no JS injection, no loading overlay
   mainWindow.loadURL(VERCEL_URL);
 
+  // Show only when the first frame is painted (avoids white/blank flash)
   mainWindow.once('ready-to-show', () => {
-    if (!startHidden) {
-      mainWindow.show();
-    }
+    if (!startHidden) mainWindow.show();
   });
 
-  // F11 — fullscreen toggle
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.key === 'F11') {
+  // Keyboard shortcuts — single handler
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    // F11 — fullscreen toggle
+    if (input.key === 'F11') {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
     }
-    if (input.type === 'keyDown' && input.key === 'F12') {
-      if (mainWindow.webContents.isDevToolsOpened()) {
-        mainWindow.webContents.closeDevTools();
-      } else {
-        mainWindow.webContents.openDevTools({ mode: 'detach' });
-      }
-    }
-  });
 
-  // Ctrl+Q to actually quit
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.key === 'q' && input.control) {
+    // F12 — detached DevTools
+    if (input.key === 'F12') {
+      mainWindow.webContents.isDevToolsOpened()
+        ? mainWindow.webContents.closeDevTools()
+        : mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+
+    // Ctrl+Q — actually quit (not just hide)
+    if (input.key === 'q' && input.control) {
       isQuitting = true;
       app.quit();
     }
