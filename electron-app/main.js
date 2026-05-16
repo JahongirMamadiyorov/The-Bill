@@ -190,6 +190,17 @@ function openMainWindow() {
     if (!startHidden) mainWindow.show();
   });
 
+  // Mark page ready so printer logs can be forwarded to DevTools
+  mainWindow.webContents.on('did-finish-load', () => {
+    _pageReady = true;
+    flushLogBuffer();
+  });
+
+  // Reset page-ready flag on navigation (e.g. manual reload)
+  mainWindow.webContents.on('did-start-loading', () => {
+    _pageReady = false;
+  });
+
   // Keyboard shortcuts — single handler
   mainWindow.webContents.on('before-input-event', (_event, input) => {
     if (input.type !== 'keyDown') return;
@@ -199,8 +210,11 @@ function openMainWindow() {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
     }
 
-    // F12 — detached DevTools
-    if (input.key === 'F12') {
+    // F12 or Cmd+Option+I — detached DevTools
+    const isDevToolsShortcut =
+      input.key === 'F12' ||
+      (input.key === 'i' && input.meta && input.alt);
+    if (isDevToolsShortcut) {
       mainWindow.webContents.isDevToolsOpened()
         ? mainWindow.webContents.closeDevTools()
         : mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -266,15 +280,39 @@ ipcMain.handle('check-for-updates', () => {
 });
 
 // ── Print Agent ────────────────────────────────────────────────────────────────
+// Buffer logs that fire before the page is ready, then flush once loaded.
+let _logBuffer      = [];
+let _pageReady      = false;
+
+function flushLogBuffer() {
+  if (!mainWindow || !_pageReady) return;
+  for (const { level, msg } of _logBuffer) {
+    sendLogToRenderer(level, msg);
+  }
+  _logBuffer = [];
+}
+
+function sendLogToRenderer(level, msg) {
+  if (!mainWindow) return;
+  const fn      = level === 'warn' ? 'warn' : level === 'error' ? 'error' : 'log';
+  const safeMsg = msg
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\\`')
+    .replace(/\$/g, '\\$');
+  mainWindow.webContents
+    .executeJavaScript(`console.${fn}(\`${safeMsg}\`)`)
+    .catch(() => {});
+}
+
 function startPrintAgent(credentials) {
-  // Forward all printer logs to browser DevTools so they're visible alongside
-  // the website's own console output (open F12 to see [printer] prefixed lines)
+  // Forward printer.js logs to browser DevTools (F12 → Console tab)
+  // Logs are buffered until the page finishes loading.
   printer.onLog((level, msg) => {
-    if (!mainWindow) return;
-    const safeMsg = msg.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
-    mainWindow.webContents.executeJavaScript(
-      `console.${level === 'log' ? 'log' : level === 'warn' ? 'warn' : 'error'}(\`${safeMsg}\`)`
-    ).catch(() => {});
+    if (_pageReady) {
+      sendLogToRenderer(level, msg);
+    } else {
+      _logBuffer.push({ level, msg });
+    }
   });
 
   printer.onStatusChange((status) => {

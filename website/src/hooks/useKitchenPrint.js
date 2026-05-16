@@ -29,6 +29,11 @@ const IS_LOCAL = window.location.hostname === 'localhost' ||
                  window.location.hostname === '127.0.0.1' ||
                  /^192\.168\./.test(window.location.hostname);
 
+// When running inside the Electron desktop app, printer.js in the main process
+// owns the WebSocket connection and handles all printing. Skip this hook entirely
+// to avoid two connections competing with the same token.
+const IS_ELECTRON = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 export function useKitchenPrint({ token, role, kitchenPrinters = [] }) {
   const wsRef        = useRef(null);
@@ -117,7 +122,8 @@ export function useKitchenPrint({ token, role, kitchenPrinters = [] }) {
   }, [token, handlePrintEvent]);
 
   useEffect(() => {
-    if (!ACTIVE_ROLES.includes(role) || !token) return;
+    // In Electron, printer.js handles the WebSocket — don't compete with it
+    if (!ACTIVE_ROLES.includes(role) || !token || IS_ELECTRON) return;
     mountedRef.current = true;
     connect();
     return () => {
