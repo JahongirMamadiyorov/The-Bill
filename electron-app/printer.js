@@ -35,6 +35,7 @@ const PING_INTERVAL    = 25_000;
 // ── State ──────────────────────────────────────────────────────────────────────
 let _status         = 'disconnected';
 let _statusCb       = null;
+let _logCb          = null;
 let _ws             = null;
 let _token          = null;
 let _credentials    = null;
@@ -44,11 +45,20 @@ let _reconnectTimer = null;
 let _pingTimer      = null;
 let _stopped        = false;
 
+// ── Logger ─────────────────────────────────────────────────────────────────────
+// All printer output goes through log() so it can be forwarded to DevTools.
+function log(level, msg) {
+  console[level](msg);
+  if (_logCb) {
+    try { _logCb(level, msg); } catch (_) {}
+  }
+}
+
 // ── Status helpers ─────────────────────────────────────────────────────────────
 function setStatus(s) {
   if (_status === s) return;
   _status = s;
-  console.log(`[printer] Status: ${s}`);
+  log('log', `[printer] Status: ${s}`);
   if (_statusCb) _statusCb(s);
 }
 
@@ -113,17 +123,20 @@ async function fetchPrinters(forceRefresh = false) {
   const res = await request('GET', '/api/settings', null, _token);
   if (res.status === 401) {
     // Token expired — re-login
+    log('warn', '[printer] Token expired, re-logging in…');
     _token = await login(_credentials);
     const res2 = await request('GET', '/api/settings', null, _token);
     if (res2.status !== 200) throw new Error('Failed to fetch printer settings');
     _printerCache   = res2.body.kitchen_printers || [];
     _cacheTimestamp = Date.now();
+    log('log', `[printer] Fetched ${_printerCache.length} printer(s) from settings`);
     return _printerCache;
   }
   if (res.status !== 200) throw new Error(`Settings fetch failed: ${res.status}`);
 
   _printerCache   = res.body.kitchen_printers || [];
   _cacheTimestamp = Date.now();
+  log('log', `[printer] Fetched ${_printerCache.length} printer(s) from settings`);
   return _printerCache;
 }
 
@@ -243,22 +256,25 @@ function sendToTcpPrinter(ip, port, data) {
 
 // ── Print event handler ────────────────────────────────────────────────────────
 async function handlePrintEvent({ order, items }) {
-  console.log(`[printer] kitchen_print event — order #${order?.daily_number}, ${items?.length} items`);
+  log('log', `[printer] kitchen_print event — order #${order?.daily_number}, ${items?.length} items`);
 
   let printers;
   try {
     printers = await fetchPrinters();
   } catch (err) {
-    console.error('[printer] Failed to fetch printer config:', err.message);
+    log('error', `[printer] Failed to fetch printer config: ${err.message}`);
     return;
   }
 
   if (!Array.isArray(printers) || printers.length === 0) {
-    console.warn('[printer] No kitchen printers configured');
+    log('warn', '[printer] No kitchen printers configured — add printers in Admin > Settings');
     return;
   }
 
+  log('log', `[printer] Using ${printers.length} printer(s): ${printers.map((p) => `${p.name}(${p.ip})`).join(', ')}`);
+
   const groups = groupItemsByStation(items);
+  log('log', `[printer] Stations in this order: ${Object.keys(groups).join(', ')}`);
 
   for (const [station, stationItems] of Object.entries(groups)) {
     // Find matching printer
@@ -272,7 +288,7 @@ async function handlePrintEvent({ order, items }) {
     }
 
     if (!printer || !printer.ip) {
-      console.warn(`[printer] No printer found for station: ${station}`);
+      log('warn', `[printer] No printer found for station: ${station}`);
       continue;
     }
 
@@ -284,10 +300,11 @@ async function handlePrintEvent({ order, items }) {
       });
 
       const port = printer.port || 9100;
+      log('log', `[printer] Sending to ${printer.name} at ${printer.ip}:${port} (station: ${station})…`);
       await sendToTcpPrinter(printer.ip, port, ticket);
-      console.log(`[printer] Printed to ${printer.name} (${printer.ip}:${port}) — station: ${station}`);
+      log('log', `[printer] Printed successfully to ${printer.name} (${printer.ip}:${port})`);
     } catch (err) {
-      console.error(`[printer] TCP error to ${printer.ip}:${printer.port || 9100}:`, err.message);
+      log('error', `[printer] TCP error to ${printer.ip}:${printer.port || 9100}: ${err.message}`);
     }
   }
 }
@@ -304,7 +321,7 @@ function clearReconnect() {
 function scheduleReconnect() {
   clearReconnect();
   if (_stopped) return;
-  console.log(`[printer] Reconnecting in ${RECONNECT_DELAY / 1000}s…`);
+  log('log', `[printer] Reconnecting in ${RECONNECT_DELAY / 1000}s…`);
   _reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
 }
 
@@ -312,13 +329,13 @@ function connect() {
   if (_stopped || !_token) return;
 
   const url = `${WS_URL_BASE}/ws?token=${_token}`;
-  console.log('[printer] Connecting to WS…');
+  log('log', '[printer] Connecting to WS…');
 
   const ws = new WebSocket(url);
   _ws = ws;
 
   ws.on('open', () => {
-    console.log('[printer] WebSocket connected');
+    log('log', '[printer] WebSocket connected');
     setStatus('connected');
     clearPing();
     _pingTimer = setInterval(() => {
@@ -331,9 +348,10 @@ function connect() {
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
+      log('log', `[printer] WS message type: ${msg.type}`);
       if (msg.type === 'kitchen_print') {
         handlePrintEvent(msg).catch((err) => {
-          console.error('[printer] handlePrintEvent error:', err.message);
+          log('error', `[printer] handlePrintEvent error: ${err.message}`);
         });
       }
     } catch (_) {}
@@ -346,25 +364,36 @@ function connect() {
 
     if (code === 4001) {
       // Auth error — re-login then reconnect
-      console.warn('[printer] WS auth error (4001) — re-logging in…');
+      log('warn', '[printer] WS auth error (4001) — re-logging in…');
       login(_credentials)
         .then((token) => { _token = token; scheduleReconnect(); })
         .catch((err) => {
-          console.error('[printer] Re-login failed:', err.message);
+          log('error', `[printer] Re-login failed: ${err.message}`);
           scheduleReconnect();
         });
     } else if (code !== 1000) {
+      log('warn', `[printer] WS closed (code ${code}), will reconnect…`);
       scheduleReconnect();
     }
   });
 
   ws.on('error', (err) => {
-    console.warn('[printer] WS error:', err.message);
+    log('warn', `[printer] WS error: ${err.message}`);
     // close event will handle reconnect
   });
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
+
+/**
+ * Register a callback for log messages.
+ * Receives (level: 'log'|'warn'|'error', message: string).
+ * Use this in main.js to forward printer logs to browser DevTools.
+ * @param {(level: string, message: string) => void} cb
+ */
+function onLog(cb) {
+  _logCb = cb;
+}
 
 /**
  * Register a callback for status changes.
@@ -382,14 +411,14 @@ async function start(credentials) {
   _stopped     = false;
   _credentials = credentials;
 
-  console.log('[printer] Starting print agent…');
+  log('log', '[printer] Starting print agent…');
 
   try {
     _token = await login(credentials);
-    console.log('[printer] Logged in, connecting WebSocket…');
+    log('log', '[printer] Logged in, connecting WebSocket…');
     connect();
   } catch (err) {
-    console.error('[printer] Initial login failed:', err.message);
+    log('error', `[printer] Initial login failed: ${err.message}`);
     setStatus('disconnected');
     // Retry after delay — backend may be cold-starting on Render
     scheduleReconnect();
@@ -408,7 +437,7 @@ function stop() {
     _ws = null;
   }
   setStatus('disconnected');
-  console.log('[printer] Print agent stopped');
+  log('log', '[printer] Print agent stopped');
 }
 
 /**
@@ -419,4 +448,4 @@ function getStatus() {
   return _status;
 }
 
-module.exports = { start, stop, getStatus, onStatusChange };
+module.exports = { start, stop, getStatus, onStatusChange, onLog };

@@ -267,6 +267,16 @@ ipcMain.handle('check-for-updates', () => {
 
 // ── Print Agent ────────────────────────────────────────────────────────────────
 function startPrintAgent(credentials) {
+  // Forward all printer logs to browser DevTools so they're visible alongside
+  // the website's own console output (open F12 to see [printer] prefixed lines)
+  printer.onLog((level, msg) => {
+    if (!mainWindow) return;
+    const safeMsg = msg.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    mainWindow.webContents.executeJavaScript(
+      `console.${level === 'log' ? 'log' : level === 'warn' ? 'warn' : 'error'}(\`${safeMsg}\`)`
+    ).catch(() => {});
+  });
+
   printer.onStatusChange((status) => {
     updateTrayStatus(status);
   });
