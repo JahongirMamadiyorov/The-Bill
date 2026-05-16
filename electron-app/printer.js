@@ -25,6 +25,12 @@ const WebSocket = require('ws');
 const ESC = 0x1b;
 const GS  = 0x1d;
 
+// ── Layout constants (80 mm paper = 48 chars) ──────────────────────────────────
+const LINE_WIDTH   = 48;
+const SEP          = '='.repeat(LINE_WIDTH);
+const ALIGN_LEFT   = Buffer.from([ESC, 0x61, 0x00]);
+const ALIGN_CENTER = Buffer.from([ESC, 0x61, 0x01]);
+
 // ── Config ─────────────────────────────────────────────────────────────────────
 const BACKEND_BASE    = 'https://the-bill-backend.onrender.com';
 const WS_URL_BASE     = 'wss://the-bill-backend.onrender.com';
@@ -149,67 +155,87 @@ function concat(...parts) {
   return Buffer.concat(parts.map((p) => (Buffer.isBuffer(p) ? p : Buffer.from(p))));
 }
 
+// Fill name and amount with dashes: "Osh Kabob-----------2 dona"
+function dashFill(name, amountStr) {
+  const dashes = Math.max(2, LINE_WIDTH - name.length - amountStr.length);
+  return name + '-'.repeat(dashes) + amountStr;
+}
+
 function buildKitchenTicket({ order, items, stationLabel }) {
-  const station = stationLabel ? stationLabel.toUpperCase() : 'KITCHEN';
-  const parts   = [];
+  const station  = stationLabel ? stationLabel.toUpperCase() : 'KITCHEN';
+  const parts    = [];
+  const isToGo   = order.order_type === 'to_go'   || order.order_type === 'takeaway';
+  const isDeli   = order.order_type === 'delivery';
 
   // Init + code page
   parts.push(Buffer.from([ESC, 0x40]));
   parts.push(Buffer.from([ESC, 0x74, 0x00]));
 
-  // Station name: bold + double-height + double-width
-  parts.push(Buffer.from([ESC, 0x21, 0x38]));
+  // ── 1. Kitchen station — big, centered ────────────────────────────────────
+  parts.push(ALIGN_CENTER);
+  parts.push(Buffer.from([ESC, 0x21, 0x38]));   // double-height + double-width + bold
   parts.push(encode(`${station}\n`));
   parts.push(Buffer.from([ESC, 0x21, 0x00]));
 
-  // Separator
-  parts.push(encode('================================\n'));
-
-  // Order header
-  const now   = new Date();
-  const time  = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const orderNum  = order.daily_number ? `#${order.daily_number}` : '';
-  let tableLabel;
-  if (order.order_type === 'to_go') {
-    tableLabel = `To Go${order.customer_name ? ' — ' + order.customer_name : ''}`;
-  } else if (order.order_type === 'delivery') {
-    tableLabel = `Delivery${order.customer_name ? ' — ' + order.customer_name : ''}`;
-  } else if (order.table_number) {
-    tableLabel = `Table ${order.table_number}`;
-  } else {
-    tableLabel = 'Walk-in';
+  // ── 2. Table name — centered (only for dine-in) ───────────────────────────
+  if (!isToGo && !isDeli) {
+    const tableLabel = order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in');
+    parts.push(ALIGN_CENTER);
+    parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
+    parts.push(encode(`${tableLabel}\n`));
+    parts.push(Buffer.from([ESC, 0x21, 0x00]));
   }
 
-  parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
-  parts.push(encode(tableLabel));
-  if (orderNum) parts.push(encode(`  ${orderNum}`));
-  parts.push(encode(`  ${time}\n`));
-  parts.push(Buffer.from([ESC, 0x21, 0x00]));
+  // ── 3. Order number + time — centered ─────────────────────────────────────
+  const now      = new Date();
+  const time     = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const orderNum = order.daily_number ? `#${order.daily_number}` : '';
+  parts.push(ALIGN_CENTER);
+  parts.push(encode(`${orderNum}  ${time}\n`));
 
-  parts.push(encode('--------------------------------\n'));
+  // ── 4. Separator ──────────────────────────────────────────────────────────
+  parts.push(ALIGN_LEFT);
+  parts.push(encode(`${SEP}\n`));
 
-  // Items
+  // ── 5. Items: Name-----------qty unit ─────────────────────────────────────
   for (const item of items) {
-    const qty  = String(item.quantity || 1).padStart(3, ' ');
-    const name = item.name || item.item_name || 'Item';
+    const name      = item.name || item.item_name || 'Item';
+    const qty       = item.quantity || 1;
+    const unit      = item.unit || 'piece';
+    const amountStr = `${qty} ${unit}`;
 
-    parts.push(Buffer.from([ESC, 0x21, 0x08])); // qty bold
-    parts.push(encode(`${qty}x `));
+    // Truncate name if too long to fit with amount
+    const maxNameLen = LINE_WIDTH - amountStr.length - 2;
+    const safeName   = name.length > maxNameLen ? name.slice(0, maxNameLen) : name;
+
+    parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
+    parts.push(encode(dashFill(safeName, amountStr) + '\n'));
     parts.push(Buffer.from([ESC, 0x21, 0x00]));
-    parts.push(encode(`${name}\n`));
 
     if (item.notes) {
-      parts.push(encode(`       * ${item.notes}\n`));
+      parts.push(encode(`  * ${item.notes}\n`));
     }
   }
 
-  // Order notes
+  // ── 6. Separator ──────────────────────────────────────────────────────────
+  parts.push(encode(`${SEP}\n`));
+
+  // ── 7. Order type ─────────────────────────────────────────────────────────
+  const typeLabel = isDeli ? 'Delivery' : isToGo ? 'To Go' : 'Dine In';
+  parts.push(Buffer.from([ESC, 0x21, 0x08])); // bold
+  parts.push(encode(`${typeLabel}\n`));
+  parts.push(Buffer.from([ESC, 0x21, 0x00]));
+
+  // ── 8. Delivery details ───────────────────────────────────────────────────
+  if (isDeli) {
+    if (order.customer_name)  parts.push(encode(`${order.customer_name}\n`));
+    if (order.customer_phone) parts.push(encode(`${order.customer_phone}\n`));
+    if (order.delivery_address) parts.push(encode(`${order.delivery_address}\n`));
+  }
+
+  // ── 9. Notes / comment ───────────────────────────────────────────────────
   if (order.notes) {
-    parts.push(encode('--------------------------------\n'));
-    parts.push(Buffer.from([ESC, 0x21, 0x08]));
-    parts.push(encode('Note: '));
-    parts.push(Buffer.from([ESC, 0x21, 0x00]));
-    parts.push(encode(`${order.notes}\n`));
+    parts.push(encode(`* ${order.notes}\n`));
   }
 
   // Feed + cut

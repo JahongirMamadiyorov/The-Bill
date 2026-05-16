@@ -15,6 +15,12 @@ const ESC = 0x1b;
 const GS  = 0x1d;
 const LF  = 0x0a; // eslint-disable-line no-unused-vars
 
+// ── Layout (80 mm paper = 48 chars) ──────────────────────────────────────────
+const LINE_WIDTH   = 48;
+const SEP          = '='.repeat(LINE_WIDTH);
+const ALIGN_LEFT   = new Uint8Array([ESC, 0x61, 0x00]);
+const ALIGN_CENTER = new Uint8Array([ESC, 0x61, 0x01]);
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function encode(str) {
   return new TextEncoder().encode(str);
@@ -51,74 +57,90 @@ export function uint8ToBase64(bytes) {
  * @param {string} [params.stationLabel] - Station name shown at top (e.g. 'GRILL'). Defaults to 'KITCHEN'.
  * @returns {Uint8Array}
  */
+function dashFill(name, amountStr) {
+  const dashes = Math.max(2, LINE_WIDTH - name.length - amountStr.length);
+  return name + '-'.repeat(dashes) + amountStr;
+}
+
 export function buildKitchenTicket({ order, items, stationLabel }) {
   const station = stationLabel ? stationLabel.toUpperCase() : 'KITCHEN';
+  const isToGo  = order.order_type === 'to_go'   || order.order_type === 'takeaway';
+  const isDeli  = order.order_type === 'delivery';
 
   const parts = [];
 
-  // Initialize printer
-  parts.push(new Uint8Array([ESC, 0x40]));       // ESC @ — reset
-  parts.push(new Uint8Array([ESC, 0x74, 0x00])); // ESC t 0 — PC437 code page
+  // Init + code page
+  parts.push(new Uint8Array([ESC, 0x40]));
+  parts.push(new Uint8Array([ESC, 0x74, 0x00]));
 
-  // Station name — bold + double height + double width
-  parts.push(new Uint8Array([ESC, 0x21, 0x38])); // bold + double-height + double-width
+  // ── 1. Kitchen station — big, centered ───────────────────────────────────
+  parts.push(ALIGN_CENTER);
+  parts.push(new Uint8Array([ESC, 0x21, 0x38])); // double-height + double-width + bold
   parts.push(encode(`${station}\n`));
-
-  // Back to normal
   parts.push(new Uint8Array([ESC, 0x21, 0x00]));
 
-  // Separator line
-  parts.push(encode('================================\n'));
-
-  // Order header line
-  const time       = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const orderNum   = order.daily_number ? `#${order.daily_number}` : '';
-  const tableLabel = order.order_type === 'to_go'
-    ? `To Go${order.customer_name ? ' — ' + order.customer_name : ''}`
-    : order.order_type === 'delivery'
-    ? `Delivery${order.customer_name ? ' — ' + order.customer_name : ''}`
-    : order.table_number
-    ? `Table ${order.table_number}`
-    : 'Walk-in';
-
-  // Bold for header
-  parts.push(new Uint8Array([ESC, 0x21, 0x08]));
-  parts.push(encode(`${tableLabel}`));
-  if (orderNum) parts.push(encode(`  ${orderNum}`));
-  parts.push(encode(`  ${time}\n`));
-  parts.push(new Uint8Array([ESC, 0x21, 0x00]));
-
-  parts.push(encode('--------------------------------\n'));
-
-  // Items — each item on its own line
-  for (const item of items) {
-    const qty  = String(item.quantity || 1).padStart(3, ' ');
-    const name = item.name || item.item_name || 'Item';
-
-    // Quantity bold, name normal
-    parts.push(new Uint8Array([ESC, 0x21, 0x08]));
-    parts.push(encode(`${qty}x `));
+  // ── 2. Table name — centered (dine-in only) ───────────────────────────────
+  if (!isToGo && !isDeli) {
+    const tableLabel = order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in');
+    parts.push(ALIGN_CENTER);
+    parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
+    parts.push(encode(`${tableLabel}\n`));
     parts.push(new Uint8Array([ESC, 0x21, 0x00]));
-    parts.push(encode(`${name}\n`));
+  }
 
-    // Item-level note (indented)
+  // ── 3. Order number + time — centered ─────────────────────────────────────
+  const time     = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const orderNum = order.daily_number ? `#${order.daily_number}` : '';
+  parts.push(ALIGN_CENTER);
+  parts.push(encode(`${orderNum}  ${time}\n`));
+
+  // ── 4. Separator ──────────────────────────────────────────────────────────
+  parts.push(ALIGN_LEFT);
+  parts.push(encode(`${SEP}\n`));
+
+  // ── 5. Items: Name-----------qty unit ─────────────────────────────────────
+  for (const item of items) {
+    const name      = item.name || item.item_name || 'Item';
+    const qty       = item.quantity || 1;
+    const unit      = item.unit || 'piece';
+    const amountStr = `${qty} ${unit}`;
+
+    const maxNameLen = LINE_WIDTH - amountStr.length - 2;
+    const safeName   = name.length > maxNameLen ? name.slice(0, maxNameLen) : name;
+
+    parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
+    parts.push(encode(dashFill(safeName, amountStr) + '\n'));
+    parts.push(new Uint8Array([ESC, 0x21, 0x00]));
+
     if (item.notes) {
-      parts.push(encode(`       * ${item.notes}\n`));
+      parts.push(encode(`  * ${item.notes}\n`));
     }
   }
 
-  // Order-level notes
-  if (order.notes) {
-    parts.push(encode('--------------------------------\n'));
-    parts.push(new Uint8Array([ESC, 0x21, 0x08]));
-    parts.push(encode('Note: '));
-    parts.push(new Uint8Array([ESC, 0x21, 0x00]));
-    parts.push(encode(`${order.notes}\n`));
+  // ── 6. Separator ──────────────────────────────────────────────────────────
+  parts.push(encode(`${SEP}\n`));
+
+  // ── 7. Order type ─────────────────────────────────────────────────────────
+  const typeLabel = isDeli ? 'Delivery' : isToGo ? 'To Go' : 'Dine In';
+  parts.push(new Uint8Array([ESC, 0x21, 0x08])); // bold
+  parts.push(encode(`${typeLabel}\n`));
+  parts.push(new Uint8Array([ESC, 0x21, 0x00]));
+
+  // ── 8. Delivery details ───────────────────────────────────────────────────
+  if (isDeli) {
+    if (order.customer_name)    parts.push(encode(`${order.customer_name}\n`));
+    if (order.customer_phone)   parts.push(encode(`${order.customer_phone}\n`));
+    if (order.delivery_address) parts.push(encode(`${order.delivery_address}\n`));
   }
 
-  // Feed lines + full cut
+  // ── 9. Notes / comment ────────────────────────────────────────────────────
+  if (order.notes) {
+    parts.push(encode(`* ${order.notes}\n`));
+  }
+
+  // Feed + cut
   parts.push(encode('\n\n\n'));
-  parts.push(new Uint8Array([GS, 0x56, 0x42, 0x00])); // GS V B 0 — full cut
+  parts.push(new Uint8Array([GS, 0x56, 0x42, 0x00]));
 
   return concat(...parts);
 }
