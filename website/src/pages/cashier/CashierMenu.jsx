@@ -316,9 +316,10 @@ export default function CashierMenu() {
 
   // ── Table status helpers ──────────────────────────────────────────────────
     const tableStatusColor = (status) => {
-    if (!status || status === 'free')     return { border: '#16A34A', bg: '#F0FDF4', badge: GR,  statusKey: 'statuses.free'     };
-    if (status === 'occupied')            return { border: '#DC2626', bg: '#FEF2F2', badge: RD,  statusKey: 'statuses.occupied' };
-    if (status === 'reserved')            return { border: '#D97706', bg: '#FFFBEB', badge: AMB, statusKey: 'statuses.reserved' };
+    if (!status || status === 'free')     return { border: '#BBF7D0', bg: '#F0FDF4', badge: '#16A34A', statusKey: 'statuses.free'     };
+    if (status === 'occupied')            return { border: '#FDE68A', bg: '#FFFBEB', badge: '#D97706', statusKey: 'statuses.occupied' };
+    if (status === 'reserved')            return { border: '#DDD6FE', bg: '#F5F3FF', badge: '#7C3AED', statusKey: 'statuses.reserved' };
+    if (status === 'cleaning')            return { border: '#A5F3FC', bg: '#ECFEFF', badge: '#0891B2', statusKey: 'statuses.cleaning'  };
     return { border: BD, bg: WH, badge: MUT, statusKey: null };
   };
 
@@ -583,75 +584,110 @@ export default function CashierMenu() {
                 </button>
               </div>
 
-              {/* Tables grid */}
-              {tables.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: MUT, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-                    {t('cashier.menu.restaurantTables')}
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                    {tables.map(tbl => {
-                      const sc      = tableStatusColor(tbl.status);
-                      const isSelected = selTable?.id === tbl.id;
-                      const tNum    = tbl.tableNumber || tbl.name || tbl.id?.slice(-4);
-                      return (
-                        <button key={tbl.id} onClick={() => { setSelTable(tbl); setShowTablePicker(false); }} style={{
-                          padding: '16px 14px', borderRadius: 14,
-                          border: `2px solid ${isSelected ? C : sc.border}`,
-                          background: isSelected ? CL : sc.bg,
-                          cursor: 'pointer', textAlign: 'left',
-                          display: 'flex', flexDirection: 'column', gap: 8,
-                          transition: 'all 0.12s', position: 'relative',
-                          boxShadow: isSelected ? `0 0 0 3px ${C}22` : '0 1px 3px rgba(0,0,0,0.06)',
+              {/* Tables by section */}
+              {tables.length > 0 && (() => {
+                const sectionNames = [...new Set(tables.map(tbl => tbl.section || t('cashier.tables.mainFloor')))];
+                return sectionNames.map(sectionName => {
+                  const sectionTables = tables.filter(tbl => (tbl.section || t('cashier.tables.mainFloor')) === sectionName);
+                  return (
+                    <div key={sectionName} style={{ marginBottom: 18 }}>
+                      {/* Section header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {sectionName}
+                        </div>
+                        <div style={{
+                          fontSize: 11, fontWeight: 700, color: C,
+                          background: CL, borderRadius: 20,
+                          padding: '1px 8px', lineHeight: '18px',
                         }}>
-                          {isSelected && (
-                            <div style={{ position: 'absolute', top: 10, right: 10 }}>
-                              <CheckCircle2 size={16} color={C} />
-                            </div>
-                          )}
-                          {/* Table icon */}
-                          <div style={{
-                            width: 44, height: 44, borderRadius: 10,
-                            background: isSelected ? C : sc.border + '22',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}>
-                            <TableProperties size={20} color={isSelected ? WH : sc.border} />
-                          </div>
-                          {/* Table number */}
-                          <div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: isSelected ? C : TXT }}>
-                              {t('cashier.menu.tableLabel', { num: tNum })}
-                            </div>
-                            {tbl.capacity && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                                <Users size={11} color={MUT} />
-                                <span style={{ fontSize: 11, color: MUT }}>{t('cashier.menu.seatsLabel', { count: tbl.capacity })}</span>
+                          {sectionTables.length}
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+                        {sectionTables.map(tbl => {
+                          const sc         = tableStatusColor(tbl.status);
+                          const isSelected = selTable?.id === tbl.id;
+                          const tblName    = tbl.name || `Table ${tbl.tableNumber}`;
+                          return (
+                            <button key={tbl.id} onClick={() => { setSelTable(tbl); setShowTablePicker(false); }} style={{
+                              padding: '14px 12px', borderRadius: 14,
+                              border: `2px solid ${isSelected ? C : sc.border}`,
+                              background: isSelected ? CL : sc.bg,
+                              cursor: 'pointer', textAlign: 'left',
+                              display: 'flex', flexDirection: 'column', gap: 6,
+                              transition: 'all 0.12s', position: 'relative',
+                              boxShadow: isSelected
+                                ? `0 0 0 3px ${C}22, 0 4px 16px ${C}18`
+                                : '0 1px 3px rgba(0,0,0,0.06)',
+                              transform: isSelected ? 'scale(1.02)' : undefined,
+                              minHeight: 160,
+                            }}>
+                              {/* Status dot top-right */}
+                              <div style={{ position: 'absolute', top: 10, right: 10 }}>
+                                {isSelected
+                                  ? <CheckCircle2 size={16} color={C} />
+                                  : <div style={{ width: 10, height: 10, borderRadius: '50%', background: sc.badge }} />
+                                }
                               </div>
-                            )}
-                          </div>
-                          {/* Status badge */}
-                          <div style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '3px 8px', borderRadius: 20,
-                            background: sc.badge + '18', alignSelf: 'flex-start',
-                          }}>
-                            <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc.badge }} />
-                            <span style={{ fontSize: 10, fontWeight: 600, color: sc.badge }}>
-                              {sc.statusKey ? t(sc.statusKey) : tbl.status}
-                            </span>
-                          </div>
-                          {/* Occupied hint */}
-                          {tbl.status === 'occupied' && (
-                            <div style={{ fontSize: 9, fontWeight: 600, color: RD, marginTop: -4, lineHeight: 1.3 }}>
-                              {t('cashier.menu.addToExistingHint')}
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                              {/* Section label + name */}
+                              <div style={{ paddingRight: 20 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: sc.badge, opacity: 0.8, marginBottom: 2 }}>
+                                  {sectionName}
+                                </div>
+                                <div style={{ fontSize: 16, fontWeight: 800, color: isSelected ? C : sc.badge, lineHeight: 1.2 }}>
+                                  {tblName}
+                                </div>
+                              </div>
+                              {/* Dining table SVG icon */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, paddingTop: 4, paddingBottom: 4 }}>
+                                <div style={{
+                                  width: 52, height: 52, borderRadius: 14,
+                                  background: `${sc.badge}15`,
+                                  border: `2px solid ${sc.badge}30`,
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                  <svg width="28" height="28" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="2" y="8" width="26" height="5" rx="2" fill={isSelected ? C : sc.badge} opacity="0.9"/>
+                                    <rect x="5" y="13" width="3" height="10" rx="1.5" fill={isSelected ? C : sc.badge} opacity="0.7"/>
+                                    <rect x="22" y="13" width="3" height="10" rx="1.5" fill={isSelected ? C : sc.badge} opacity="0.7"/>
+                                    <rect x="3" y="22" width="7" height="2.5" rx="1.25" fill={isSelected ? C : sc.badge} opacity="0.5"/>
+                                    <rect x="20" y="22" width="7" height="2.5" rx="1.25" fill={isSelected ? C : sc.badge} opacity="0.5"/>
+                                  </svg>
+                                </div>
+                              </div>
+                              {/* Bottom: capacity + status */}
+                              <div>
+                                {tbl.capacity && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                                    <Users size={10} color={MUT} />
+                                    <span style={{ fontSize: 10, color: MUT }}>{t('cashier.menu.seatsLabel', { count: tbl.capacity })}</span>
+                                  </div>
+                                )}
+                                <div style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  padding: '3px 8px', borderRadius: 20,
+                                  background: `${sc.badge}18`, alignSelf: 'flex-start',
+                                }}>
+                                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: sc.badge }} />
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: sc.badge }}>
+                                    {sc.statusKey ? t(sc.statusKey) : tbl.status}
+                                  </span>
+                                </div>
+                                {tbl.status === 'occupied' && (
+                                  <div style={{ fontSize: 9, fontWeight: 600, color: sc.badge, marginTop: 4, lineHeight: 1.3 }}>
+                                    {t('cashier.menu.addToExistingHint')}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </>
         ) : (
@@ -900,7 +936,7 @@ export default function CashierMenu() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: selTable ? C : MUT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {selTable
-                    ? t('cashier.menu.tableLabel', { num: selTable.tableNumber || selTable.name || selTable.id?.slice(-4) })
+                    ? (selTable.name || `Table ${selTable.tableNumber || selTable.id?.slice(-4)}`)
                     : t('admin.newOrder.selectTable')}
                 </div>
                 <div style={{ fontSize: 10, color: selTable?.status === 'occupied' ? RD : MUT, marginTop: 1 }}>
