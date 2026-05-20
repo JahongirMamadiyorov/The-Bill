@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  RefreshControl, ActivityIndicator, Dimensions, Modal, FlatList, StatusBar,
+  RefreshControl, ActivityIndicator, Modal, FlatList, StatusBar,
+  useWindowDimensions,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
@@ -10,7 +11,6 @@ import { useTranslation } from '../../context/LanguageContext';
 import { reportsAPI, ordersAPI, tablesAPI, warehouseAPI, notificationsAPI, staffPaymentsAPI, shiftsAPI, loansAPI, procurementAPI } from '../../api/client';
 import { colors, shadow, topInset } from '../../utils/theme';
 
-const { width: SW } = Dimensions.get('window');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -125,6 +125,7 @@ function StatCard({ iconName, label, value, sub, accentColor }) {
 
 // Single bar row for order type breakdown
 function OrderBar({ iconName, label, count, total }) {
+  const { width: SW } = useWindowDimensions();
   const barW = SW - 32 - 24 - 60 - 32; // available bar width
   const filled = total > 0 ? Math.round((count / total) * barW) : 0;
   const colors_ = { 'Dine-in':'#2563EB', 'To-Go':'#D97706', 'Delivery':'#16A34A' };
@@ -145,9 +146,11 @@ function OrderBar({ iconName, label, count, total }) {
 
 // Single table cell in the grid
 function TableCell({ table }) {
+  const { width: SW } = useWindowDimensions();
+  const cellW = Math.floor((SW - 24 - 48) / (SW > 700 ? 9 : 6));
   const st = TABLE_STATUS_STYLE[table.status] || TABLE_STATUS_STYLE.unavailable;
   return (
-    <View style={[s.tableCell, { backgroundColor: st.bg }]}>
+    <View style={[s.tableCell, { backgroundColor: st.bg, width: cellW, height: cellW }]}>
       <View style={[s.tableDot, { backgroundColor: st.dot }]} />
       <Text style={[s.tableCellNum, { color: st.text }]}>{table.table_number}</Text>
       {table.order_total > 0 && (
@@ -162,7 +165,8 @@ function TableCell({ table }) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function AdminDashboard({ navigation }) {
   const { user } = useAuth();
-  const { t } = useTranslation();
+  const { t }    = useTranslation();
+  const { width: SW } = useWindowDimensions();   // reactive — updates on rotation
   const [summary,   setSummary]   = useState(null);
   const [dash,      setDash]      = useState(null);
   const [tables,    setTables]    = useState([]);
@@ -1108,8 +1112,8 @@ const s = StyleSheet.create({
   // Table grid
   tableGrid:      { flexDirection: 'row', flexWrap: 'wrap' },
   tableCell: {
-    width: (SW - 24 - 48) / 6,
-    aspectRatio: 1, margin: 4,
+    // width/height set inline by TableCell using useWindowDimensions
+    margin: 4,
     borderRadius: 10, alignItems: 'center', justifyContent: 'center',
     paddingVertical: 4,
   },
@@ -1181,7 +1185,7 @@ const s = StyleSheet.create({
     marginHorizontal: -5,
   },
   qaCard: {
-    width: (SW - 24 - 32 - 10) / 2,   // (screen - section padding - grid margins) / 2 cols
+    width: '48%',   // 2-per-row with flexWrap — works in any orientation
     backgroundColor: C.white,
     borderRadius: 16,
     borderWidth: 1,

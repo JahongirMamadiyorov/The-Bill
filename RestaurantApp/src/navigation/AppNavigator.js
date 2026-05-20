@@ -7,11 +7,12 @@ import { useAuth } from '../context/AuthContext';
 import { colors, spacing, radius, shadow } from '../utils/theme';
 
 import LoginScreen    from '../screens/LoginScreen';
-import AdminNavigator from './AdminNavigator';
-import OwnerNavigator from './OwnerNavigator';
-import WaitressNavigator from './WaitressNavigator';
-import KitchenNavigator  from './KitchenNavigator';
-import CashierNavigator  from './CashierNavigator';
+import AdminNavigator      from './AdminNavigator';
+import OwnerNavigator      from './OwnerNavigator';
+import WaitressNavigator   from './WaitressNavigator';
+import KitchenNavigator    from './KitchenNavigator';
+import CashierNavigator    from './CashierNavigator';
+import NewCashierNavigator from './NewCashierNavigator';
 
 const Stack = createNativeStackNavigator();
 
@@ -84,7 +85,9 @@ export default function AppNavigator() {
         ) : role === 'waitress' ? (
           <Stack.Screen name="Waitress" component={WaitressNavigator} />
         ) : role === 'cashier' ? (
-          <Stack.Screen name="Cashier"  component={CashierNavigator} />
+          <Stack.Screen name="Cashier"     component={CashierNavigator}    />
+        ) : role === 'new_cashier' ? (
+          <Stack.Screen name="NewCashier"  component={NewCashierNavigator} />
         ) : role === 'cleaner' ? (
           <Stack.Screen name="Cleaner"  component={CleanerScreen} />
         ) : (

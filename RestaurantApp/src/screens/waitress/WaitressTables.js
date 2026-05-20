@@ -5,19 +5,17 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   ScrollView, Modal, ActivityIndicator,
-  RefreshControl, Dimensions, TextInput, StatusBar, SectionList,
+  RefreshControl, TextInput, StatusBar, SectionList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { tablesAPI, menuAPI, ordersAPI, notificationsAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
+import { colors, spacing, radius, shadow, typography, topInset, useLayout } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useTranslation } from '../../context/LanguageContext';
 
-const { width: SW } = Dimensions.get('window');
-const CARD_W = (SW - spacing.md * 4) / 3;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
@@ -781,6 +779,7 @@ function CleaningModal({ visible, table, onMarkClean, onClose }) {
 export default function WaitressTables() {
   const { user }       = useAuth();
   const { t }          = useTranslation();
+  const { cols }       = useLayout();   // reactive — updates on rotation
   const navigation     = useNavigation();
 
   // Tables data
@@ -1021,8 +1020,9 @@ export default function WaitressTables() {
   // ── Filtered tables ──────────────────────────────────────────────────────
   const filtered = filter === 'all' ? tables : tables.filter(tb => tb.status === filter);
 
-  // Group filtered tables by section, then chunk each section into rows of 3
-  // so the last row in every section always has equal-width cards.
+  // Group filtered tables by section, then chunk each section into rows.
+  // Portrait: 3 per row. Landscape (tablet sideways): 4 per row.
+  const COLS = cols(3, 4);
   const sectionedData = useMemo(() => {
     const sectionMap = {};
     filtered.forEach(tb => {
@@ -1033,14 +1033,14 @@ export default function WaitressTables() {
     });
     return Object.entries(sectionMap).map(([title, rows]) => {
       const chunked = [];
-      for (let i = 0; i < rows.length; i += 3) {
-        const row = rows.slice(i, i + 3);
-        while (row.length < 3) row.push({ id: `__filler_${title}_${i}_${row.length}`, _filler: true });
+      for (let i = 0; i < rows.length; i += COLS) {
+        const row = rows.slice(i, i + COLS);
+        while (row.length < COLS) row.push({ id: `__filler_${title}_${i}_${row.length}`, _filler: true });
         chunked.push({ id: `row_${title}_${i}`, items: row });
       }
       return { title, data: chunked };
     });
-  }, [filtered, t]);
+  }, [filtered, t, COLS]);
 
   // ── Stats ────────────────────────────────────────────────────────────────
   const freeCount     = tables.filter(tb => tb.status === 'free').length;

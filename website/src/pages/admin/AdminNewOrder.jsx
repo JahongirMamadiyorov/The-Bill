@@ -7,6 +7,7 @@ import {
   Users, MapPin, Phone, User, Printer,
 } from 'lucide-react';
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
+import { withCache } from '../../utils/apiCache';
 import { usePrinter } from '../../hooks/usePrinter';
 import PhoneInput from '../../components/PhoneInput';
 
@@ -91,10 +92,11 @@ export default function AdminNewOrder({ isModal = false, initialTable = null, on
 
   // ── Fetch data ──
   const fetchMenuData = useCallback(async (silent = false) => {
+    const MENU_TTL = 15 * 60 * 1000;
     try {
       const [cats, itms] = await Promise.all([
-        menuAPI.getCategories(),
-        menuAPI.getItems(),
+        withCache('menu:categories', MENU_TTL, () => menuAPI.getCategories()),
+        withCache('menu:items',      MENU_TTL, () => menuAPI.getItems()),
       ]);
       setCategories(Array.isArray(cats) ? cats : []);
       setItems(Array.isArray(itms) ? itms : []);
@@ -108,7 +110,7 @@ export default function AdminNewOrder({ isModal = false, initialTable = null, on
 
   const fetchTables = useCallback(async (silent = false) => {
     try {
-      const data = await tablesAPI.getAll();
+      const data = await withCache('tables:all', 30 * 1000, () => tablesAPI.getAll());
       setTables(Array.isArray(data) ? data : []);
     } catch (err) {
       if (!silent) console.error(err);

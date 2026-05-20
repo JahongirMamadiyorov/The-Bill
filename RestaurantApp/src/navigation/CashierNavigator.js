@@ -12,6 +12,7 @@ import CashierHistory  from '../screens/cashier/CashierHistory';
 import LoansScreen     from '../screens/cashier/LoansScreen';
 import CashierProfile  from '../screens/cashier/CashierProfile';
 import CashierWalkin   from '../screens/cashier/CashierWalkin';
+import CashierMenuPOS  from '../screens/cashier/CashierMenuPOS';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -19,6 +20,7 @@ const Stack = createNativeStackNavigator();
 const TAB_ICONS = {
   Orders:  { active: 'receipt-long',            inactive: 'receipt-long'            },
   Tables:  { active: 'table-restaurant',        inactive: 'table-restaurant'        },
+  Menu:    { active: 'grid-view',               inactive: 'grid-view'               },
   History: { active: 'history',                 inactive: 'history'                 },
   Loans:   { active: 'account-balance-wallet',  inactive: 'account-balance-wallet'  },
   Profile: { active: 'person',                  inactive: 'person-outline'          },
@@ -52,11 +54,12 @@ function CashierTabs() {
         },
       })}
     >
-      <Tab.Screen name="Orders"  component={CashierOrders}  options={{ title: t('nav.orders', 'Orders')   }} />
-      <Tab.Screen name="Tables"  component={CashierTables}  options={{ title: t('nav.tables', 'Tables')   }} />
-      <Tab.Screen name="History" component={CashierHistory} options={{ title: t('nav.history', 'History') }} />
-      <Tab.Screen name="Loans"   component={LoansScreen}    options={{ title: t('nav.loans', 'Loans')     }} />
-      <Tab.Screen name="Profile" component={CashierProfile} options={{ title: t('nav.profile', 'Profile') }} />
+      <Tab.Screen name="Orders"  component={CashierOrders}   options={{ title: t('nav.orders',  'Orders')  }} />
+      <Tab.Screen name="Tables"  component={CashierTables}   options={{ title: t('nav.tables',  'Tables')  }} />
+      <Tab.Screen name="Menu"    component={CashierMenuPOS}  options={{ title: t('nav.menu',    'Menu')    }} />
+      <Tab.Screen name="History" component={CashierHistory}  options={{ title: t('nav.history', 'History') }} />
+      <Tab.Screen name="Loans"   component={LoansScreen}     options={{ title: t('nav.loans',   'Loans')   }} />
+      <Tab.Screen name="Profile" component={CashierProfile}  options={{ title: t('nav.profile', 'Profile') }} />
     </Tab.Navigator>
   );
 }

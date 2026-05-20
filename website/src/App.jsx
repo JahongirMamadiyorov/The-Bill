@@ -33,6 +33,7 @@ import CashierTables from './pages/cashier/CashierTables';
 import CashierHistory from './pages/cashier/CashierHistory';
 import CashierLoans from './pages/cashier/CashierLoans';
 import CashierProfile from './pages/cashier/CashierProfile';
+import CashierMenu from './pages/cashier/CashierMenu';
 
 // Waitress pages
 import WaitressTables from './pages/waitress/WaitressTables';
@@ -47,6 +48,9 @@ import KitchenDashboard from './pages/kitchen/KitchenDashboard';
 import KitchenNotifications from './pages/kitchen/KitchenNotifications';
 import KitchenProfile from './pages/kitchen/KitchenProfile';
 
+// New Cashier POS (standalone — no Layout sidebar)
+import NewCashierPOS from './pages/new-cashier/NewCashierPOS';
+
 function ProtectedRoute({ children, roles }) {
   const { user, isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -59,7 +63,15 @@ export default function App() {
 
   const defaultRoute = () => {
     if (!isAuthenticated) return '/login';
-    const routes = { super_admin: '/super-admin', owner: '/owner', admin: '/admin', cashier: '/cashier', waitress: '/waitress', kitchen: '/kitchen' };
+    const routes = {
+      super_admin:  '/super-admin',
+      owner:        '/owner',
+      admin:        '/admin',
+      cashier:      '/cashier/menu',
+      waitress:     '/waitress',
+      kitchen:      '/kitchen',
+      new_cashier:  '/pos',
+    };
     return routes[user?.role] || '/login';
   };
 
@@ -101,6 +113,7 @@ export default function App() {
       <Route path="/cashier" element={<ProtectedRoute roles={['cashier']}><Layout /></ProtectedRoute>}>
         <Route index element={<CashierOrders />} />
         <Route path="tables" element={<CashierTables />} />
+        <Route path="menu" element={<CashierMenu />} />
         <Route path="history" element={<CashierHistory />} />
         <Route path="loans" element={<CashierLoans />} />
         <Route path="profile" element={<CashierProfile />} />
@@ -124,6 +137,13 @@ export default function App() {
         <Route path="notifications" element={<KitchenNotifications />} />
         <Route path="profile" element={<KitchenProfile />} />
       </Route>
+
+      {/* New Cashier POS — full-screen, no Layout sidebar */}
+      <Route path="/pos" element={
+        <ProtectedRoute roles={['new_cashier']}>
+          <NewCashierPOS />
+        </ProtectedRoute>
+      } />
 
       {/* Catch-all */}
       <Route path="*" element={<Navigate to={defaultRoute()} replace />} />

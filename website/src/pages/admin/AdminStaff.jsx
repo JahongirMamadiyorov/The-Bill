@@ -39,7 +39,10 @@ const elapsedStr = (from) => {
 
 // Late penalty removed — no longer applied
 
-const ROLES = ['waitress', 'kitchen', 'cashier', 'cleaner'];
+const ROLES = ['waitress', 'kitchen', 'cashier', 'cleaner', 'new_cashier', 'new_waiter'];
+
+// Convert role key to display label: new_cashier → "New Cashier"
+const roleLabel = (r) => r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 const SALARY_TYPES = ['hourly', 'daily', 'weekly', 'monthly'];
 
 const getKitchenStations = (t) => [
@@ -104,7 +107,7 @@ const ROLE_COLORS = {
 };
 const getRoleColors = (role) => ROLE_COLORS[role] || ROLE_COLORS.waitress;
 
-const TRACKABLE_ROLES = ['waitress', 'kitchen', 'cashier', 'cleaner'];
+const TRACKABLE_ROLES = ['waitress', 'kitchen', 'cashier', 'cleaner', 'new_cashier', 'new_waiter'];
 
 // ── SHARED STYLES ─────────────────────────────────────────────────────────────
 const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent";
@@ -332,10 +335,12 @@ const AdminStaff = () => {
   });
 
   const roleCounts = {
-    All: staff.length,
-    waitress: staff.filter(s => s.role === 'waitress').length,
-    kitchen: staff.filter(s => s.role === 'kitchen').length,
-    cashier: staff.filter(s => s.role === 'cashier').length,
+    All:         staff.length,
+    waitress:    staff.filter(s => s.role === 'waitress').length,
+    kitchen:     staff.filter(s => s.role === 'kitchen').length,
+    cashier:     staff.filter(s => s.role === 'cashier').length,
+    new_cashier: staff.filter(s => s.role === 'new_cashier').length,
+    new_waiter:  staff.filter(s => s.role === 'new_waiter').length,
   };
 
   const handleAddStaff = () => {
@@ -744,10 +749,10 @@ const AdminStaff = () => {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        {['All', 'waitress', 'kitchen', 'cashier'].map(role => (
+        {['All', 'waitress', 'kitchen', 'cashier', 'new_cashier', 'new_waiter'].map(role => (
           <button key={role} onClick={() => setSelectedRole(role)}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedRole === role ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {role === 'All' ? t('common.all') : role.charAt(0).toUpperCase() + role.slice(1)} ({roleCounts[role] || 0})
+            {role === 'All' ? t('common.all') : roleLabel(role)} ({roleCounts[role] || 0})
           </button>
         ))}
       </div>
@@ -1403,7 +1408,7 @@ const AdminStaff = () => {
                       ? 'bg-blue-50 border-blue-500 text-blue-700'
                       : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
                   }`}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
+                  {roleLabel(r)}
                 </button>
               ))}
             </div>

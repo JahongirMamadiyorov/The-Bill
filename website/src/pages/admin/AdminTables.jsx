@@ -5,6 +5,7 @@ import PhoneInput, { formatPhoneDisplay } from '../../components/PhoneInput';
 import { useApi } from '../../hooks/useApi';
 import { useTranslation } from '../../context/LanguageContext';
 import { tablesAPI, ordersAPI, menuAPI } from '../../api/client';
+import { invalidate } from '../../utils/apiCache';
 import {
   Plus, Minus, Trash2, X, Grid3X3, Users, AlertTriangle, RefreshCw,
   Settings, CheckCircle2, Clock, AlertCircle, Sparkles, ClipboardList,
@@ -470,6 +471,7 @@ export default function AdminTables() {
         await call(tablesAPI.update, editingTableId, payload);
       }
       await fetchTables(true);
+      invalidate('tables:all'); // bust so cashier table picker sees the new table
       closeModal();
     } catch (err) {
       console.error('Failed to save table:', err);
@@ -585,6 +587,7 @@ export default function AdminTables() {
     try {
       await call(tablesAPI.delete, deleteId);
       setTables(prev => prev.filter(t => t.id !== deleteId));
+      invalidate('tables:all');
       setDeleteId(null);
       setSelectedTable(null);
     } catch (err) {

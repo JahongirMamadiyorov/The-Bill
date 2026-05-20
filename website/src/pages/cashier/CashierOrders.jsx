@@ -1901,71 +1901,114 @@ export default function CashierOrders() {
               const isActionable = ['bill_requested','served','ready'].includes(order.status);
 
               return (
-                <div key={order.id}
-                  className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                <div
+                  key={order.id}
+                  onClick={() => setSelected(order)}
+                  className="bg-white rounded-2xl overflow-hidden cursor-pointer group"
                   style={{
-                    border: `1px solid ${isPartial ? '#F97316' : '#E5E7EB'}`,
-                    borderLeft: isPartial ? '4px solid #F97316' : undefined,
-                  }}>
-                  <div className="p-5">
-                    {/* Top */}
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="min-w-0 flex-1 mr-3">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-lg font-extrabold text-gray-900">{fmtOrderNum(order)}</span>
-                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                            style={{ backgroundColor: typeColor + '1A', color: typeColor }}>
-                            {typeLabel}
-                          </span>
-                          {isPartial && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-700">
-                              <Flame className="w-3 h-3" />{cardReady}/{cardItems.length}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm font-semibold text-gray-500 truncate">{dname}</p>
-                      </div>
-                      <StatusBadge status={order.status} />
+                    border: `1.5px solid ${isPartial ? '#F97316' : isActionable ? C + '55' : '#E5E7EB'}`,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                    transition: 'box-shadow 0.15s, border-color 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.10)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)'; }}
+                >
+                  <div className="p-4" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                    {/* ── Row 1: Table name (dine-in) OR Order number (to-go/delivery) ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      {!isToGo && !isDeli ? (
+                        <span style={{ fontSize: 26, fontWeight: 900, color: '#111827', letterSpacing: '-0.5px', lineHeight: 1, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {dname}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 26, fontWeight: 900, color: '#111827', letterSpacing: '-0.5px', lineHeight: 1 }}>
+                          {fmtOrderNum(order)}
+                        </span>
+                      )}
+                      {isPartial && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-600"
+                          style={{ border: '1px solid #FED7AA' }}>
+                          <Flame className="w-3 h-3" />{cardReady}/{cardItems.length} ready
+                        </span>
+                      )}
                     </div>
 
-                    {/* Meta */}
-                    <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-4 text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <ShoppingBag className="w-3.5 h-3.5" />{count} item{count !== 1 ? 's' : ''}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <User className="w-3.5 h-3.5" />
-                        {(isToGo || isDeli) ? (order.customerPhone || t('cashier.orders.noPhone')) : (order.waitressName || t('cashier.orders.counter'))}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />{elapsed(order.createdAt, t)}
+                    {/* ── Row 2: Order number (dine-in) OR Table/name · Type · Status ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                      {!isToGo && !isDeli ? (
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#6B7280' }}>
+                          {fmtOrderNum(order)}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {dname}
+                        </span>
+                      )}
+                      <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#D1D5DB', flexShrink: 0 }} />
+                      <span style={{
+                        padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        backgroundColor: typeColor + '18', color: typeColor,
+                      }}>{typeLabel}</span>
+                      <span style={{ marginLeft: 'auto' }}>
+                        <StatusBadge status={order.status} />
                       </span>
                     </div>
 
-                    {/* Total */}
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">{t('common.total')}</span>
-                      <span className="text-xl font-extrabold" style={{ color: C }}>{money(grand)}</span>
+                    {/* ── Row 3: Items · Waiter/Phone ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, color: '#6B7280', fontSize: 12 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <ShoppingBag size={13} />
+                        {count} item{count !== 1 ? 's' : ''}
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <User size={13} />
+                        {(isToGo || isDeli)
+                          ? (order.customerPhone || t('cashier.orders.noPhone'))
+                          : (order.waitressName || t('cashier.orders.counter'))}
+                      </span>
+                    </div>
+
+                    {/* ── Row 4: Time BIG ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Clock size={15} color="#9CA3AF" />
+                      <span style={{ fontSize: 16, fontWeight: 700, color: '#9CA3AF' }}>
+                        {elapsed(order.createdAt, t)}
+                      </span>
+                    </div>
+
+                    {/* ── Row 5: Price ── */}
+                    <div style={{ paddingTop: 8, borderTop: '1.5px solid #F3F4F6', textAlign: 'center' }}>
+                      <span style={{ fontSize: 28, fontWeight: 900, color: C, letterSpacing: '-0.5px', lineHeight: 1 }}>
+                        {money(grand)}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Action footer */}
-                  <div className="flex border-t border-gray-100">
-                    <button onClick={() => setSelected(order)}
-                      className="flex-1 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
-                      {t('common.details')}
-                    </button>
-                    {isActionable && (
-                      <>
-                        <div className="w-px bg-gray-100" />
-                        <button onClick={() => setSelected(order)}
-                          className="flex-1 py-3 text-sm font-bold text-white flex items-center justify-center gap-1.5 transition"
-                          style={{ backgroundColor: C }}>
-                          <DollarSign className="w-3.5 h-3.5" />{t('cashier.orders.processPayment')}
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {/* ── Payment button (only when actionable) ── */}
+                  {isActionable && (
+                    <div style={{ borderTop: '1.5px solid #F3F4F6' }}>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setAutoPay(true);
+                          setSelected(order);
+                        }}
+                        style={{
+                          width: '100%', padding: '12px 16px',
+                          background: C, border: 'none', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                          fontSize: 14, fontWeight: 700, color: '#fff',
+                          transition: 'background 0.12s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#0E7490'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = C; }}
+                      >
+                        <DollarSign size={16} />
+                        {t('cashier.orders.processPayment')}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

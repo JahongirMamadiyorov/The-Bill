@@ -5,15 +5,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   ScrollView, ActivityIndicator, RefreshControl, TextInput,
-  Dimensions, Modal, StatusBar, Image,
+  Modal, StatusBar, Image,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
-import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
+import { colors, spacing, radius, shadow, topInset, useLayout } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useTranslation } from '../../context/LanguageContext';
 
-const { width: SW } = Dimensions.get('window');
 
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
 
@@ -334,7 +333,9 @@ function GuestCountSheet({ visible, table, onConfirm, onClose }) {
 // MAIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 export default function WaitressMenu() {
-  const { t } = useTranslation();
+  const { t }       = useTranslation();
+  const { cols }    = useLayout();       // reactive — updates on rotation
+  const numCols     = cols(2, 4);
   const [categories, setCategories] = useState([]);
   const [menuItems,  setMenuItems]  = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -635,7 +636,7 @@ export default function WaitressMenu() {
         style={{ flex: 1 }}
         data={filtered}
         keyExtractor={i => String(i.id)}
-        numColumns={2}
+        numColumns={numCols}
         contentContainerStyle={{ padding: spacing.md, paddingBottom: cartCount > 0 ? 100 : 40 }}
         columnWrapperStyle={{ gap: spacing.md, marginBottom: spacing.md }}
         refreshControl={
@@ -864,7 +865,7 @@ const styles = StyleSheet.create({
   cartSummaryTotal: { fontSize: 14, fontWeight: '800', color: colors.primary },
 
   // Menu grid card
-  menuCard:         { width: (SW - spacing.md * 3) / 2, backgroundColor: colors.white, borderRadius: radius.lg, ...shadow.card, overflow: 'hidden', borderWidth: 1.5, borderColor: 'transparent' },
+  menuCard:         { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, ...shadow.card, overflow: 'hidden', borderWidth: 1.5, borderColor: 'transparent' },
   menuCardSelected: { borderColor: colors.primary, backgroundColor: '#F0F7FF' },
   menuCardUnavail:  { opacity: 0.7 },
   menuAvatarWrap:   { alignItems: 'center', paddingTop: spacing.md, paddingBottom: 2 },

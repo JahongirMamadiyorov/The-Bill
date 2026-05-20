@@ -2,7 +2,29 @@
 // RESTAURANT ADMIN — DESIGN SYSTEM
 // Single source of truth for colors, typography, spacing, etc.
 // ════════════════════════════════════════════════════════════════
-import { Platform, StatusBar } from 'react-native';
+import { Platform, StatusBar, useWindowDimensions } from 'react-native';
+
+/**
+ * useLayout — reactive screen dimensions hook.
+ * Use this inside any component instead of Dimensions.get('window').
+ * Re-renders automatically when the device rotates.
+ *
+ * Usage:
+ *   const { width, height, isLandscape, cols } = useLayout();
+ *
+ * cols(n) returns n for portrait, n+1 for landscape — handy for FlatList numColumns.
+ */
+export function useLayout() {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  return {
+    width,
+    height,
+    isLandscape,
+    /** cols(portrait, landscape?) — pick column count by orientation */
+    cols: (portrait, landscape) => isLandscape ? (landscape ?? portrait + 1) : portrait,
+  };
+}
 
 /**
  * topInset — safe top padding for every screen header.

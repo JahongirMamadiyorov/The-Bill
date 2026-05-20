@@ -44,6 +44,7 @@ const NAV_ITEMS = {
     { to: '/admin/profile', icon: User, labelKey: 'nav.profile' },
   ],
   cashier: [
+    { to: '/cashier/menu', icon: UtensilsCrossed, labelKey: 'nav.menu' },
     { to: '/cashier', icon: ShoppingCart, labelKey: 'nav.orders', end: true },
     { to: '/cashier/tables', icon: Grid3X3, labelKey: 'nav.tables' },
     { to: '/cashier/history', icon: History, labelKey: 'nav.history' },

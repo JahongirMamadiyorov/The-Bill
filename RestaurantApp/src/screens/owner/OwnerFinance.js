@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, Modal, Pressable, TouchableOpacity,
-  TextInput, Switch, Dimensions, StyleSheet, LayoutAnimation,
-  Platform, UIManager, Share, ActivityIndicator,
+  TextInput, Switch, StyleSheet, LayoutAnimation,
+  Platform, UIManager, Share, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import OwnerPageHeader from '../../components/OwnerPageHeader';
@@ -25,7 +25,6 @@ const AM = '#F59E0B';
 const BL = '#3B82F6';
 const CY = '#06B6D4';
 const PK = '#EC4899';
-const { width: SW, height: SH } = Dimensions.get('window');
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -60,11 +59,12 @@ const SHORT_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 // REUSABLE PIECES (internal only)
 // ════════════════════════════════════════════════════════════════════════
 function BottomSheet({ visible, onClose, title, children }) {
+  const { height } = useWindowDimensions();   // reactive — updates on rotation
   if (!visible) return null;
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.bsOverlay} onPress={onClose} />
-      <View style={s.bsBox}>
+      <View style={[s.bsBox, { maxHeight: height * 0.85 }]}>
         <View style={s.bsHandle} />
         {title ? (
           <View style={s.bsTitleRow}>
@@ -1268,7 +1268,7 @@ export default function OwnerFinance() {
 const s = StyleSheet.create({
   // bottom sheet
   bsOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.5)'},
-  bsBox:{position:'absolute',bottom:0,left:0,right:0,maxHeight:SH*0.85,backgroundColor:'#fff',borderTopLeftRadius:20,borderTopRightRadius:20,paddingTop:12,...shadow.lg},
+  bsBox:{position:'absolute',bottom:0,left:0,right:0,backgroundColor:'#fff',borderTopLeftRadius:20,borderTopRightRadius:20,paddingTop:12,...shadow.lg},
   bsHandle:{alignSelf:'center',width:40,height:4,borderRadius:2,backgroundColor:'#D1D5DB',marginBottom:8},
   bsTitleRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingHorizontal:16,marginBottom:12},
   bsTitleTxt:{fontSize:18,fontWeight:'700',color:'#111827'},

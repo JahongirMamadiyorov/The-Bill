@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from '../../context/LanguageContext';
 import { useApi, money } from '../../hooks/useApi';
 import { menuAPI, warehouseAPI } from '../../api/client';
+import { invalidateAll } from '../../utils/apiCache';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import {
   Plus, Edit2, Trash2, X, Search, Tag,
@@ -218,6 +219,7 @@ export default function AdminMenu() {
       }
       const cats = await menuAPI.getCategories();
       setCategories(Array.isArray(cats) ? cats : []);
+      invalidateAll('menu:');
       setModal(null); setEditId(null);
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
@@ -230,6 +232,7 @@ export default function AdminMenu() {
       await call(menuAPI.deleteCategory, deleteId);
       const cats = await menuAPI.getCategories();
       setCategories(Array.isArray(cats) ? cats : []);
+      invalidateAll('menu:');
       setSelectedCat(null);
       setDeleteId(null); setDeleteType(null);
     } catch (err) { console.error(err); }
@@ -308,6 +311,7 @@ export default function AdminMenu() {
       }
       const itms = await menuAPI.getItems();
       setItems(Array.isArray(itms) ? itms : []);
+      invalidateAll('menu:');
       setModal(null); setEditId(null);
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
@@ -319,6 +323,7 @@ export default function AdminMenu() {
     try {
       await call(menuAPI.deleteItem, deleteId);
       setItems(prev => prev.filter(i => i.id !== deleteId));
+      invalidateAll('menu:');
       setDeleteId(null); setDeleteType(null);
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
@@ -354,6 +359,7 @@ export default function AdminMenu() {
       await Promise.all(
         reordered.map(c => menuAPI.updateCategory(c.id, { name: c.name, sortOrder: c.sortOrder }))
       );
+      invalidateAll('menu:');
     } catch (err) {
       console.error('Category reorder failed', err);
     } finally {
@@ -369,6 +375,7 @@ export default function AdminMenu() {
     setItems(optimistic); // instant UI update
     try {
       await menuAPI.updateItem(item.id, { ...item, isAvailable: !item.isAvailable });
+      invalidateAll('menu:'); // bust so cashier/waitress see the new availability
     } catch {
       setItems(items); // revert on error
     }

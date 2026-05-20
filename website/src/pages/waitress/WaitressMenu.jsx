@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { UtensilsCrossed, Search, Plus, AlertCircle, Minus } from 'lucide-react';
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
+import { withCache } from '../../utils/apiCache';
 import { money } from '../../hooks/useApi';
 import Dropdown from '../../components/Dropdown';
 import { useTranslation } from '../../context/LanguageContext';
@@ -22,10 +23,11 @@ const WaitressMenu = () => {
   const fetchData = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
+      const MENU_TTL = 15 * 60 * 1000;
       const [catRes, itemRes, tableRes] = await Promise.all([
-        menuAPI.getCategories(),
-        menuAPI.getItems(),
-        tablesAPI.getAll(),
+        withCache('menu:categories', MENU_TTL, () => menuAPI.getCategories()),
+        withCache('menu:items',      MENU_TTL, () => menuAPI.getItems()),
+        tablesAPI.getAll(), // no cache — waitress needs live table status (1s poll)
       ]);
       const categoriesData = Array.isArray(catRes) ? catRes : catRes?.categories || [];
       const itemsData = Array.isArray(itemRes) ? itemRes : itemRes?.items || [];
