@@ -3,7 +3,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * WebSocket hook — connects the browser directly to the Render backend WS.
  *
- * On Vercel (production): the hook connects to wss://the-bill-backend.onrender.com/ws
+ * On Vercel (production): the hook connects to wss://the-bill-backend-pego.onrender.com/ws
  *   and simply logs received events. Actual printing is handled by the standalone
  *   print-agent running on the LAN (see /print-agent/index.js).
  *
@@ -11,7 +11,7 @@
  *   developers can test printing without running the print agent.
  *
  * Set VITE_WS_URL in your Vercel project env vars:
- *   VITE_WS_URL=wss://the-bill-backend.onrender.com
+ *   VITE_WS_URL=wss://the-bill-backend-pego.onrender.com
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -21,8 +21,8 @@ const ACTIVE_ROLES    = ['cashier', 'admin', 'owner'];
 const RECONNECT_DELAY = 5_000;
 
 // Connect directly to Render WS — never through Vercel
-// VITE_WS_URL must be set in Vercel env vars: wss://the-bill-backend.onrender.com
-const WS_BASE = import.meta.env.VITE_WS_URL || 'wss://the-bill-backend.onrender.com';
+// VITE_WS_URL must be set in Vercel env vars: wss://the-bill-backend-pego.onrender.com
+const WS_BASE = import.meta.env.VITE_WS_URL || 'wss://the-bill-backend-pego.onrender.com';
 
 // Only attempt /print-tcp when running the Vite dev server locally
 const IS_LOCAL = window.location.hostname === 'localhost' ||

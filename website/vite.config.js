@@ -83,7 +83,7 @@ function localTcpPrintPlugin() {
 // and restart vite.
 export default defineConfig(({ mode }) => {
   const env    = loadEnv(mode, process.cwd(), '')
-  const target = env.VITE_DEV_PROXY || 'https://the-bill-backend.onrender.com'
+  const target = env.VITE_DEV_PROXY || 'https://the-bill-backend-pego.onrender.com'
   // WebSocket target: same host but ws(s):// protocol
   const wsTarget = target.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')
 
@@ -105,7 +105,7 @@ export default defineConfig(({ mode }) => {
           secure: true,
         },
         // WebSocket proxy — browser connects to ws://localhost:5173/ws
-        // Vite upgrades and forwards to wss://the-bill-backend.onrender.com/ws
+        // Vite upgrades and forwards to wss://the-bill-backend-pego.onrender.com/ws
         '/ws': {
           target:      wsTarget,
           ws:          true,

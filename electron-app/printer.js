@@ -32,8 +32,8 @@ const ALIGN_LEFT   = Buffer.from([ESC, 0x61, 0x00]);
 const ALIGN_CENTER = Buffer.from([ESC, 0x61, 0x01]);
 
 // ── Config ─────────────────────────────────────────────────────────────────────
-const BACKEND_BASE    = 'https://the-bill-backend.onrender.com';
-const WS_URL_BASE     = 'wss://the-bill-backend.onrender.com';
+const BACKEND_BASE    = 'https://the-bill-backend-pego.onrender.com';
+const WS_URL_BASE     = 'wss://the-bill-backend-pego.onrender.com';
 const PRINTER_CACHE_MS = 5 * 60 * 1_000; // 5 minutes
 const RECONNECT_DELAY  = 5_000;
 const PING_INTERVAL    = 25_000;

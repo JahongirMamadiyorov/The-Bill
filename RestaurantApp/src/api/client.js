@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 //   iOS simulator      → http://localhost:3000/api
 //   Android emulator   → http://10.0.2.2:3000/api  (host machine alias)
 //   Real device        → http://<Metro host>:3000/api
-const PROD_API_URL      = 'https://the-bill-backend.onrender.com/api';
+const PROD_API_URL      = 'https://the-bill-backend-pego.onrender.com/api';
 const USE_LOCAL_BACKEND = true;
 
 function resolveLocalApiUrl() {

@@ -39,7 +39,7 @@ Write-Host ""
 # Write config.json (credentials only - printers come from DB)
 $configContent = @"
 {
-  "backendUrl": "https://the-bill-backend.onrender.com",
+  "backendUrl": "https://the-bill-backend-pego.onrender.com",
   "identifier": "$identifier",
   "password": "$password"
 }

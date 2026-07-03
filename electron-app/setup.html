@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://the-bill-backend.onrender.com;" />
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://the-bill-backend-pego.onrender.com;" />
   <title>The Bill — Setup</title>
   <style>
     *, *::before, *::after {
@@ -250,7 +250,7 @@
       </form>
 
       <div class="footer">
-        Connecting to the-bill-backend.onrender.com
+        Connecting to the-bill-backend-pego.onrender.com
       </div>
 
     </div>
@@ -290,7 +290,7 @@
       setLoading(true);
 
       try {
-        const res = await fetch('https://the-bill-backend.onrender.com/api/auth/login', {
+        const res = await fetch('https://the-bill-backend-pego.onrender.com/api/auth/login', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ identifier, password }),
