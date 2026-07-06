@@ -1,0 +1,22 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #f4f6fb;
+  color: #1a1a2e;
+  /* Touch terminals: no accidental text selection or drag ghosting on taps. */
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+button, input {
+  font-family: inherit;
+}

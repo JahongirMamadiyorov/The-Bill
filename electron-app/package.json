@@ -1,7 +1,7 @@
 {
   "name": "the-bill",
   "productName": "The Bill",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The Bill — Restaurant Management System",
   "main": "main.js",
   "scripts": {
