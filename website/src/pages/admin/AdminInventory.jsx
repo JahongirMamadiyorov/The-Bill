@@ -63,13 +63,19 @@ const TYPE_COLORS = {
 
 // Stock movements auto-generated from orders (see backend orders.js) all share the
 // "Auto: Order #<num>..." reason prefix, but the wording after that differs depending on
-// whether the movement came from creating the order, adding items to it later, or editing
-// its item list. Classify them here so the UI can show a short, distinct badge (Order/Added/
-// Edited) instead of forcing people to read the full sentence to tell them apart.
+// whether the movement came from creating the order, adding items to it later, removing an
+// item, or an item's quantity being edited. Classify them here so the UI can show a short,
+// distinct badge instead of forcing people to read the full sentence to tell them apart.
+// Fixed 2026-07-08 (round 2): the backend used to log a refund+deduct pair for every item on
+// an edited order, even ones whose quantity never changed — which showed "Edited" even when
+// the user had only added something new. The backend now diffs old vs. new quantities and
+// only logs the items that actually changed, tagged "(added item)" / "(removed item)" /
+// "(items edited)" — matched here in that priority order.
 function autoOrderReasonBadge(reason) {
   if (!reason || !reason.startsWith('Auto: Order #')) return null;
-  if (reason.includes('(added item)'))   return { label: 'Added',  color: 'bg-blue-100 text-blue-800' };
-  if (reason.includes('items edited'))   return { label: 'Edited', color: 'bg-purple-100 text-purple-800' };
+  if (reason.includes('(added item)'))   return { label: 'Added',   color: 'bg-blue-100 text-blue-800' };
+  if (reason.includes('(removed item)')) return { label: 'Removed', color: 'bg-gray-200 text-gray-700' };
+  if (reason.includes('items edited'))   return { label: 'Edited',  color: 'bg-purple-100 text-purple-800' };
   return { label: 'Order', color: 'bg-orange-100 text-orange-800' };
 }
 
