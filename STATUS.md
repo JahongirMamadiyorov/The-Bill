@@ -3,100 +3,131 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-Last updated: 2026-07-06 (Phase 0 started)
+Last updated: 2026-07-08 (backend stock-deduction bug fixed, needs deploy + test)
 
 ## Done
 
 - Render backend migrated to a new account after the old one was suspended (free-tier
   750-hour cap exceeded). Live at `https://the-bill-backend-pego.onrender.com`.
-- Root Directory misconfiguration on Render fixed (the `the-bill-backend` GitHub repo's root
-  already is the backend code — no `restaurant-app/backend` subpath).
-- All hardcoded references to the old `the-bill-backend.onrender.com` URL updated across:
-  website (`.env.production`, `.env.local.example`, `vite.config.js`, `useKitchenPrint.js`),
-  `RestaurantApp/src/api/client.js`, `electron-app/printer.js` + `setup.html`,
-  `print-agent/config.json` + `install.ps1`, and a doc comment in the backend's `server.js`.
-- CORS bug fixed: `CORS_ORIGIN` on Render had a trailing slash (`.../` vs the browser's
-  origin header with no trailing slash) — exact-match CORS was silently failing. Fixed and
-  confirmed login works end-to-end on the live website.
-- Confirmed `electron-updater` in the current `electron-app` is fully wired (not a dead
-  dependency) — publishes to GitHub Releases on `jahongirmamadiyorov/the-bill-website`.
-- Full plan agreed for the new standalone Windows POS app (Electron, PowerSync, local-first
-  printing) — see MEMORY.md for the decisions and RULES.md §4 for the architecture rules.
-- Decided: Waitress role (`new_waiter`) is in scope for the new app, monoblock/touch-first,
-  with PIN-based quick account-switching (separate 6-digit PIN, distinct from phone
-  login/password).
-- Confirmed in code: `new_cashier` (`NewCashierPOS.jsx`) already exists and is usable as a
-  head start; `new_waiter` exists only as a role-picker option in `AdminStaff.jsx`, no
-  page/route/backend support yet.
+- All hardcoded references to the old backend URL updated across website, RestaurantApp,
+  electron-app, print-agent. CORS trailing-slash bug fixed; login confirmed working end to
+  end on the live website.
+- Confirmed `electron-updater` in the existing `electron-app` is fully wired (publishes to
+  GitHub Releases on `jahongirmamadiyorov/the-bill-website`).
+- Full plan agreed for the new standalone Windows POS app — Electron, PowerSync for
+  offline-first data, local-first printing (no cloud round-trip for the print signal). See
+  MEMORY.md for the decisions and RULES.md §4 for the architecture rules. Scope: Admin, Owner,
+  Cashier (`new_cashier`, reusing existing `NewCashierPOS.jsx`), Kitchen, and a new touch-first
+  Waitress mode (`new_waiter`) with PIN-based quick account-switching on shared monoblocks —
+  `new_waiter` exists only as a role-picker option in `AdminStaff.jsx` today, no page/backend
+  behind it yet.
+- **Phase 0 complete and verified working on the user's real machine**, not just written:
+  `pos-app/` — Electron+Vite+React app, frameless/no-menu window, login wired to the real
+  backend, role-based routing, and full PowerSync offline-first sync connected, synced, and
+  queried successfully (confirmed via a live status panel showing "connected" / "initial sync
+  complete: yes" / real restaurant name / real menu item count).
+  - Backend: `GET /api/auth/powersync-token` mints a short-lived HS256 JWT for PowerSync,
+    including `restaurant_id`/`role` as custom claims (see MEMORY.md — needed because
+    PowerSync doesn't support `column = (subquery)` in Sync Streams).
+  - Supabase: `powersync_role` + a `powersync` publication scoped to the tables needed first
+    (see RULES.md §4 for the list; finance/inventory/audit tables intentionally excluded for
+    now, extend later with `ALTER PUBLICATION`).
+  - PowerSync Cloud: project "the-bill-pos", Development instance connected to Supabase,
+    Client Auth (HS256) configured, Sync Streams deployed and working.
+  - `pos-app/powersync/schema.js` + `connector.js`: local schema verified column-by-column
+    against the real Postgres schema (not guessed); `fetchCredentials()` is real;
+    `uploadData()` is a **deliberate stub** (drains the queue without forwarding — no
+    write-producing UI exists yet). **Must be replaced with real per-table forwarding to the
+    existing Express routes before Phase 1 ships** — not a generic bypass of business logic.
+  - Along the way: fixed a security issue (the `users` Sync Streams query was `SELECT *`,
+    which would have replicated `password_hash` to every terminal — narrowed to an explicit
+    column list), and several environment bugs — see SESSIONS.md 2026-07-06 for the full list
+    (Windows/bash script incompatibilities, wrong `better-sqlite3` version guess, Electron 28
+    bundling too-old a Node.js for PowerSync's dependencies, `@powersync/node` being a
+    pure-ESM package incompatible with plain `require()`).
 - This AI knowledge-base structure itself (RULES.md, MEMORY.md, STATUS.md, SESSIONS.md).
+- **Phase 1: Cashier — written, NOT yet verified by running it** (same caveat as early Phase 0:
+  this sandbox can't run a full Electron+PowerSync app to completion). Needs `npm install` on
+  the user's real machine (adds the new `lucide-react` dependency) and a real login as a
+  `new_cashier` user to confirm it actually works. What was built:
+  - `pos-app/src/pages/Cashier.jsx` — ported from `website/src/pages/new-cashier/NewCashierPOS.jsx`,
+    same design/colors. Menu, categories, tables, and active orders now read from the local
+    PowerSync database (works offline) instead of REST. Fire/Charge still call the backend
+    directly over HTTPS (`window.electronAPI.ordersCreate` / `ordersPay`) — **online required**
+    for those two actions specifically (see "Key decision" below).
+  - `pos-app/src/lib/case.js` — new snake_case → camelCase translation layer for local
+    PowerSync rows (RULES.md rule 3). Local SQLite has no camelCase layer the way REST
+    responses do; booleans also arrive as 0/1 integers, not `true`/`false` — this file fixes
+    both, with an explicit list of known boolean columns (cross-check `schema.js` if a new one
+    is added and it misbehaves).
+  - `pos-app/main.js` — added `submitOrderWrite()` + `orders:create` / `orders:pay` IPC
+    handlers. These call the Express API directly (same trust boundary as `auth:login`), NOT
+    PowerSync's write queue — order creation/payment has real server-side business logic (tax,
+    daily numbering, stock deduction, kitchen notifications/printing) that has to stay
+    centralized, not be duplicated client-side.
+  - **Key decision (2026-07-07, project owner):** Phase 1 requires the backend to be reachable
+    for Fire/Charge ("Option A" — simple, safe, ships fast). Offline queuing for these two
+    actions ("Option B") was explicitly requested as a *future* addition, not built now.
+    `submitOrderWrite()` in `main.js` is written as the single funnel every order write goes
+    through specifically so Option B can be added later in one place (check connectivity,
+    queue to a local outbox table if offline, replay on reconnect) without a rewrite. Don't
+    add direct backend calls for order writes anywhere else — always route through it.
+  - `powersync/connector.js`'s `uploadData()` stays a stub — it's for PowerSync's own write
+    queue, which Phase 1 deliberately does NOT use for orders (see decision above). Leave as
+    documented unless a future phase actually needs PowerSync-native writes for something else.
 
-## In progress
-
-- **Phase 0 scaffolding started (2026-07-06).** New folder `pos-app/` created: Electron main
-  process (frameless window, no app menu, single-instance lock, electron-store session
-  storage), preload.js context bridge, Vite+React renderer with a working Login screen and
-  role-based placeholder routing (admin/owner -> `/admin`, `new_cashier` -> `/pos`, cashier ->
-  `/cashier`, kitchen -> `/kitchen`, `new_waiter` -> `/waiter`). Login calls the real
-  `POST /api/auth/login` on the live Render backend from the main process (same trust boundary
-  pattern as `electron-app/printer.js`).
-- Backend: added `GET /api/auth/powersync-token` in `restaurant-app/backend/src/routes/auth.js`
-  — mints a short-lived HS256 JWT for PowerSync's Custom Authentication flow (requires an
-  existing valid app JWT). Added `POWERSYNC_URL` / `POWERSYNC_JWT_SECRET` / `POWERSYNC_KID` to
-  `.env.example` (not yet set on Render — see Not Yet Started below).
-- Supabase: created `powersync_role` (REPLICATION, BYPASSRLS) and a `powersync` publication
-  scoped to the tables needed first (restaurants, users, restaurant_tables, table_sections,
-  menu_items, categories, menu_item_ingredients, custom_stations, orders, order_items,
-  customers, notifications, waitress_permissions, restaurant_settings). Finance/inventory/audit
-  tables intentionally left out for now — extend later with `ALTER PUBLICATION powersync ADD
-  TABLE <name>` when Admin/Owner phases need them.
-- **Verified working (2026-07-06):** user ran it on their own Windows machine — `npm install`,
-  `npm run dev:renderer` + `npm run dev`, logged in with a real account against the live Render
-  backend, and it correctly routed to the Admin/Owner placeholder screen. The login -> role
-  routing loop is confirmed end-to-end, not just reviewed code.
-  Two Windows-specific bugs were found and fixed along the way: (1) PowerShell blocks scripts by
-  default — fixed by the user running `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy
-  RemoteSigned`, not a code issue; (2) the `start`/`dev` npm scripts used bash-only syntax
-  (`unset VAR;` and inline `VAR=value cmd`), which fails on Windows — fixed in `package.json` by
-  removing `unset` (unnecessary given `main.js`'s own `ELECTRON_RUN_AS_NODE` guard) and switching
-  to the `cross-env` package for `NODE_ENV`. Lesson: always write cross-platform-safe npm
-  scripts for this project, since the primary dev machine is Windows, not Mac/Linux.
+- **Bug fixed, not yet deployed/tested:** ingredient stock wasn't being deducted when items were
+  added to or edited on an existing order (only new-order creation deducted stock). Fixed in
+  `restaurant-app/backend/src/routes/orders.js` (`POST /:id/items` and `PUT /:id`) — see
+  SESSIONS.md 2026-07-08 for the full explanation. **Needs: push to `the-bill-backend`, let
+  Render redeploy, then actually add an item to an existing order and confirm the ingredient's
+  stock count in Admin → Inventory goes down by the right amount** (and doesn't double-deduct
+  on a second edit).
+- **Inventory UI updated to match** (not yet deployed/tested): Stock Output and Stock Overview
+  now show a colored "Order / Added / Edited" badge next to auto-generated reasons, plus clock
+  time (not just date) on every movement timestamp. Files: `website/src/hooks/useApi.js`
+  (`fmtDateTime`), `website/src/pages/admin/AdminInventory.jsx` (`autoOrderReasonBadge`).
+  **Needs: push to `the-bill-website`, let Vercel redeploy, then visually confirm on the real
+  site** — only syntax-checked with esbuild from this sandbox, never rendered in a browser.
 
 ## Not yet started (next steps, in rough order)
 
-0. **User action required before Phase 0 is fully done:** run `npm install` in `pos-app/`
-   locally and confirm `npm run dev:renderer` + `npm run dev` actually launch the app and reach
-   the login screen. Sign up for PowerSync Cloud, create an instance, connect it to Supabase
-   using the `powersync_role` credentials (ask this AI for the password — it's in the applied
-   migration, not repeated in plaintext here), configure Client Auth with an HS256 shared
-   secret (this AI has one ready to give you), then set `POWERSYNC_URL` / `POWERSYNC_JWT_SECRET`
-   / `POWERSYNC_KID` on Render to match. Write the Sync Streams/Rules once connected (draft can
-   be prepared from the schema already gathered).
-1. New Waiter PIN login — backend: add `pin_hash` (and a dedicated login `username` if one
-   doesn't already exist) to `users`, add a PIN-login endpoint with failed-attempt lockout.
-   Frontend: extend `AdminStaff.jsx`'s add/edit form to collect username + PIN when role is
-   `new_waiter` (and possibly `new_cashier`). **User explicitly said "not yet" to starting this
-   — do not begin until asked.**
-2. Phase 0 of the new Windows app: scaffold the Electron+React shell, wire login against the
-   existing Express API, enable Supabase Postgres logical replication, set up PowerSync Cloud
-   + Sync Rules.
-3. Phase 1: port `NewCashierPOS.jsx` into the new app, swap its data layer to PowerSync local
-   reads + queued writes, verify offline order creation/payment/printing.
-4. Phase 1b: design and build New Waiter's touch-first screens from scratch (tables,
+1. **New Waiter PIN login** — backend: add `pin_hash` (+ dedicated `username`) to `users`, add
+   a PIN-login endpoint with failed-attempt lockout. Frontend: extend `AdminStaff.jsx`'s
+   add/edit form to collect username + PIN when role is `new_waiter` (possibly `new_cashier`
+   too). **User explicitly said "not yet" — do not begin until asked.**
+2. **Phase 1: Cashier — verify it actually works (round 2).** Run `npm install` + `npm run dev`
+   in `pos-app/` on the real machine, log in as a `new_cashier` user (not plain `cashier` — that
+   role still shows the old placeholder on purpose), confirm:
+   - Menu/categories show up from local sync; weighed items (unit = kg/l/g/ml) open the type-an-
+     amount modal instead of a +/- stepper, and show "amount / unit" in the badge and cart.
+   - Tapping the table field opens a full card-grid table picker (color-coded by status), not a
+     dropdown; selecting a table returns to the menu with it set.
+   - **Fire** (not Charge) an order and confirm it shows up under the Orders tab within a few
+     seconds (auto-polls every 4s now). If it still doesn't show after Firing specifically,
+     that's a real bug — report it with what was in the cart.
+   - Charge an order — it will NOT show under Orders (that's correct, paid orders belong in
+     History/Bills, not built yet) — but confirm it doesn't error and the website's own
+     Orders/Kitchen view reflects the payment.
+   Report back anything that breaks — do not assume it works without running it.
+3. **Phase 1b: New Waiter.** Design and build touch-first screens from scratch (tables,
    order-taking, send-to-kitchen at minimum) plus the PIN account-picker UI.
-5. Phase 2: Kitchen ticket display, local-triggered printing.
-6. Phase 3: Admin screens (menu, inventory, suppliers, waitress permission toggles).
-7. Phase 4: Owner screens (dashboards, P&L, staff, loyalty/CRM).
-8. Phase 5: packaging (electron-builder installer, auto-update, real monoblock hardware
-   testing, staged rollout).
+4. **Phase 2: Kitchen.** Ticket display, local-triggered printing (no cloud round-trip).
+5. **Phase 3: Admin.** Menu, inventory, suppliers, waitress permission toggles.
+6. **Phase 4: Owner.** Dashboards, P&L, staff, loyalty/CRM.
+7. **Phase 5: Packaging.** electron-builder installer, auto-update, real monoblock hardware
+   testing, staged rollout.
 
 ## Open questions / unresolved
 
 - Render plan: CLAUDE.md says "paid," actual behavior during the 2026-07-06 incident matched
   free tier. Not reconciled with the project owner yet.
-- Which GitHub repo actually covers `electron-app` + `print-agent`? Not confirmed — user said
-  they'd handle the git pushes themselves and didn't answer this specific mapping.
+- Which GitHub repo actually covers `electron-app` + `print-agent`? Not confirmed.
 - Supabase RLS disabled on ~35 public tables — flagged, not decided whether intentional.
 - `RestaurantApp/src/api/client.js` has `USE_LOCAL_BACKEND = true` — dev builds point at
   localhost, not the new Render URL. Not addressed.
 - Whether `new_cashier` also needs the PIN quick-switch flow (same shared-terminal reasoning as
   `new_waiter`) or only ever has one login — not yet asked.
+- `pos-app`'s Electron version (`^33.0.0`) is intentionally newer than the existing
+  `electron-app`'s (`28.3.3`) — don't "align" them without checking PowerSync's Node version
+  requirements still hold.

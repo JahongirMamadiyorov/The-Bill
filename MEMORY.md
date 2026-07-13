@@ -59,6 +59,68 @@ across many future sessions. Update it when something here goes stale.
   free). This conflict has not been resolved with the project owner — treat CLAUDE.md's "paid"
   claim as unverified until confirmed.
 
+## PowerSync Sync Streams gotchas (learned 2026-07-06)
+
+- `column = (SELECT ... )` scalar subqueries are **not supported** in Sync Streams queries,
+  even though PowerSync's own docs casually mention "subqueries are supported" — in practice
+  only `IN (SELECT ...)`, `JOIN`, and direct `auth.parameter()`/`auth.user_id()` comparisons
+  work reliably. If a Sync Streams query needs to derive a value from another table based on
+  the logged-in user (e.g. "this user's restaurant_id"), the clean fix is to put that value
+  directly into the PowerSync JWT as a custom claim (minted in the backend token endpoint) and
+  reference it via `auth.parameter('claim_name')` — not to subquery for it.
+- Never `SELECT *` a table containing credential columns (`password_hash`, `pin_hash`, etc.)
+  in a Sync Streams query — always use an explicit column list. This almost shipped a bug
+  where every POS terminal would have synced everyone's password hashes locally.
+
+## Electron + PowerSync compatibility notes (learned 2026-07-06)
+
+- `@powersync/node` is a pure-ESM package (no CommonJS `require` support at all — its
+  `package.json` has `"type": "module"` and an `exports` map with only `import`/`module-sync`
+  conditions). `pos-app`'s `main.js` is otherwise CommonJS; the fix is loading it via dynamic
+  `import()` inside an async function, not top-level `require()`. Any other ESM-only package
+  added to this project's Electron main process will hit the same issue.
+- `@powersync/node`'s dependencies (`undici`) need Node.js 20+ (specifically the global `File`
+  class, added in Node 20). Electron bundles its own Node version per release — Electron 28
+  ships Node 18, which breaks this. `pos-app` intentionally pins Electron `^33.0.0` (not
+  matching the older `electron-app`'s `28.3.3`) specifically for this reason.
+- `better-sqlite3`'s required major version is dictated by whichever `@powersync/node` version
+  is installed (peer dependency) — check the actual npm error/package.json rather than
+  guessing a version number.
+
+## Phase 1 Cashier decisions (2026-07-07)
+
+- Order writes (Fire/Charge) call the backend directly over HTTPS from the Electron main
+  process — not through PowerSync's write queue — because order creation/payment has real
+  server-side logic (tax, daily numbering, stock deduction, notifications, kitchen printing)
+  that must stay centralized. See RULES.md §4 for the full rule; `submitOrderWrite()` in
+  `pos-app/main.js` is the single funnel this goes through.
+- Explicitly online-required for those two actions in Phase 1 ("Option A"), but the user wants
+  offline queuing for them added later ("Option B") — the funnel-function structure exists
+  specifically so that's a later one-place change, not a rewrite. Don't quietly build B without
+  being asked, and don't build something that forecloses it either.
+- `pos-app/src/lib/case.js` is the reusable snake_case→camelCase + boolean-coercion layer for
+  local PowerSync reads — every future screen (Kitchen, Admin, Owner, New Waiter) that reads
+  local data should use it rather than re-solving the same translation problem.
+
+## Ingredient stock deduction — where it lives (fixed 2026-07-08)
+
+- `warehouse_items.quantity_in_stock` is deducted via BOM (`menu_item_ingredients`) lookup in
+  THREE separate places in `restaurant-app/backend/src/routes/orders.js`: `POST /` (create),
+  `POST /:id/items` (add items), and `PUT /:id` (replace items — refund-old-then-deduct-new,
+  since it deletes and re-inserts the whole list). There's also a fallback in `PUT /:id/status`
+  for orders that somehow never got deducted (checked via a `stock_movements` reason-prefix
+  `LIKE 'Auto: Order #<num>%'` match).
+- This logic is NOT centralized — it's duplicated per-route. **Any new endpoint that creates,
+  adds, removes, or replaces order items must also handle stock deduction/refund explicitly, or
+  it will silently under/over-count inventory.** This was a real bug (add-items and edit-items
+  never deducted anything) caught by the project owner, not by code review — watch for this
+  pattern specifically when building order-modifying features (e.g. a future "remove single
+  item from order" endpoint, which doesn't exist yet, would need to refund BOM on removal).
+- The reason-prefix trick (`Auto: Order #<num>...`) used by the `PUT /:id/status` fallback to
+  detect "was this order's stock already deducted" is fragile — it matches on string prefix,
+  not a proper flag. Any new stock-movement-writing code for orders should keep using the
+  `Auto: Order #<num>` prefix convention so that fallback doesn't double-deduct.
+
 ## Sandbox / tooling limitations (for future AI sessions)
 
 - This AI's shell sandbox caps every command at 45 seconds, and background/disowned processes

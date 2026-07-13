@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from '../../context/LanguageContext';
-import { money, fmtDate, todayStr } from '../../hooks/useApi';
+import { money, fmtDate, fmtDateTime, todayStr } from '../../hooks/useApi';
 import { warehouseAPI, suppliersAPI, procurementAPI } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import Dropdown from '../../components/Dropdown';
@@ -60,6 +60,18 @@ const TYPE_COLORS = {
   'ADJUST':    'bg-indigo-100 text-indigo-800',
   'SHRINKAGE': 'bg-red-100 text-red-800',
 };
+
+// Stock movements auto-generated from orders (see backend orders.js) all share the
+// "Auto: Order #<num>..." reason prefix, but the wording after that differs depending on
+// whether the movement came from creating the order, adding items to it later, or editing
+// its item list. Classify them here so the UI can show a short, distinct badge (Order/Added/
+// Edited) instead of forcing people to read the full sentence to tell them apart.
+function autoOrderReasonBadge(reason) {
+  if (!reason || !reason.startsWith('Auto: Order #')) return null;
+  if (reason.includes('(added item)'))   return { label: 'Added',  color: 'bg-blue-100 text-blue-800' };
+  if (reason.includes('items edited'))   return { label: 'Edited', color: 'bg-purple-100 text-purple-800' };
+  return { label: 'Order', color: 'bg-orange-100 text-orange-800' };
+}
 
 function getStatus(qty, min, t) {
   const q = toNum(qty), m = toNum(min);
@@ -966,15 +978,27 @@ export default function AdminInventory() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filteredInMoves.length > 0 ? filteredInMoves.map(m => (
-                      <tr key={m.id} className="hover:bg-gray-50">
-                        <td className="px-5 py-2.5 text-xs text-gray-600">{fmtDate(m.createdAt)}</td>
-                        <td className="px-5 py-2.5 text-sm font-medium text-gray-900">{m.itemName}</td>
-                        <td className="px-5 py-2.5 text-sm font-bold text-green-700">+{m.quantity}</td>
-                        <td className="px-5 py-2.5 text-xs text-gray-600">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</td>
-                        <td className="px-5 py-2.5"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${REASON_COLORS[m.reason] || 'bg-gray-100 text-gray-700'}`}>{m.reason}</span></td>
-                      </tr>
-                    )) : (
+                    {filteredInMoves.length > 0 ? filteredInMoves.map(m => {
+                      const auto = autoOrderReasonBadge(m.reason);
+                      return (
+                        <tr key={m.id} className="hover:bg-gray-50">
+                          <td className="px-5 py-2.5 text-xs text-gray-600 whitespace-nowrap">{fmtDateTime(m.createdAt)}</td>
+                          <td className="px-5 py-2.5 text-sm font-medium text-gray-900">{m.itemName}</td>
+                          <td className="px-5 py-2.5 text-sm font-bold text-green-700">+{m.quantity}</td>
+                          <td className="px-5 py-2.5 text-xs text-gray-600">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</td>
+                          <td className="px-5 py-2.5">
+                            {auto ? (
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${auto.color}`}>{auto.label}</span>
+                                <span className="text-xs text-gray-600">{m.reason}</span>
+                              </div>
+                            ) : (
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${REASON_COLORS[m.reason] || 'bg-gray-100 text-gray-700'}`}>{m.reason}</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }) : (
                       <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-400 text-sm">{t('common.noResults')}</td></tr>
                     )}
                   </tbody>
@@ -1108,19 +1132,29 @@ export default function AdminInventory() {
                         {/* Expanded detail rows */}
                         {isOpen && (
                           <div className="border-t border-gray-100 divide-y divide-gray-50 bg-gray-50/50">
-                            {g.moves.map(m => (
-                              <div key={m.id} className="flex items-center justify-between px-5 py-3">
-                                <div className="flex items-center gap-3">
-                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${TYPE_COLORS[m.type] || 'bg-gray-100 text-gray-700'}`}>{m.type}</span>
-                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${REASON_COLORS[m.reason] || 'bg-gray-100 text-gray-700'}`}>{m.reason}</span>
+                            {g.moves.map(m => {
+                              const auto = autoOrderReasonBadge(m.reason);
+                              return (
+                                <div key={m.id} className="flex items-center justify-between px-5 py-3">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${TYPE_COLORS[m.type] || 'bg-gray-100 text-gray-700'}`}>{m.type}</span>
+                                    {auto ? (
+                                      <>
+                                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${auto.color}`}>{auto.label}</span>
+                                        <span className="text-xs text-gray-600 truncate">{m.reason}</span>
+                                      </>
+                                    ) : (
+                                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${REASON_COLORS[m.reason] || 'bg-gray-100 text-gray-700'}`}>{m.reason}</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-6 text-right flex-shrink-0">
+                                    <p className="text-xs text-gray-500">{fmtDateTime(m.createdAt)}</p>
+                                    <p className="text-sm font-bold text-red-500 w-20">-{fmtNum(toNum(m.quantity))} {m.unit || ''}</p>
+                                    <p className="text-xs text-gray-500 w-24">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</p>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-6 text-right">
-                                  <p className="text-xs text-gray-500">{fmtDate(m.createdAt)}</p>
-                                  <p className="text-sm font-bold text-red-500 w-20">-{fmtNum(toNum(m.quantity))} {m.unit || ''}</p>
-                                  <p className="text-xs text-gray-500 w-24">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</p>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>

@@ -74,3 +74,22 @@ project. It is only ever added to, never silently changed — see Rule 0 below.
   per restaurant; PIN only selects which staff member is using an already-trusted device — it is
   not meant to be a standalone internet-facing credential. Must include failed-attempt lockout
   (PIN space is only 1,000,000 combinations).
+- Writes with real server-side business logic (order creation/payment, and anything similar in
+  later phases — stock adjustments, refunds, etc.) go straight to the existing Express API over
+  HTTPS from the Electron main process, NOT through PowerSync's write queue. Decided 2026-07-07
+  for Phase 1 Cashier: PowerSync's local-write/upload mechanism is for simple offline-editable
+  data, not multi-step server logic (tax calc, daily numbering, stock deduction, notifications,
+  printing) that must stay centralized. Route every such write through one funnel function (see
+  `submitOrderWrite()` in `pos-app/main.js`) rather than scattering direct calls, so offline
+  queuing (see next rule) can be added in one place later instead of a rewrite.
+- Offline-write policy, decided 2026-07-07: Phase 1 (and by default, later phases) require the
+  backend to be reachable for writes with real business logic — no offline queuing yet. This was
+  an explicit choice ("Option A") over queuing writes locally while offline ("Option B") because
+  B risks double-numbering/stock drift if built quickly. **The project owner wants B added
+  later** — code must leave room for it (see funnel-function rule above), not foreclose it.
+- Local PowerSync SQLite reads have no camelCase translation layer the way REST responses do
+  (see `website/src/api/client.js`'s interceptor) — column names come back exactly as in
+  Postgres (snake_case), and booleans as 0/1 integers, not `true`/`false`. Every screen reading
+  local PowerSync data must run rows through a camelize+boolean-coercion helper first (see
+  `pos-app/src/lib/case.js`) — this is the concrete instance of rule 3 (camelCase/snake_case
+  checks) for this app.

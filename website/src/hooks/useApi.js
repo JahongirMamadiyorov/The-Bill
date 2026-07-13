@@ -38,6 +38,18 @@ export const fmtDate = (d) => {
   return `${y}-${m}-${day}`;
 };
 
+// Same as fmtDate but with the clock time appended — for display only (logs,
+// stock movement timelines, etc). fmtDate stays date-only because it's also
+// used for date-range string comparisons (e.g. `fmtDate(x) < range.from`)
+// where adding a time component would break the comparison.
+export const fmtDateTime = (d) => {
+  if (!d) return '';
+  const dt = typeof d === 'string' ? new Date(d) : d;
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mi = String(dt.getMinutes()).padStart(2, '0');
+  return `${fmtDate(dt)}  ${hh}:${mi}`;
+};
+
 export const todayStr = () => {
   const d = new Date();
   const y = d.getFullYear();

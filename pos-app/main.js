@@ -25,6 +25,12 @@ const https  = require('https');
 const http   = require('http');
 const Store  = require('electron-store');
 
+const { buildSchema } = require('./powersync/schema');
+const { Connector }   = require('./powersync/connector');
+// @powersync/node is a pure ESM package (no CommonJS support) — it can't be `require()`d from
+// this file. Node allows dynamic `import()` from CommonJS code though, so it's loaded lazily
+// the first time it's actually needed (see getPowerSync() below), not at the top of the file.
+
 // ── Config ─────────────────────────────────────────────────────────────────────
 const BACKEND_BASE = 'https://the-bill-backend-pego.onrender.com';
 const IS_DEV        = process.env.NODE_ENV === 'development';
@@ -76,7 +82,44 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-app.whenReady().then(createWindow);
+// ── PowerSync (local-first data layer) ─────────────────────────────────────────
+// Lives in the main process, not the renderer — it needs native SQLite (better-sqlite3)
+// and Node APIs that the sandboxed renderer deliberately doesn't have access to.
+let psDb = null;
+
+async function getPowerSync() {
+  if (!psDb) {
+    const { PowerSyncDatabase, column, Schema, Table } = await import('@powersync/node');
+    const schema = buildSchema({ column, Schema, Table });
+    psDb = new PowerSyncDatabase({
+      schema,
+      database: {
+        dbFilename: 'the-bill-pos.db',
+        dbLocation: app.getPath('userData'),
+      },
+    });
+  }
+  return psDb;
+}
+
+async function connectPowerSync() {
+  const db = await getPowerSync();
+  const connector = new Connector(() => store.get('session')?.token || null);
+  try {
+    await db.connect(connector);
+  } catch (err) {
+    console.error('[powersync] connect failed:', err.message);
+  }
+}
+
+app.whenReady().then(async () => {
+  createWindow();
+  // If a session was already saved from a previous run, start syncing immediately —
+  // don't make the user log in again just to resume offline-first data access.
+  if (store.get('session')) {
+    connectPowerSync();
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -129,6 +172,7 @@ ipcMain.handle('auth:login', async (_event, { identifier, password }) => {
     return { ok: false, error: res.body?.error || `Login failed (${res.status})`, code: res.body?.code };
   }
   store.set('session', { token: res.body.token, user: res.body.user, restaurant: res.body.restaurant || null });
+  connectPowerSync(); // don't await — let sync start in the background
   return { ok: true, user: res.body.user, restaurant: res.body.restaurant || null };
 });
 
@@ -136,9 +180,71 @@ ipcMain.handle('auth:get-session', () => {
   return store.get('session', null);
 });
 
-ipcMain.handle('auth:logout', () => {
+ipcMain.handle('auth:logout', async () => {
   store.delete('session');
+  if (psDb) {
+    try { await psDb.disconnect(); } catch (err) { console.warn('[powersync] disconnect error:', err.message); }
+  }
   return { ok: true };
 });
 
 ipcMain.handle('get-version', () => app.getVersion());
+
+// ── IPC: Order writes (Phase 1 — Cashier) ──────────────────────────────────────
+// Reads (menu, tables, active orders) come from the local PowerSync database —
+// see powersync:getAll/get below. Writes that create or change money/kitchen
+// state (creating an order, taking a payment) do NOT go through PowerSync's
+// write queue. They go straight to the existing Express API over HTTPS, same
+// trust boundary as auth:login above — because order creation/payment on the
+// backend does real business logic (tax calc, daily order numbering, stock
+// deduction, kitchen notifications/printing) that must stay centralized, not
+// be duplicated client-side.
+//
+// Per the project owner's decision (2026-07-07): Phase 1 requires the backend
+// to be reachable for these two actions ("Option A"), but is deliberately
+// structured to leave room for offline queuing later ("Option B").
+// submitOrderWrite() is the single funnel every order write goes through —
+// when offline queuing is built, it slots in right here: check connectivity,
+// and if offline, append the { method, path, body } to a local outbox (a
+// plain table, separate from the PowerSync-managed schema) instead of calling
+// request() directly, then replay the outbox in order once back online. Do
+// not scatter direct request() calls for order writes anywhere else — always
+// go through this function so that future change is a one-place edit.
+async function submitOrderWrite(method, path_, body) {
+  const token = store.get('session')?.token;
+  if (!token) return { ok: false, error: 'Not logged in' };
+  try {
+    const res = await request(method, path_, body, token);
+    if (res.status < 200 || res.status >= 300) {
+      return { ok: false, error: res.body?.error || `Request failed (${res.status})` };
+    }
+    return { ok: true, data: res.body };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Network error — is the backend reachable?' };
+  }
+}
+
+ipcMain.handle('orders:create', async (_event, payload) =>
+  submitOrderWrite('POST', '/api/orders', payload));
+
+ipcMain.handle('orders:pay', async (_event, { id, data }) =>
+  submitOrderWrite('PUT', `/api/orders/${id}/pay`, data));
+
+// ── IPC: PowerSync queries ──────────────────────────────────────────────────────
+// Thin, generic pass-through — the renderer sends a SQL string + params, main runs it
+// against the local SQLite database. Renderer never touches the database file directly.
+ipcMain.handle('powersync:getAll', async (_event, { sql, params }) => {
+  const db = await getPowerSync();
+  return db.getAll(sql, params || []);
+});
+
+ipcMain.handle('powersync:get', async (_event, { sql, params }) => {
+  const db = await getPowerSync();
+  return db.get(sql, params || []);
+});
+
+ipcMain.handle('powersync:status', async () => {
+  if (!psDb) return { connected: false, hasSynced: false };
+  const status = psDb.currentStatus;
+  return { connected: !!status?.connected, hasSynced: !!status?.hasSynced };
+});
