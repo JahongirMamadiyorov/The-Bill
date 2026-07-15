@@ -251,3 +251,27 @@ order being edited, and timestamps should include the clock time, not just the d
   Both spots also switched from `fmtDate` to `fmtDateTime` for the timestamp column.
 - Verified with `npx esbuild` (parses/bundles cleanly) — not run in a browser from this sandbox,
   needs a visual check on the real site after deploy.
+
+**Follow-up: "Edited" showed even when only adding new items.** User tested and saw every item
+on an edited order tagged "Edited" — including items that were never touched, just resent
+as-is alongside a genuinely new one (this is how `AdminNewOrder.jsx`'s "mergedItems" flow works:
+it resends the FULL item list, not just the delta). The refund-old/deduct-new approach from the
+first fix logged a pointless refund+deduct pair (net zero) for every unchanged item and showed
+"Edited" for all of them.
+
+Rewrote the `PUT /:id` stock-adjustment block in `orders.js` to diff old vs. new quantities
+**per menu_item_id** first, and only touch stock (and log a movement) for items that actually
+changed — tagged `(added item)`, `(removed item)`, or `(items edited)` depending on whether the
+item is new, gone, or just changed quantity. Unchanged items are skipped entirely now — no log
+noise. Updated `autoOrderReasonBadge()` in `AdminInventory.jsx` to recognize the new "removed
+item" case (gray "Removed" badge) alongside the existing Added/Edited ones.
+
+**Ran into a real scare while verifying this:** bash (`node --check`) kept reporting the file
+truncated mid-statement at an identical byte offset across multiple attempts, even after
+restoring from a clean `git show HEAD:...` copy. Turned out to be a false alarm — this AI's bash
+sandbox mount of `D:\The-Bill` was serving a stale/lagging snapshot, not the real file; the
+Read tool (which reflects what the user's actual machine has) showed the file was correct the
+whole time. Wasted a round trying to "fix" this via bash `cp`, which briefly clobbered the real
+Edit-tool change with older content — caught it and redid the edit through Read/Edit only, then
+verified through Read only, not bash. Documented in MEMORY.md so this doesn't happen again:
+**for this project, verify file edits via Read, not bash, especially right after a write.**

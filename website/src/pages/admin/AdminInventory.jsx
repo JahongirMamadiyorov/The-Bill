@@ -248,8 +248,18 @@ export default function AdminInventory() {
   const outOfStockCount = useMemo(() => items.filter(i => toNum(i.quantityInStock) <= 0).length, [items]);
 
   /* ── Movement filters ──────────────────────────────────────────────────────── */
+  // "IN" movements come in two flavors: real goods received (deliveries, reason like
+  // "Goods Arrival" or a supplier name) and auto-refunds from an order edit that removed
+  // or reduced an item (reason starts with "Auto: Order #..."). Deliveries belong only on
+  // the Stock Overview tab. Order-refunds are the OTHER HALF of a deduction shown on the
+  // Output tab — showing only the deduction there made "start minus Output total" look wrong
+  // by exactly the refunded amount whenever an order got edited down. So order-refunds are
+  // included in BOTH tabs: Overview (real stock-in history) and Output (so the per-item
+  // consumption story is self-contained and the numbers reconcile without cross-referencing
+  // a second tab).
+  const isOrderRefund = (m) => m.type === 'IN' && typeof m.reason === 'string' && m.reason.startsWith('Auto: Order #');
   const inMovements = useMemo(() => movements.filter(m => m.type === 'IN'), [movements]);
-  const outMovements = useMemo(() => movements.filter(m => m.type === 'OUT' || m.type === 'WASTE' || m.type === 'ADJUST' || m.type === 'SHRINKAGE'), [movements]);
+  const outMovements = useMemo(() => movements.filter(m => m.type === 'OUT' || m.type === 'WASTE' || m.type === 'ADJUST' || m.type === 'SHRINKAGE' || isOrderRefund(m)), [movements]);
 
   const filteredInMoves = useMemo(() => inMovements.filter(m => {
     if (delivDateRange.from && fmtDate(m.createdAt) < delivDateRange.from) return false;
@@ -1074,19 +1084,24 @@ export default function AdminInventory() {
                   <DollarSign className="w-4 h-4 text-gray-500" />
                   <p className="text-xs font-semibold text-gray-500 uppercase">{t('admin.inventory.totalCost')}</p>
                 </div>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{money(filteredOutMoves.reduce((s, m) => s + toNum(m.quantity) * toNum(m.costPerUnit), 0))}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{money(filteredOutMoves.reduce((s, m) => s + (m.type === 'IN' ? -1 : 1) * toNum(m.quantity) * toNum(m.costPerUnit), 0))}</p>
               </div>
             </div>
 
             {/* Output — grouped by item */}
             {(() => {
-              // Group movements by itemName
+              // Group movements by itemName. Order-refund IN rows (see isOrderRefund above)
+              // count NEGATIVELY toward totalQty/totalCost so the headline number per item is
+              // the NET amount that actually left the shelf — matching live stock — instead of
+              // gross consumption that ignores items later removed/reduced on an edited order.
               const grouped = {};
               filteredOutMoves.forEach(m => {
                 const key = m.itemName || t('common.unknownItem');
-                if (!grouped[key]) grouped[key] = { name: key, unit: m.unit || '', totalQty: 0, totalCost: 0, moves: [] };
-                grouped[key].totalQty  += toNum(m.quantity);
-                grouped[key].totalCost += toNum(m.quantity) * toNum(m.costPerUnit);
+                if (!grouped[key]) grouped[key] = { name: key, unit: m.unit || '', totalQty: 0, totalCost: 0, returnedQty: 0, moves: [] };
+                const sign = m.type === 'IN' ? -1 : 1;
+                grouped[key].totalQty  += sign * toNum(m.quantity);
+                grouped[key].totalCost += sign * toNum(m.quantity) * toNum(m.costPerUnit);
+                if (m.type === 'IN') grouped[key].returnedQty += toNum(m.quantity);
                 grouped[key].moves.push(m);
               });
               const groups = Object.values(grouped).sort((a, b) => b.totalQty - a.totalQty);
@@ -1120,13 +1135,16 @@ export default function AdminInventory() {
                             </div>
                             <div className="text-left">
                               <p className="text-sm font-semibold text-gray-900">{g.name}</p>
-                              <p className="text-xs text-gray-500">{g.moves.length} {t('admin.inventory.outputTypes.out').toLowerCase()}</p>
+                              <p className="text-xs text-gray-500">
+                                {g.moves.filter(m => m.type !== 'IN').length} {t('admin.inventory.outputTypes.out').toLowerCase()}
+                                {g.returnedQty > 0 && ` · ${fmtNum(g.returnedQty)} ${g.unit} returned`}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-6">
                             <div className="text-right">
                               <p className="text-sm font-bold text-red-600">-{fmtNum(g.totalQty)} {g.unit}</p>
-                              <p className="text-xs text-gray-500">{money(g.totalCost)}</p>
+                              <p className="text-xs text-gray-500">{money(g.totalCost)}{g.returnedQty > 0 && ' net'}</p>
                             </div>
                             {isOpen
                               ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -1140,6 +1158,7 @@ export default function AdminInventory() {
                           <div className="border-t border-gray-100 divide-y divide-gray-50 bg-gray-50/50">
                             {g.moves.map(m => {
                               const auto = autoOrderReasonBadge(m.reason);
+                              const isReturn = m.type === 'IN';
                               return (
                                 <div key={m.id} className="flex items-center justify-between px-5 py-3">
                                   <div className="flex items-center gap-3 min-w-0">
@@ -1155,7 +1174,7 @@ export default function AdminInventory() {
                                   </div>
                                   <div className="flex items-center gap-6 text-right flex-shrink-0">
                                     <p className="text-xs text-gray-500">{fmtDateTime(m.createdAt)}</p>
-                                    <p className="text-sm font-bold text-red-500 w-20">-{fmtNum(toNum(m.quantity))} {m.unit || ''}</p>
+                                    <p className={`text-sm font-bold w-20 ${isReturn ? 'text-green-600' : 'text-red-500'}`}>{isReturn ? '+' : '-'}{fmtNum(toNum(m.quantity))} {m.unit || ''}</p>
                                     <p className="text-xs text-gray-500 w-24">{money(toNum(m.quantity) * toNum(m.costPerUnit))}</p>
                                   </div>
                                 </div>

@@ -79,16 +79,47 @@ Last updated: 2026-07-08 (backend stock-deduction bug fixed, needs deploy + test
 - **Bug fixed, not yet deployed/tested:** ingredient stock wasn't being deducted when items were
   added to or edited on an existing order (only new-order creation deducted stock). Fixed in
   `restaurant-app/backend/src/routes/orders.js` (`POST /:id/items` and `PUT /:id`) — see
-  SESSIONS.md 2026-07-08 for the full explanation. **Needs: push to `the-bill-backend`, let
-  Render redeploy, then actually add an item to an existing order and confirm the ingredient's
-  stock count in Admin → Inventory goes down by the right amount** (and doesn't double-deduct
-  on a second edit).
+  SESSIONS.md 2026-07-08 for the full explanation, including a round-2 revision: `PUT /:id` now
+  diffs old vs. new item quantities per menu item and only touches/logs stock for what actually
+  changed (added / removed / quantity edited), instead of refunding+re-deducting everything on
+  every edit (which was logging "Edited" even for items that hadn't changed). **Needs: push to
+  `the-bill-backend`, let Render redeploy, then actually add/edit items on an existing order and
+  confirm the ingredient's stock count in Admin → Inventory goes down by the right amount**
+  (and doesn't double-deduct on a second edit, and unchanged items don't get a spurious "Edited"
+  entry).
 - **Inventory UI updated to match** (not yet deployed/tested): Stock Output and Stock Overview
-  now show a colored "Order / Added / Edited" badge next to auto-generated reasons, plus clock
-  time (not just date) on every movement timestamp. Files: `website/src/hooks/useApi.js`
-  (`fmtDateTime`), `website/src/pages/admin/AdminInventory.jsx` (`autoOrderReasonBadge`).
-  **Needs: push to `the-bill-website`, let Vercel redeploy, then visually confirm on the real
-  site** — only syntax-checked with esbuild from this sandbox, never rendered in a browser.
+  now show a colored "Order / Added / Removed / Edited" badge next to auto-generated reasons,
+  plus clock time (not just date) on every movement timestamp. Files:
+  `website/src/hooks/useApi.js` (`fmtDateTime`), `website/src/pages/admin/AdminInventory.jsx`
+  (`autoOrderReasonBadge`). **Needs: push to `the-bill-website`, let Vercel redeploy, then
+  visually confirm on the real site** — only verified via the Read tool / esbuild parse check
+  from this sandbox, never rendered in a browser.
+- **Sandbox note:** this session hit a false-alarm file "corruption" caused by a stale bash-mount
+  view of `orders.js` — the real file (as seen by Read/Edit, i.e. what's actually on disk) was
+  fine throughout. See MEMORY.md "Mount lag" section. Not a data-loss risk, just wasted time —
+  worth knowing if a future session sees a similarly confusing syntax error on this file.
+- **2026-07-16: Audited the ingredient/stock math after the user reported real-data mismatches**
+  (Shashlik Qiyma: 66→11 but Output tab showed "58 consumption"; Shashlik Mol Go'sht: 30→10 but
+  showed "22 out"). Root cause: correct — the Stock Output tab only showed OUT/WASTE/ADJUST/
+  SHRINKAGE, not the `type='IN'` refunds the backend legitimately logs when an order edit
+  removes/reduces an item (those lived only on Stock Overview), so "start − Output total" never
+  matched live stock whenever any order got edited down. **Fixed, needs push/deploy + visual
+  confirm:** `website/src/pages/admin/AdminInventory.jsx` now includes those order-refund IN
+  rows directly in the Output tab's per-item breakdown (green "+", "Removed"/"Edited" badges
+  already existed via `autoOrderReasonBadge`), and each item's headline number is now the NET
+  amount (gross out − returns) so it reconciles with live stock at a glance. Real deliveries
+  (non-order IN movements) are unaffected — still Overview-only.
+- **Found during the same audit, NOT yet fixed** (see MEMORY.md "Inventory ingredient math" for
+  full detail — needs a decision from the project owner on priority/approach):
+  1. The phone app (`RestaurantApp`) has two inventory screens on two different, inconsistent
+     backend APIs — `WarehouseScreen.js` (`/api/warehouse`, correct) and `AdminInventory.js`
+     (`/api/inventory`, legacy — silently changes `quantity_in_stock` with no movement log, and
+     zeroes it if the edit form omits quantity). Any use of the old screen corrupts the number
+     everyone else sees, invisibly.
+  2. `orders.js`'s `PUT /:id/pay` fallback "already deducted" check
+     (`stock_movements.reason LIKE 'Auto: Order #<num>%'`) has no `restaurant_id` or date scope,
+     so it can false-match an unrelated order (order numbers reset daily per restaurant) and
+     wrongly skip a real deduction.
 
 ## Not yet started (next steps, in rough order)
 
