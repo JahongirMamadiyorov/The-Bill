@@ -412,3 +412,155 @@ next step, not deploying or building further phases. See STATUS.md for the exact
 handed to the user, including the reminder that this session's backend changes (settings
 ALLOWED_ROLES fix, the new refund endpoint + columns) still need to be pushed to
 `the-bill-backend`/Render before Refund/Receivables/Profile will work against the live backend.
+
+**Real-machine test surfaced a sync bug — root-caused to PowerSync Cloud, not the new POS
+code.** User tested and reported new orders not appearing in the Orders screen, and occupied
+tables not showing occupied in Tables/the table picker — both fine on the website (reads
+Postgres directly). Added a live sync-status badge to the POS topbar (`PosShell.jsx`) as a
+first diagnostic aid, then per the user's instruction ("just connect it to the DB") queried
+Supabase directly with `execute_sql` — worked fine this session (the "no permission" note from
+the ingredient-audit session was apparently session-scoped, not a lasting restriction). Checked,
+in order: `powersync` publication membership (correct — `orders`/`restaurant_tables` both in
+it), `relreplident` on the relevant tables (`'d'`/DEFAULT, normal), `powersync_role` validity
+(`rolcanlogin: true, rolreplication: true, rolvaliduntil: null` — fine), then
+`pg_replication_slots` — **returned zero rows**. That's the root cause: PowerSync Cloud
+currently has no active logical-replication connection to this Postgres database at all, so
+nothing written after some point reaches any local POS terminal, old design or new, regardless
+of which screen or table. Reported this to the user with the concrete next step: check the
+"the-bill-pos" project's Development instance in the PowerSync Cloud dashboard (no API access
+to that service from here) and reconnect it. Waiting on the user to do that and confirm the
+sync badge turns green and data flows again.
+
+**PowerSync reconnected — sync confirmed working** (user tested: new orders and table status
+now appear correctly across screens).
+
+**Real-machine design-parity pass** — user sent live screenshots of Menu/Orders/Payment
+modal/Tables and asked to check them against `design_handoff_pos_terminal` pixel-by-pixel
+rather than guess. Found and fixed:
+1. Tables screen's right panel still had the placeholder "Open in Orders" button instead of the
+   design's Print/Edit/Charge trio ("Right panel = same order-detail panel as Orders" per
+   README). Fixed: Print + Edit side by side, full-width Charge below (opens `PaymentModal`
+   directly on Tables, same pattern Orders uses for an existing order). Edit needed to jump to
+   Orders with that exact order pre-selected and already in edit mode ("Edit jumps to Orders in
+   edit mode") — added an `openOrder(id, {edit})` handoff lifted into `PosShell.jsx`
+   (`pendingOrder` state + `openOrder`/`clearPendingOrder`, passed to every screen), consumed by
+   a new effect in `OrdersScreen.jsx` that waits for the order to actually exist in the loaded
+   list before selecting + entering edit mode (screen switch is instant; the local PowerSync
+   read isn't). `startEdit()` was refactored to take an explicit order argument since `selected`
+   from React state wouldn't be updated yet in the same tick as the handoff.
+2. Orders detail panel's table-name line could silently fall back to a generic "Dine In" label
+   whenever the table lookup failed, and never showed table + order type together. This was the
+   literal "table names not showing" bug reported — fixed to always render
+   `TableName · Dine In · Xm ago` (same format applied to Tables' panel too).
+3. Root-caused two broken menu-item photos (real uploaded images showing broken-image icons
+   while unphotographed items correctly showed the placeholder): `pos-app/index.html`'s CSP had
+   no `img-src` directive, so it inherited `default-src 'self'` and silently blocked every photo
+   — menu images are served from the Render backend domain
+   (`multer` + `express.static('/uploads')` in `restaurant-app/backend`), never from the
+   Electron app's own origin. Added
+   `img-src 'self' data: https://the-bill-backend-pego.onrender.com;` to the CSP. **User said
+   the photo content itself is being handled on their end — this CSP fix stays since it was
+   blocking ALL photos regardless of content, but no further image work was done this round.**
+4. Orders screen's order-card meta line (table/type + elapsed time) used two spans with
+   `justify-content: space-between`, matching the design's literal two-ends layout — but at the
+   actual grid track width the two values rendered pressed together with no visible gap
+   ("Xoli 112 min ago"). Replaced with one string joined by an explicit ` · `, the same pattern
+   the Tables screen's card chip already uses successfully (confirmed legible in the same test
+   screenshots) — trades literal design fidelity for guaranteed readability.
+
+All four touched files (`TablesScreen.jsx`, `OrdersScreen.jsx`, `PosShell.jsx`, `index.html`)
+parse clean. **Not yet re-tested on the real machine** — waiting on the user to confirm.
+
+**Three more real-machine bug reports, same session, each fixed and re-verified by parsing
+(none re-tested live yet):**
+
+1. Tapping Edit (via the cross-screen `openOrder` jump from Tables to Orders) wiped the order's
+   items to 0 and showed "No table" — a real race: the handoff started edit mode as soon as
+   `orders` contained the order, but `itemsByOrd` (fetched after an `await` in the same `load()`
+   call) hadn't caught up yet in that render. **User then said explicitly: editing must stay on
+   the Tables screen, never navigate to Orders** — overriding the design README's literal "Edit
+   jumps to Orders in edit mode" text. Removed the `openOrder`/`pendingOrder` handoff entirely
+   (`PosShell.jsx`, `OrdersScreen.jsx`) and gave `TablesScreen.jsx` its own full in-place edit
+   mode instead (add-items grid replaces the table grid while editing; right panel gains
+   steppers/remove + Discard/Done) — this also structurally kills the race, since Tables now
+   reads its own already-loaded data with no cross-screen timing involved.
+2. The identical "items/table vanish" symptom then appeared on Orders' own native Edit button
+   (no cross-screen jump this time). Self-inflicted bug: `startEdit` had been given an
+   `(ord = selected)` parameter for the now-removed handoff, but the button was still
+   `onClick={startEdit}` — React's onClick always passes the DOM click event as the first
+   argument, so `ord` silently became that event (truthy, so the default never applied) instead
+   of the order. `event.id`/`event.tableId` are undefined, so items/table both came up empty.
+   Reverted `startEdit` to take no parameter, with a comment flagging the footgun, and audited
+   every other `onClick={fnName}` site across `pos-app/src/pages/pos/*.jsx` for the same
+   pattern — nothing else affected.
+3. User wanted Tables' in-place edit to work exactly like Orders' edit mode, including order
+   type switching and "Change on floor plan" table re-assignment (the first in-place version
+   only carried items, with table/type fixed). Added `editType`/`editTable`/`pickTable` state
+   and ported Orders' ORDER TYPE pill row + floor-plan picker verbatim into `TablesScreen.jsx`;
+   `saveEdit` now sends the (possibly changed) type/table; after a successful save the screen
+   follows the order to its new table, or deselects if it left the floor for takeout/delivery.
+
+**Session paused here at the user's request ("we have finished for now").** Nothing in this
+batch of fixes has been run on the real machine yet — that's the first thing to check next
+session. See STATUS.md for the full technical detail on each of the three fixes above.
+
+---
+
+## 2026-07-27 — design-parity cleanup round 2, then the "add to existing order" feature
+
+**More real-machine design-parity fixes**, same pattern as before (compare against
+`design_handoff_pos_terminal` pixel-by-pixel, fix, esbuild-verify, wait for user confirmation):
+order card rows (status pill/elapsed time/item count/eye icon) all reworked to
+`width:100%; justify-content:space-between` so every row right-aligns to the same margin
+(previous fix's flex-column child wasn't stretching); eye icon removed then explicitly
+re-added per a direct user correction — it belongs, just needed right-alignment, not removal.
+Menu screen: Table selector pulled out of the Order/Server strip into its own full-width row
+(icon chip + label + right-aligned value + chevron); "Order"/"Server" labels and Takeout's
+"Customer name" field removed entirely (not needed per design); Delivery gained stacked
+Customer Name → Phone → Address fields with icons, wired into `buildOrderPayload()` as
+`customer_name`/`customer_phone`/`delivery_address` (not decorative — confirmed hitting the
+real order payload). Global scrollbar restyled (`index.css`, thin rounded thumb,
+`background-clip: padding-box` for the padded look, hover state, Firefox equivalents) since it
+inherited an ugly default OS scrollbar everywhere. Tables nav icon replaced: lucide's
+`TableProperties` reads as a spreadsheet grid, not a restaurant table — built a real
+hand-drawn top-down table-with-4-chairs SVG (`pos-app/src/pages/pos/icons.jsx`, new file,
+`TableIcon`) and swapped every `TableProperties` import in the active `pos-app/src/pages/pos/`
+tree (old unrouted `Cashier.jsx` intentionally untouched, per "globally in pos-app only").
+
+**New feature: adding items to an already-occupied table's live order from Menu.** User wanted
+what the old `Cashier.jsx`/`new_cashier` legacy flow had — tapping an occupied table while
+building a cart on Menu should append the cart to that table's existing order instead of
+silently creating a second order on the same table. Clarified scope via explicit questions
+before writing code: the "you are adding to an existing order" notice must appear the instant
+the occupied table is tapped (not just at Fire time); the cart view must merge the existing
+order's items in live, but with a clear visual split between what already existed and what's
+about to be added; only Fire is allowed in this mode, not Charge (payment still happens later
+from Orders/Tables); and the cashier stays on the Menu tab after firing (cart clears in place,
+no navigation).
+
+Built end to end:
+- **Backend IPC plumbing** — new `orders:addItems`/`ordersAddItems` in `main.js`/`preload.js`,
+  calling the existing `POST /api/orders/:id/items` (append-only; backend recomputes
+  subtotal/tax/total from ALL items and reopens the order for the kitchen if it was
+  ready/served/bill_requested — confirmed by reading `orders.js`, not assumed). Deliberately
+  separate from `orders:update`/`ordersUpdate` (`PUT /:id`), which replaces the *entire* item
+  list and would double-count anything already on the order.
+- **`MenuScreen.jsx` data layer** — loads active orders + their items alongside the existing
+  menu/table data (`loadActiveOrders()`, polled every 4s while the table picker is open, same
+  as the existing pattern); `existingOrder` state is set the instant an occupied table is
+  tapped; derived `existingItems`/`existingSubtotal`/`combinedSubtotal`/`combinedTax`/
+  `combinedTotal` mirror the backend's full-recompute math exactly.
+- **`MenuScreen.jsx` UI layer** — green "Adding to Order #X" banner right under the Table
+  selector, visible from the moment of the tap; cart panel splits into an "Already In This
+  Order" section (muted, read-only, no steppers) above an "Adding Now" section (the normal
+  interactive cart); Totals block shows Already In Order / Adding Now / Tax / New Order Total
+  instead of the normal Sub Total/Tax/Total breakdown; Charge button is hidden entirely in this
+  mode (Fire-only, relabeled "Add to Order"); `handleFire` branches to call `ordersAddItems`
+  instead of `ordersCreate` when `existingOrder` is set, then clears the cart and stays on Menu
+  (no `clearOrder()` navigation side effect existed to remove — screen never changed).
+
+All touched files (`main.js`, `preload.js`, `MenuScreen.jsx`, `index.css`, `icons.jsx`)
+esbuild/`node --check` verified clean. **Not yet tested on the real machine** — next step is
+the user trying it: tap Cola onto the cart, tap an occupied table, confirm the banner/split
+cart/combined totals appear correctly, Fire, then check the kitchen/Orders screen shows the
+merged item list and stock deducted only for the newly added items (not double-counted).

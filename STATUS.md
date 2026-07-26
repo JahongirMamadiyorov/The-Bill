@@ -3,8 +3,23 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-Last updated: 2026-07-26 (POS redesign ALL 8 STEPS BUILT — esbuild-parse-verified only,
-NOT yet run on the real machine. That's the next thing to do, before any further building.)
+Last updated: 2026-07-27 (design-parity round 2 fixes + new "add items to an existing order
+from Menu" feature — CONFIRMED WORKING on the real machine after an app restart.)
+
+## New feature: add-to-existing-order from Menu (built 2026-07-27, confirmed working)
+
+Tapping an occupied table on Menu while building a cart shows a green "Adding to
+Order #X" banner immediately (not just at Fire), splits the cart into "Already In This
+Order" (read-only, muted) vs "Adding Now" (interactive) sections, shows combined
+Already/Adding/Tax/New Order Total in the Totals block, hides the Charge button (Fire-only —
+payment still happens later from Orders/Tables), and stays on the Menu tab after firing.
+Fire calls the new `orders:addItems`/`ordersAddItems` IPC → `POST /api/orders/:id/items`
+(append-only, backend recomputes totals from ALL items) instead of `orders:create` — kept
+deliberately separate from `orders:update` (`PUT /:id`, which replaces the whole item list).
+Files: `main.js`, `preload.js`, `MenuScreen.jsx`. **User confirmed working 2026-07-27** after
+restarting the full Electron app (see the "preload/main.js changes need a full restart" note
+in MEMORY.md — that was the only blocker, first attempt silently failed with no error/loading
+because the running app was still on the pre-edit preload bundle).
 
 ## POS Terminal redesign — all 8 steps built (approved 2026-07-26)
 
@@ -71,6 +86,83 @@ Owner, New Waiter phases) or considering this shippable:
 4. Report back anything broken — this was built screen-by-screen from the design spec and the
    existing backend contracts, but has real integration risk (local PowerSync field names,
    IPC wiring, money math) that only a real run will surface.
+
+**ROOT CAUSE FOUND (2026-07-26): PowerSync Cloud is not connected to Supabase.** Real-machine
+test surfaced: new orders don't show in the Orders screen, occupied tables don't show occupied
+in Tables/the table picker — both fine on the website (reads Postgres directly). Queried
+Supabase directly (`execute_sql`, worked this time — permission from the 2026-07-16 audit
+session was apparently temporary/session-scoped, not a lasting restriction): the `powersync`
+publication correctly includes `orders`/`restaurant_tables`/everything else, `powersync_role`
+is valid with replication privilege and no expiry — but **`pg_replication_slots` is completely
+empty, zero rows**. PowerSync Cloud has no active logical-replication connection to this
+database at all, so nothing has been streaming to ANY local POS terminal (old design or new —
+this is not a code bug, it would affect both identically). Not fixable from this side — no API
+access to the PowerSync Cloud dashboard (separate service, no key configured). **Handed to the
+user to check PowerSync Cloud's "the-bill-pos" Development instance connection status and
+reconnect it.** Added a live sync status badge to the POS topbar (`PosShell.jsx` — green
+"Synced" / amber "Syncing…" / red "Offline", click to re-check `psStatus()`) so this is
+diagnosable from the app itself going forward, instead of only discoverable via a DB query.
+**RESOLVED — user reconnected PowerSync, confirmed orders/tables now sync correctly.**
+
+**Real-machine design-parity pass (2026-07-26, same session).** User sent live screenshots of
+Menu/Orders/Payment modal/Tables; compared pixel-by-pixel against
+`design_handoff_pos_terminal`. Fixed: (1) Tables screen's right panel now matches design —
+Print/Edit/Charge instead of a placeholder "Open in Orders" button; Edit jumps to Orders
+pre-selected + already in edit mode via a new cross-screen `openOrder()` handoff in
+`PosShell.jsx`; Charge opens `PaymentModal` right on Tables. (2) Orders detail panel's table
+name was silently falling back to generic "Dine In" when the lookup failed and never showed
+table+type together — this was the reported "table names not showing" bug, now always renders
+`TableName · Dine In · Xm ago`. (3) Root-caused 2 of 8 real menu-item photos rendering as
+broken-image icons: `pos-app/index.html` CSP had no `img-src`, silently blocking the Render
+backend domain photos are actually served from — added
+`img-src 'self' data: https://the-bill-backend-pego.onrender.com;`. **User said the photo
+content itself is being handled on their end — no further image work needed, but this CSP fix
+stays since it was blocking photos structurally, not a content issue.** (4) Orders screen's
+order-card meta line (table/type + time) rendered pressed together with no visible gap at
+actual card width — switched from `justify-content: space-between` to an explicit ` · `
+separator, matching the pattern Tables' card chip already uses successfully.
+**Not yet re-tested on the real machine — waiting on user confirmation.**
+
+**Follow-up fix, same day**: the cross-screen "Edit jumps to Orders" handoff from the round
+above had a real bug — items got wiped to 0 when jumping into edit mode. Root cause: the
+handoff's `useEffect` fired `startEdit()` as soon as `orders` (fetched first) contained the
+order, but `itemsByOrd` (fetched in the same `load()` call, after an `await`) hadn't populated
+yet for that render, so edit state started from an empty items array. **User also said
+explicitly: editing must stay on the Tables screen, not navigate to Orders at all** ("I must
+stay at the tables page and edit it all from there") — overriding the design README's literal
+"Edit jumps to Orders in edit mode" text. Removed the `openOrder`/`pendingOrder` handoff
+entirely (`PosShell.jsx`, `OrdersScreen.jsx`) and gave `TablesScreen.jsx` its own full in-place
+edit mode instead — mirrors Orders' edit UI (category-filtered add-items grid replaces the
+table grid while editing, right-panel items gain steppers/remove, Discard/Done replace
+Print/Edit) but table and order type stay fixed to the tapped table (no floor-plan re-picker,
+since you're already editing from a specific table). This also structurally eliminates the
+race condition — Tables reads its own already-loaded `itemsByOrd`/`menuItems` directly, no
+cross-screen timing involved. **Not yet re-tested on the real machine.**
+
+**Second follow-up, same day**: the same "items/table vanish on Edit" symptom then showed up
+on Orders' own native Edit button (no cross-screen jump involved at all). Root cause was
+self-inflicted: when `startEdit` was given an `(ord = selected)` parameter earlier (for the
+now-removed cross-screen handoff), the button was still wired as `onClick={startEdit}` —
+React's onClick always passes the DOM event as the first argument, so `ord` silently became
+that event object instead of falling back to `selected` (the default only applies when the
+argument is literally `undefined`, and an event object is truthy). `event.id`/`event.tableId`
+are undefined, so items came from `itemsByOrd[undefined]` (empty) and table from
+`tableById[undefined]` (null) — exactly the blank-out the user saw. Reverted `startEdit` in
+`OrdersScreen.jsx` to take no parameter (reads `selected` directly again), with a comment
+explaining the footgun so it doesn't get reintroduced. Audited every other `onClick={fnName}`
+site across `pos-app/src/pages/pos/*.jsx` for the same pattern — nothing else affected.
+**Not yet re-tested on the real machine.**
+
+**Third follow-up, same day**: user wanted Tables' in-place edit mode to work exactly like
+Orders' edit mode, including order type switching and "Change on floor plan" table
+re-assignment — the earlier in-place edit only carried items, with table/type fixed to the
+tapped table. Added `editType`/`editTable`/`pickTable` state to `TablesScreen.jsx`, the same
+ORDER TYPE pill row + "Change on floor plan" button + floor-plan picker view as Orders' edit
+mode (ported verbatim), and `saveEdit` now sends `editType`/`editTable.id` instead of the
+fixed values. After a successful save the screen follows the order to its new table (or
+deselects if it left the floor for takeout/delivery, since Tables is table-centric).
+`startEdit` again takes no parameter (same footgun avoided as the Orders fix above).
+**Not yet re-tested on the real machine.**
 
 Standing rules for this rebuild (don't relitigate): DB/API names stay
 `waitress_id`/`waitress_permissions`/role string `'waitress'` — only the UI *label* says

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
-  LayoutGrid, ClipboardList, TableProperties, Clock, HandCoins, User,
-  Search, Bell, Globe, ChevronsLeft, ChevronsRight, LogOut,
+  LayoutGrid, ClipboardList, Clock, HandCoins, User,
+  Search, Bell, Globe, ChevronsLeft, ChevronsRight, LogOut, Wifi, WifiOff, RefreshCw,
 } from 'lucide-react';
 import { T, card, initials } from './tokens.js';
+import { TableIcon } from './icons.jsx';
 import { useSettings } from './useSettings.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,7 +16,7 @@ import { useSettings } from './useSettings.js';
 const NAV = [
   { key: 'menu',        label: 'Menu',        Icon: LayoutGrid,      searchPlaceholder: 'Search menu...' },
   { key: 'orders',      label: 'Orders',      Icon: ClipboardList,   searchPlaceholder: 'Search orders...' },
-  { key: 'tables',      label: 'Tables',      Icon: TableProperties, searchPlaceholder: 'Search tables...' },
+  { key: 'tables',      label: 'Tables',      Icon: TableIcon,       searchPlaceholder: 'Search tables...' },
   { key: 'history',     label: 'History',     Icon: Clock,           searchPlaceholder: 'Search history...' },
   { key: 'receivables', label: 'Receivables', Icon: HandCoins,       searchPlaceholder: 'Search receivables...' },
   { key: 'profile',     label: 'Profile',     Icon: User,            searchPlaceholder: null }, // "My Profile" title instead
@@ -39,10 +40,30 @@ export default function PosShell({ session, onLogout, screens = {} }) {
   const [lang, setLang]         = useState(() => localStorage.getItem('pos.lang') || 'EN');
   const [search, setSearch]     = useState('');
   const [clockIn, setClockIn]   = useState(null); // "06:33 AM" from /shifts/active
+  const [sync, setSync]         = useState({ connected: false, hasSynced: false, checkedAt: null });
 
   useEffect(() => { localStorage.setItem('pos.sidebarCollapsed', collapsed ? '1' : '0'); }, [collapsed]);
   useEffect(() => { localStorage.setItem('pos.lang', lang); }, [lang]);
   useEffect(() => { setSearch(''); }, [nav]);
+
+  // PowerSync connection/sync status — surfaced in the topbar so "an order I
+  // just fired isn't showing up" is diagnosable at a glance instead of
+  // guessing. Local screens (Menu/Orders/Tables) read from the LOCAL synced
+  // copy, not the backend directly — if this badge isn't green, that's why
+  // writes made elsewhere (or even from this terminal) won't appear yet.
+  const checkSync = async () => {
+    try {
+      const s = await window.electronAPI.psStatus();
+      setSync({ connected: !!s?.connected, hasSynced: !!s?.hasSynced, checkedAt: new Date() });
+    } catch {
+      setSync({ connected: false, hasSynced: false, checkedAt: new Date() });
+    }
+  };
+  useEffect(() => {
+    checkSync();
+    const t = setInterval(checkSync, 5000);
+    return () => clearInterval(t);
+  }, []);
 
   // Clocked-in time from the real shifts table (existing backend endpoint).
   useEffect(() => {
@@ -197,6 +218,27 @@ export default function PosShell({ session, onLogout, screens = {} }) {
           )}
 
           <div style={{ flex: 1 }} />
+
+          {/* Sync status — diagnostic: local screens read from this synced copy,
+              not the backend directly. If this isn't green, new orders/table
+              changes made anywhere won't show up here yet regardless of screen. */}
+          <button onClick={checkSync} title="Click to re-check now" style={{
+            display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
+            background: T.surface, boxShadow: T.cardShadow, borderRadius: T.rPill,
+            padding: '7px 12px', fontFamily: T.font,
+          }}>
+            {sync.connected && sync.hasSynced
+              ? <Wifi size={14} strokeWidth={2} color={T.greenDark} />
+              : sync.connected
+                ? <RefreshCw size={14} strokeWidth={2} color={T.amber} />
+                : <WifiOff size={14} strokeWidth={2} color={T.coral} />}
+            <span style={{
+              fontSize: 11, fontWeight: 800,
+              color: sync.connected && sync.hasSynced ? T.greenDark : sync.connected ? T.amber : T.coral,
+            }}>
+              {sync.connected && sync.hasSynced ? 'Synced' : sync.connected ? 'Syncing…' : 'Offline'}
+            </span>
+          </button>
 
           {/* Staff chip */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

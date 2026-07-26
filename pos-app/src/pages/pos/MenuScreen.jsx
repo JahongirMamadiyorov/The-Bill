@@ -4,9 +4,11 @@ import {
   UtensilsCrossed, ShoppingBag, Truck, Settings2, ArrowLeftRight,
   DollarSign, Tag, Wine, Pizza, Fish, Coffee, ChefHat, Users,
   ImageOff, Loader2, CheckCircle2, AlertCircle,
+  User, Phone, MapPin,
 } from 'lucide-react';
 import { camelizeRows } from '../../lib/case.js';
 import { T, card, pill, statusPill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
+import { TableIcon } from './icons.jsx';
 import PaymentModal from './PaymentModal.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ const formatQty = (item, qty) => {
 };
 
 const CART_KEY = 'pos.cart.v1';
+const ACTIVE_STATUSES = "('pending','sent_to_kitchen','preparing','ready','served','bill_requested')";
 
 export default function MenuScreen({ user, settings, search }) {
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -71,13 +74,24 @@ export default function MenuScreen({ user, settings, search }) {
   const [tables,     setTables]     = useState([]);
   const [loading,    setLoading]    = useState(true);
 
+  // Active orders + their items — needed only to detect "this table already
+  // has a live order" when the cashier taps it in the picker (add-to-existing
+  // flow, see below). Not used for anything else on this screen.
+  const [activeOrders,   setActiveOrders]   = useState([]);
+  const [itemsByOrder,   setItemsByOrder]   = useState({});
+
   // ── Order state ───────────────────────────────────────────────────────────
   const [cart, setCart] = useState(() => {
     try { return JSON.parse(localStorage.getItem(CART_KEY)) || {}; } catch { return {}; }
   });
   const [orderType, setOrderType]   = useState('dine_in');
   const [selTable,  setSelTable]    = useState(null);
-  const [custName,  setCustName]    = useState('');
+  // Set the instant an OCCUPIED table is tapped in the picker — the order
+  // already on that table. Non-null means "adding to an existing order"
+  // mode: Fire appends the cart to this order instead of creating a new one.
+  const [existingOrder, setExistingOrder] = useState(null);
+  const [custName,  setCustName]    = useState(''); // delivery only now (takeout no longer collects it)
+  const [custPhone, setCustPhone]   = useState(''); // delivery only
   const [custAddr,  setCustAddr]    = useState('');
   const [selectedCat, setSelectedCat] = useState(null);
   const [showTablePicker, setShowTablePicker] = useState(false);
@@ -100,30 +114,61 @@ export default function MenuScreen({ user, settings, search }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [cats, menuItems, tbls] = await Promise.all([
-        window.electronAPI.psGetAll('SELECT * FROM categories ORDER BY sort_order'),
-        window.electronAPI.psGetAll('SELECT * FROM menu_items ORDER BY sort_order'),
-        window.electronAPI.psGetAll('SELECT * FROM restaurant_tables ORDER BY table_number'),
-      ]);
-      setCategories(camelizeRows(cats));
-      setItems(camelizeRows(menuItems).filter(i => i.isAvailable !== false));
-      setTables(camelizeRows(tbls));
+      await loadCore();
+      await loadActiveOrders();
     } catch {
       showToast('Failed to load menu data', false);
     } finally { setLoading(false); }
   };
+  const loadCore = async () => {
+    const [cats, menuItems, tbls] = await Promise.all([
+      window.electronAPI.psGetAll('SELECT * FROM categories ORDER BY sort_order'),
+      window.electronAPI.psGetAll('SELECT * FROM menu_items ORDER BY sort_order'),
+      window.electronAPI.psGetAll('SELECT * FROM restaurant_tables ORDER BY table_number'),
+    ]);
+    setCategories(camelizeRows(cats));
+    setItems(camelizeRows(menuItems).filter(i => i.isAvailable !== false));
+    setTables(camelizeRows(tbls));
+  };
+  // Active orders + their items — only so tapping an occupied table can show
+  // "adding to Order #X" immediately, per the add-to-existing-order flow.
+  const loadActiveOrders = async () => {
+    const ords = await window.electronAPI.psGetAll(
+      `SELECT * FROM orders WHERE status IN ${ACTIVE_STATUSES} ORDER BY created_at ASC`
+    );
+    const orderRows = camelizeRows(ords);
+    setActiveOrders(orderRows);
+    if (orderRows.length) {
+      const ids = orderRows.map(o => `'${o.id}'`).join(',');
+      const its = await window.electronAPI.psGetAll(`SELECT * FROM order_items WHERE order_id IN (${ids})`);
+      const map = {};
+      for (const it of camelizeRows(its)) (map[it.orderId] = map[it.orderId] || []).push(it);
+      setItemsByOrder(map);
+    } else {
+      setItemsByOrder({});
+    }
+  };
 
-  // Poll tables while the picker is open so statuses stay live.
+  // Poll tables + active orders while the picker is open so statuses (and
+  // which tables are occupied) stay live.
   useEffect(() => {
     if (!showTablePicker) return;
     const t = setInterval(async () => {
       try {
         const rows = await window.electronAPI.psGetAll('SELECT * FROM restaurant_tables ORDER BY table_number');
         setTables(camelizeRows(rows));
+        await loadActiveOrders();
       } catch {}
     }, 4000);
     return () => clearInterval(t);
   }, [showTablePicker]);
+
+  // Latest active order per table (ASC creation order → last write wins = newest)
+  const orderByTable = useMemo(() => {
+    const map = {};
+    for (const o of activeOrders) if (o.tableId) map[o.tableId] = o;
+    return map;
+  }, [activeOrders]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const filteredItems = useMemo(() => {
@@ -137,6 +182,7 @@ export default function MenuScreen({ user, settings, search }) {
   }, [items, selectedCat, search]);
 
   const catName = (id) => categories.find(c => c.id === id)?.name || 'Other';
+  const itemsById = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
 
   const cartEntries = useMemo(() => Object.values(cart), [cart]);
   const cartByCat = useMemo(() => {
@@ -153,6 +199,27 @@ export default function MenuScreen({ user, settings, search }) {
   const taxAmt = settings.taxEnabled ? Math.round(subtotal * settings.taxRate / 100) : 0;
   const svcAmt = settings.serviceChargeEnabled ? Math.round(subtotal * settings.serviceChargeRate / 100) : 0;
   const total  = subtotal + taxAmt; // mirrors backend: subtotal + tax (discount applied at pay time)
+
+  // ── Add-to-existing-order preview (only when existingOrder is set) ────────
+  // The already-fired items on that order, read-only here — for display only.
+  const existingItems = useMemo(() => {
+    if (!existingOrder) return [];
+    return (itemsByOrder[existingOrder.id] || []).map(it => ({
+      menuItemId: it.menuItemId,
+      name:  itemsById[it.menuItemId]?.name || 'Item',
+      price: Number(it.unitPrice || itemsById[it.menuItemId]?.price || 0),
+      qty:   Number(it.quantity || 1),
+    }));
+  }, [existingOrder, itemsByOrder, itemsById]);
+  const existingSubtotal = useMemo(() =>
+    existingItems.reduce((s, it) => s + it.price * it.qty, 0), [existingItems]);
+  // Combined preview — mirrors what the backend recomputes server-side (it
+  // sums ALL items on the order, existing + newly added, then reapplies tax).
+  const combinedSubtotal = existingOrder ? existingSubtotal + subtotal : subtotal;
+  const combinedTax      = existingOrder
+    ? (settings.taxEnabled ? Math.round(combinedSubtotal * settings.taxRate / 100) : 0)
+    : taxAmt;
+  const combinedTotal    = combinedSubtotal + combinedTax;
 
   // ── Cart actions ──────────────────────────────────────────────────────────
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
@@ -208,8 +275,8 @@ export default function MenuScreen({ user, settings, search }) {
   };
   const delItem = (id) => setCart(p => { const n = { ...p }; delete n[id]; return n; });
   const clearOrder = () => {
-    setCart({}); setSelTable(null); setOrderType('dine_in');
-    setCustName(''); setCustAddr(''); setError(''); setShowTablePicker(false);
+    setCart({}); setSelTable(null); setExistingOrder(null); setOrderType('dine_in');
+    setCustName(''); setCustPhone(''); setCustAddr(''); setError(''); setShowTablePicker(false);
   };
 
   // ── Order submit ──────────────────────────────────────────────────────────
@@ -217,8 +284,9 @@ export default function MenuScreen({ user, settings, search }) {
     table_id:   selTable?.id || null,
     order_type: orderType,
     items:      cartEntries.map(e => ({ menu_item_id: e.item.id, quantity: e.qty })),
-    ...(custName && { customer_name: custName }),
-    ...(custAddr && { delivery_address: custAddr }),
+    ...(custName  && { customer_name:  custName }),
+    ...(custPhone && { customer_phone: custPhone }),
+    ...(custAddr  && { delivery_address: custAddr }),
   });
 
   const validateOrder = () => {
@@ -233,9 +301,21 @@ export default function MenuScreen({ user, settings, search }) {
   const handleFire = async () => {
     if (!cartEntries.length || submitting) return;
     setError('');
-    if (!validateOrder()) return;
     setSubmitting(true);
     try {
+      if (existingOrder) {
+        // Adding to an already-existing order (occupied table picked while
+        // building this cart) — append only the NEW items, never the full
+        // list (that's orders:update's job, for editing an existing order).
+        const res = await window.electronAPI.ordersAddItems(existingOrder.id, {
+          items: cartEntries.map(e => ({ menu_item_id: e.item.id, quantity: e.qty })),
+        });
+        if (!res.ok) { setError(res.error || 'Failed to add items to the order'); return; }
+        showToast(`Added to Order #${existingOrder.dailyNumber || existingOrder.id.slice(-4)}`);
+        clearOrder();
+        return;
+      }
+      if (!validateOrder()) return;
       const res = await window.electronAPI.ordersCreate(buildOrderPayload());
       if (!res.ok) { setError(res.error || 'Failed to send order'); return; }
       showToast('Order sent to kitchen');
@@ -317,7 +397,12 @@ export default function MenuScreen({ user, settings, search }) {
                 const sp = statusPill(tb.status || 'free');
                 const isSel = selTable?.id === tb.id;
                 return (
-                  <button key={tb.id} onClick={() => { setSelTable(tb); setShowTablePicker(false); setError(''); }} style={{
+                  <button key={tb.id} onClick={() => {
+                    setSelTable(tb); setShowTablePicker(false); setError('');
+                    // Occupied table already has a live order → switch straight
+                    // into "adding to Order #X" mode, no waiting for Fire.
+                    setExistingOrder(orderByTable[tb.id] || null);
+                  }} style={{
                     ...card, textAlign: 'left', padding: 16, cursor: 'pointer', fontFamily: T.font,
                     border: isSel ? `2px solid ${T.green}` : '2px solid transparent',
                   }}>
@@ -489,7 +574,7 @@ export default function MenuScreen({ user, settings, search }) {
           {ORDER_TYPES.map(({ key, label }) => {
             const active = orderType === key;
             return (
-              <button key={key} onClick={() => { setOrderType(key); if (key !== 'dine_in') { setSelTable(null); setShowTablePicker(false); } }} style={{
+              <button key={key} onClick={() => { setOrderType(key); if (key !== 'dine_in') { setSelTable(null); setExistingOrder(null); setShowTablePicker(false); } }} style={{
                 flex: 1, padding: '8px 0', borderRadius: T.rPill, cursor: 'pointer', fontFamily: T.font,
                 border: 'none', fontSize: 12, fontWeight: 800, transition: 'background .15s, color .15s',
                 background: active ? T.green : T.chipBg, color: active ? '#fff' : T.muted,
@@ -500,62 +585,93 @@ export default function MenuScreen({ user, settings, search }) {
           })}
         </div>
 
-        {/* Order / Table / Server strip */}
-        <div style={{
-          display: 'flex', alignItems: 'stretch', borderTop: `1px solid ${T.line}`, borderBottom: `1px solid ${T.line}`,
-          padding: '10px 0', marginBottom: 10, gap: 8,
-        }}>
-          <div style={{ flex: 1 }}>
-            <div style={uppercaseLabel}>Order</div>
-            <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2 }}>New</div>
-          </div>
-          {orderType === 'dine_in' ? (
-            <button onClick={() => setShowTablePicker(v => !v)} style={{
-              flex: 1, textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer',
-              fontFamily: T.font, padding: 0,
-            }}>
+        {/* Table selector — moved out of the Order/Server strip into its own row
+            between the order-type pills and the strip, dine-in only */}
+        {orderType === 'dine_in' && (
+          <button onClick={() => setShowTablePicker(v => !v)} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            width: '100%', boxSizing: 'border-box', textAlign: 'left', border: 'none',
+            background: T.chipBg, borderRadius: T.rBtn, padding: '10px 12px', marginBottom: 12,
+            cursor: 'pointer', fontFamily: T.font,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <span style={{
+                width: 32, height: 32, borderRadius: 9, background: T.surface, color: T.greenDark,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: T.cardShadow,
+              }}>
+                <TableIcon size={15} strokeWidth={1.8} />
+              </span>
               <div style={uppercaseLabel}>Table</div>
-              <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2, color: tableLabel ? T.ink : T.coral }}>
-                {tableLabel || 'Select…'}
-              </div>
-            </button>
-          ) : (
-            <div style={{ flex: 1.4 }}>
-              <div style={uppercaseLabel}>Customer</div>
-              <input
-                value={custName} onChange={e => setCustName(e.target.value)} placeholder="Name…"
-                style={{
-                  border: 'none', outline: 'none', background: 'transparent', fontFamily: T.font,
-                  fontSize: 13, fontWeight: 700, color: T.ink, width: '100%', padding: 0, marginTop: 2,
-                }}
-              />
             </div>
-          )}
-          <div style={{ flex: 1, textAlign: 'right' }}>
-            <div style={uppercaseLabel}>Server</div>
-            <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2 }}>{(user.name || '').split(' ')[0] || '—'}</div>
-          </div>
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: tableLabel ? T.ink : T.coral }}>
+                {tableLabel || 'Select…'}
+              </span>
+              <ChevronRight size={15} strokeWidth={2} color={T.faint} />
+            </div>
+          </button>
+        )}
 
+        {/* Adding-to-existing-order notice — appears the instant an occupied
+            table is tapped, before Fire, per the explicit requirement that
+            this must never look like a silent second order on that table. */}
+        {existingOrder && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, background: T.greenTint,
+            color: T.greenDark, borderRadius: T.rBtn, padding: '9px 12px', marginBottom: 12,
+            fontSize: 12, fontWeight: 800,
+          }}>
+            <Plus size={14} strokeWidth={2.5} />
+            Adding to Order #{existingOrder.dailyNumber || existingOrder.id.slice(-4)}
+          </div>
+        )}
+
+        {/* Delivery: Customer Name → Phone → Address, stacked, in that order.
+            Takeout intentionally has no fields here at all anymore. */}
         {orderType === 'delivery' && (
-          <input
-            value={custAddr} onChange={e => setCustAddr(e.target.value)} placeholder="Delivery address…"
-            style={{
-              border: `1px solid ${T.line}`, borderRadius: T.rBtn, padding: '9px 12px', fontSize: 12.5,
-              fontFamily: T.font, color: T.ink, outline: 'none', marginBottom: 10,
-            }}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+            <IconField Icon={User}   value={custName}  onChange={setCustName}  placeholder="Customer name…" />
+            <IconField Icon={Phone}  value={custPhone} onChange={setCustPhone} placeholder="Phone number…" />
+            <IconField Icon={MapPin} value={custAddr}  onChange={setCustAddr}  placeholder="Delivery address…" />
+          </div>
         )}
 
         {/* Cart — grouped by category */}
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, marginBottom: 10 }}>
+          {/* Already-in-the-order items — read-only, visually muted so it's
+              never confused with what's about to be added on Fire. */}
+          {existingOrder && existingItems.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ ...uppercaseLabel, color: T.muted, marginBottom: 6 }}>
+                Already In This Order
+              </div>
+              {existingItems.map((e, i) => (
+                <div key={`existing-${e.menuItemId}-${i}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                  background: T.chipBg, borderRadius: T.rBtn, marginBottom: 6,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {e.name} <span style={{ color: T.faint, fontWeight: 600 }}>× {e.qty}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: T.faint, flexShrink: 0 }}>
+                    {money(e.price * e.qty)}
+                  </div>
+                </div>
+              ))}
+              <div style={{ ...uppercaseLabel, color: T.green, marginBottom: 6, marginTop: 12 }}>
+                Adding Now
+              </div>
+            </div>
+          )}
           {cartEntries.length === 0 ? (
             <div style={{
               height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center',
               justifyContent: 'center', color: T.faint, gap: 8,
             }}>
               <ShoppingBag size={34} strokeWidth={1.5} />
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: T.muted }}>Cart is empty</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: T.muted }}>
+                {existingOrder ? 'No new items yet' : 'Cart is empty'}
+              </div>
               <div style={{ fontSize: 11.5 }}>Add items from the menu</div>
             </div>
           ) : (
@@ -591,17 +707,34 @@ export default function MenuScreen({ user, settings, search }) {
           )}
         </div>
 
-        {/* Totals */}
+        {/* Totals — when adding to an existing order, break it down so the
+            cashier can see the existing amount, the new amount, and the
+            combined total the order will carry after Fire (matches the
+            backend's full-recompute-from-all-items behavior exactly). */}
         <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 10, marginBottom: 12 }}>
-          <TotalRow label="Sub Total" value={money(subtotal)} />
-          {settings.taxEnabled && <TotalRow label={`Tax (${settings.taxRate}%)`} value={money(taxAmt)} />}
-          {settings.serviceChargeEnabled && svcAmt > 0 && (
-            <TotalRow label={`Service Charge (${settings.serviceChargeRate}%)`} value={money(svcAmt)} note="not charged" />
+          {existingOrder ? (
+            <>
+              <TotalRow label="Already In Order" value={money(existingSubtotal)} />
+              <TotalRow label="Adding Now" value={money(subtotal)} />
+              {settings.taxEnabled && <TotalRow label={`Tax (${settings.taxRate}%)`} value={money(combinedTax)} />}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 }}>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>New Order Total</span>
+                <span style={{ fontSize: 19, fontWeight: 800 }}>{money(combinedTotal)}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <TotalRow label="Sub Total" value={money(subtotal)} />
+              {settings.taxEnabled && <TotalRow label={`Tax (${settings.taxRate}%)`} value={money(taxAmt)} />}
+              {settings.serviceChargeEnabled && svcAmt > 0 && (
+                <TotalRow label={`Service Charge (${settings.serviceChargeRate}%)`} value={money(svcAmt)} note="not charged" />
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 }}>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>Total</span>
+                <span style={{ fontSize: 19, fontWeight: 800 }}>{money(total)}</span>
+              </div>
+            </>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 }}>
-            <span style={{ fontSize: 15, fontWeight: 800 }}>Total</span>
-            <span style={{ fontSize: 19, fontWeight: 800 }}>{money(total)}</span>
-          </div>
         </div>
 
         {error && (
@@ -630,20 +763,25 @@ export default function MenuScreen({ user, settings, search }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
             {submitting ? <Loader2 size={15} style={{ animation: 'posspin 1s linear infinite' }} /> : <Flame size={15} strokeWidth={1.8} />}
-            Fire
+            {existingOrder ? 'Add to Order' : 'Fire'}
           </button>
         </div>
-        <button onClick={handleChargeClick} disabled={!cartEntries.length} style={{
-          padding: '13px 0', borderRadius: T.rBtn, border: 'none',
-          background: T.green, color: '#fff', fontSize: 14.5, fontWeight: 800,
-          cursor: cartEntries.length ? 'pointer' : 'default', fontFamily: T.font,
-          opacity: cartEntries.length ? 1 : 0.5, transition: 'background .15s',
-        }}
-          onMouseEnter={e => { if (cartEntries.length) e.currentTarget.style.background = T.greenDark; }}
-          onMouseLeave={e => e.currentTarget.style.background = T.green}
-        >
-          Charge {money(total)}
-        </button>
+        {/* Charge (pay now) is Menu-only for brand-new orders. When adding to
+            an existing order, payment happens later from Orders/Tables — only
+            Fire is allowed here, so the Charge button is hidden entirely. */}
+        {!existingOrder && (
+          <button onClick={handleChargeClick} disabled={!cartEntries.length} style={{
+            padding: '13px 0', borderRadius: T.rBtn, border: 'none',
+            background: T.green, color: '#fff', fontSize: 14.5, fontWeight: 800,
+            cursor: cartEntries.length ? 'pointer' : 'default', fontFamily: T.font,
+            opacity: cartEntries.length ? 1 : 0.5, transition: 'background .15s',
+          }}
+            onMouseEnter={e => { if (cartEntries.length) e.currentTarget.style.background = T.greenDark; }}
+            onMouseLeave={e => e.currentTarget.style.background = T.green}
+          >
+            Charge {money(total)}
+          </button>
+        )}
       </div>
 
       {/* ══ Amount picker modal (weighed items) ══ */}
@@ -750,6 +888,24 @@ function CategoryCard({ label, Icon, active, onClick }) {
         {label}
       </span>
     </button>
+  );
+}
+
+function IconField({ Icon, value, onChange, placeholder }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${T.line}`,
+      borderRadius: T.rBtn, padding: '0 12px', height: 40, boxSizing: 'border-box',
+    }}>
+      <Icon size={15} strokeWidth={1.8} color={T.faint} style={{ flexShrink: 0 }} />
+      <input
+        value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{
+          border: 'none', outline: 'none', background: 'transparent', fontFamily: T.font,
+          fontSize: 12.5, color: T.ink, flex: 1, minWidth: 0, padding: 0, height: '100%',
+        }}
+      />
+    </div>
   );
 }
 

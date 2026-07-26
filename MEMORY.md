@@ -294,11 +294,22 @@ see above) — root-caused entirely from code + the user's screenshots:
   charged total). Flagged to the owner; if they want it actually charged, the backend order-total
   math needs to change first, then the POS just re-reads the corrected total — don't add it
   client-side as a workaround.
-- **Supabase MCP had no query permission this session** (`execute_sql`/`list_tables` both
-  returned "You do not have permission to perform this action") — the ingredient-math audit this
-  session was done entirely from code + the user's own screenshots, not live queries. If DB
-  access is available in a future session, it's worth double-checking the Output-tab fix against
-  real numbers directly rather than relying on the screenshot-based reconciliation alone.
+- **Supabase MCP `execute_sql`/`list_tables` access is not reliably available every session** —
+  denied with "You do not have permission" during the ingredient-math audit session, but worked
+  fine in the very next session (used to diagnose the PowerSync replication-slot issue below).
+  Treat it as "try it, don't assume it'll work" rather than permanently on or off.
+- **PowerSync Cloud can silently stop replicating — check `pg_replication_slots` first when POS
+  data isn't syncing.** Confirmed 2026-07-26: new orders/table-status changes visible on the
+  website (direct Postgres) but never arriving in the Electron POS app, across old design and
+  new redesign alike. Publication membership, `relreplident`, and `powersync_role` validity were
+  all fine — the actual cause was `pg_replication_slots` returning zero rows, meaning PowerSync
+  Cloud had no active connection to Postgres at all. This is diagnosable in one query
+  (`SELECT * FROM pg_replication_slots;` via Supabase MCP) and is NOT fixable from this side —
+  no API access to the PowerSync Cloud dashboard exists in this environment. The fix lives in
+  PowerSync Cloud's dashboard (the "the-bill-pos" project's Development instance) — the user has
+  to check/reconnect it there. A live sync-status badge now exists in the POS topbar
+  (`PosShell.jsx`) so this class of issue is visible from inside the app going forward instead
+  of requiring a DB query to notice.
 - **All 8 screens are now built** (finished 2026-07-26, same session as the start, after a
   user-requested pause/resume in the middle). Nothing has been run in the real app yet — do not
   treat this as "done," treat it as "ready for its first real test." If a future session is asked
@@ -310,3 +321,46 @@ see above) — root-caused entirely from code + the user's screenshots:
   exactly this reason — schema.sql has no columns for them. The user has explicitly flagged
   fabricated/assumed fields as "mistakes" and "mirages" before; the standing rule is to omit a
   field rather than fake it, and say so in a code comment.
+- **Standing UX rule, overrides the design README where they conflict: editing an order on the
+  Tables screen must stay entirely in-place — never navigate to the Orders screen.** The design
+  handoff's own text says "Edit jumps to Orders in edit mode," and an early implementation did
+  exactly that via a cross-screen handoff — the user explicitly rejected it ("I must stay at the
+  tables page and edit it all from there"). `TablesScreen.jsx` now has its own full edit mode
+  (items + order type + "Change on floor plan" table picker, mirroring Orders' edit UI). Do not
+  "fix" this back toward the design doc's literal wording in a future session.
+- **React footgun, bit us twice in one session: never bind `onClick={fn}` when `fn` has a
+  default parameter you're relying on.** `onClick` always passes the DOM event as the first
+  argument, so `(arg = someState) => ...` silently receives that event instead — the default
+  only applies to a literal `undefined`, and an event object is truthy. This produced a
+  "selected item's fields are all blank" bug (`OrdersScreen.jsx`'s `startEdit`) that looked like
+  a data-loading race at first glance but was actually this. If a handler needs an argument,
+  either give it no parameter and read from closed-over state instead, or wrap the call site
+  explicitly: `onClick={() => fn(theRealArg)}`.
+- **Tables icon must look like an actual restaurant table (top-down, table+4 chairs), never
+  lucide's `TableProperties`** (that one reads as a spreadsheet grid and was explicitly called
+  out as wrong). Fixed with a hand-built SVG in `pos-app/src/pages/pos/icons.jsx` (`TableIcon`).
+  This only applies inside the active `pos-app/src/pages/pos/` redesign — the old unrouted
+  `Cashier.jsx` was deliberately left untouched ("globally in pos-app only").
+- **Add-to-existing-order feature (built 2026-07-27): tapping an occupied table from Menu while
+  building a cart appends to that table's live order instead of creating a second order on the
+  same table.** This mirrors a feature the old `new_cashier`/`Cashier.jsx` flow already had.
+  Confirmed requirements from the user directly (do not relitigate without asking again): (1)
+  the "adding to existing order" notice shows the instant the table is tapped, not just at Fire;
+  (2) the cart view merges the existing order's items in live but keeps them visually distinct
+  (read-only "Already In This Order" section) from what's newly being added ("Adding Now"); (3)
+  only Fire is allowed in this mode, never Charge — payment still happens later from
+  Orders/Tables; (4) the cashier stays on the Menu tab after firing, cart just clears. Backend
+  call is the new `orders:addItems`/`ordersAddItems` IPC → `POST /api/orders/:id/items`
+  (append-only, backend recomputes totals from ALL items) — deliberately NOT `orders:update`
+  (`PUT /:id`), which replaces the whole item list and would double-count existing items.
+  **Confirmed working on the real machine 2026-07-27.**
+- **Editing `main.js`/`preload.js` requires a full Electron app restart to take effect, not
+  just a renderer hot-reload — silent failure symptom to recognize: a button looks normal
+  (not greyed out/disabled), click does nothing, no error banner, no loading spinner.** This
+  happens because `window.electronAPI.xxx` doesn't exist yet on the still-running old preload
+  bundle, so calling it throws a synchronous `TypeError` before the loading state can even
+  flush, and with no `.catch` on the click handler the error only surfaces in the DevTools
+  console, not the UI. Hit this exact symptom right after adding `ordersAddItems` — user
+  suspected "permissions," but the actual fix was fully quitting and restarting `npm run dev`
+  (not just `dev:renderer`). Check for this first whenever a *newly added* IPC call silently
+  no-ops right after it was wired up, before investigating auth/role permissions.

@@ -2,8 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- img-src needs the Render backend domain: menu-item/avatar photos are
+         served from there (multer disk upload + express.static('/uploads'),
+         see restaurant-app/backend/src/routes/menu.js + server.js), not from
+         this app's own origin — without this, every real photo silently
+         fails to load and falls back to nothing (broken-image icon), while
+         items with no photo correctly show the placeholder instead. -->
     <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;" />
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://the-bill-backend-pego.onrender.com;" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>The Bill POS</title>
     <!-- Plus Jakarta Sans (POS Terminal design system). Loads + caches when online;

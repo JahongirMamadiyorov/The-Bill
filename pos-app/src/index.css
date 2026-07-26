@@ -20,3 +20,28 @@ body {
 button, input {
   font-family: inherit;
 }
+
+/* App-wide scrollbar styling — every scrollable list in the POS (cart, order
+   grids, add-items menus, etc.) gets this instead of the default thick OS/
+   Chromium scrollbar. Thin, rounded, transparent track, subtle thumb that
+   darkens on hover. Global on purpose so every screen matches, not just one. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #D3D9DC;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #B0B8BF;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #D3D9DC transparent;
+}

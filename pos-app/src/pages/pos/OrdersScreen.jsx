@@ -145,9 +145,15 @@ export default function OrdersScreen({ user, settings, search }) {
   const panelTotal    = editing ? panelSubtotal + panelTax : Number(selected?.totalAmount || 0);
 
   // ── Edit mode ─────────────────────────────────────────────────────────────
+  // No parameter here on purpose — this is wired directly as a button
+  // onClick, and onClick always passes the DOM event as the first argument.
+  // A `(ord = selected) =>` signature would silently receive that event
+  // instead of falling back to `selected` (the event is truthy, so the
+  // default never kicks in), and `event.id`/`event.tableId` are undefined —
+  // exactly what caused items/table to blank out when Edit was clicked.
   const startEdit = () => {
     if (!selected) return;
-    const items = selItems.map(it => ({
+    const items = (itemsByOrd[selected.id] || []).map(it => ({
       menuItemId: it.menuItemId,
       name:  menuById[it.menuItemId]?.name || 'Item',
       price: Number(it.unitPrice || menuById[it.menuItemId]?.price || 0),
@@ -351,31 +357,33 @@ export default function OrdersScreen({ user, settings, search }) {
                       border: isSel ? `2px solid ${T.green}` : '2px solid transparent',
                       display: 'flex', flexDirection: 'column', gap: 10,
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 15, fontWeight: 800 }}>#{o.dailyNumber || o.id.slice(-4)}</span>
-                        <span style={pill(sp)}>{sp.label}</span>
+                        <span style={{ flexShrink: 0, ...pill(sp) }}>{sp.label}</span>
                       </div>
-                      <div style={{ fontSize: 11.5, color: T.muted, display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{place}</span>
-                        <span>{timeAgo(o.createdAt)}</span>
+                      <div style={{ fontSize: 11.5, display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', gap: 8 }}>
+                        <span style={{ color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{place}</span>
+                        <span style={{ color: T.faint, flexShrink: 0 }}>{timeAgo(o.createdAt)}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                          width: 26, height: 26, borderRadius: 8, background: T.greenTint, color: T.greenDark,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800,
-                        }}>
-                          {initials(waiter)}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', alignItems: 'center', gap: 8 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                          <span style={{
+                            width: 26, height: 26, borderRadius: 8, background: T.greenTint, color: T.greenDark,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, flexShrink: 0,
+                          }}>
+                            {initials(waiter)}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {waiter}
+                          </span>
                         </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {waiter}
-                        </span>
-                        <span style={{ fontSize: 11, color: T.faint, fontWeight: 700 }}>{count} items</span>
+                        <span style={{ fontSize: 11, color: T.faint, fontWeight: 700, flexShrink: 0 }}>{count} items</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', alignItems: 'center' }}>
                         <span style={{ fontSize: 15.5, fontWeight: 800 }}>{money(o.totalAmount)}</span>
                         <span style={{
                           width: 30, height: 30, borderRadius: 10, background: T.chipBg, color: T.muted,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                         }}>
                           <Eye size={15} strokeWidth={1.8} />
                         </span>
@@ -407,9 +415,15 @@ export default function OrdersScreen({ user, settings, search }) {
               <span style={pill(statusPill(selected.status))}>{statusPill(selected.status).label}</span>
             </div>
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 12 }}>
-              {(editing ? editType : selected.orderType) === 'dine_in'
-                ? (editing ? (editTable ? (editTable.name || `Table ${editTable.tableNumber}`) : 'No table') : (tableLabelOf(selected.tableId) || 'Dine In'))
-                : ((editing ? editType : selected.orderType) === 'to_go' ? 'Takeout' : 'Delivery')}
+              {(() => {
+                const type = editing ? editType : selected.orderType;
+                const typeLabel = type === 'dine_in' ? 'Dine In' : type === 'to_go' ? 'Takeout' : 'Delivery';
+                if (type !== 'dine_in') return typeLabel;
+                const tableName = editing
+                  ? (editTable ? (editTable.name || `Table ${editTable.tableNumber}`) : 'No table')
+                  : (tableLabelOf(selected.tableId) || 'No table');
+                return `${tableName} · ${typeLabel}`;
+              })()}
               {' · '}{timeAgo(selected.createdAt)}
             </div>
 

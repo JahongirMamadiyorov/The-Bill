@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ordersPay:    (id, payload) => ipcRenderer.invoke('orders:pay', { id, data: payload }),
   ordersUpdate: (id, payload) => ipcRenderer.invoke('orders:update', { id, data: payload }),
   ordersRefund: (id, payload) => ipcRenderer.invoke('orders:refund', { id, data: payload }),
+  ordersAddItems: (id, payload) => ipcRenderer.invoke('orders:addItems', { id, data: payload }),
   loansPay:     (id, payload) => ipcRenderer.invoke('loans:pay', { id, data: payload }),
   loansRemind:  ()            => ipcRenderer.invoke('loans:remind'),
   shiftsClockIn:  () => ipcRenderer.invoke('shifts:clockIn'),

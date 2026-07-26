@@ -240,6 +240,15 @@ ipcMain.handle('orders:update', async (_event, { id, data }) =>
 ipcMain.handle('orders:refund', async (_event, { id, data }) =>
   submitOrderWrite('POST', `/api/orders/${id}/refund`, data));
 
+// Add items to an already-existing order (Menu screen: cashier picks an
+// occupied table while building a cart → items get appended to that table's
+// live order instead of creating a second order on the same table). Backend
+// recalculates subtotal/tax/total from ALL items and reopens the order for
+// the kitchen (see orders.js POST /:id/items) — send only the NEW items here,
+// not the full list (unlike orders:update, which replaces the whole list).
+ipcMain.handle('orders:addItems', async (_event, { id, data }) =>
+  submitOrderWrite('POST', `/api/orders/${id}/items`, data));
+
 // Receivables — collect a loan payment. PATCH /api/loans/:id/pay is a
 // pre-existing backend endpoint (loans.js), unrelated to order writes, but
 // still goes through submitOrderWrite() since it's the same "write needs the
