@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import RolePlaceholder from './pages/RolePlaceholder.jsx';
-import Cashier from './pages/Cashier.jsx';
+import PosCashier from './pages/pos/PosCashier.jsx';
 
 // Phase 0: prove the shell + auth loop works end to end. Each role below gets its
 // real screen built out in later phases (see STATUS.md at the project root).
@@ -47,7 +47,7 @@ export default function App() {
       />
       <Route path="/admin"   element={<Guard session={session}><RolePlaceholder title="Admin / Owner" onLogout={() => setSession(null)} /></Guard>} />
       <Route path="/cashier" element={<Guard session={session}><RolePlaceholder title="Cashier" onLogout={() => setSession(null)} /></Guard>} />
-      <Route path="/pos"     element={<Guard session={session}><Cashier session={session} onLogout={() => setSession(null)} /></Guard>} />
+      <Route path="/pos"     element={<Guard session={session}><PosCashier session={session} onLogout={() => setSession(null)} /></Guard>} />
       <Route path="/kitchen" element={<Guard session={session}><RolePlaceholder title="Kitchen" onLogout={() => setSession(null)} /></Guard>} />
       <Route path="/waiter"  element={<Guard session={session}><RolePlaceholder title="New Waiter" onLogout={() => setSession(null)} /></Guard>} />
       <Route path="*" element={<Navigate to={session ? defaultRouteFor(role) : '/login'} replace />} />

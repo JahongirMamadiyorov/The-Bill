@@ -23,4 +23,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // exactly what the Express API expects (no camelCase translation on the way out).
   ordersCreate: (payload)     => ipcRenderer.invoke('orders:create', payload),
   ordersPay:    (id, payload) => ipcRenderer.invoke('orders:pay', { id, data: payload }),
+  ordersUpdate: (id, payload) => ipcRenderer.invoke('orders:update', { id, data: payload }),
+  ordersRefund: (id, payload) => ipcRenderer.invoke('orders:refund', { id, data: payload }),
+  loansPay:     (id, payload) => ipcRenderer.invoke('loans:pay', { id, data: payload }),
+  loansRemind:  ()            => ipcRenderer.invoke('loans:remind'),
+  shiftsClockIn:  () => ipcRenderer.invoke('shifts:clockIn'),
+  shiftsClockOut: () => ipcRenderer.invoke('shifts:clockOut'),
+
+  // Read-only backend GET for data not in PowerSync (settings, shifts, loans,
+  // history). Writes must NOT use this — see main.js api:get comment.
+  apiGet: (path) => ipcRenderer.invoke('api:get', path),
 });

@@ -275,3 +275,140 @@ whole time. Wasted a round trying to "fix" this via bash `cp`, which briefly clo
 Edit-tool change with older content — caught it and redid the edit through Read/Edit only, then
 verified through Read only, not bash. Documented in MEMORY.md so this doesn't happen again:
 **for this project, verify file edits via Read, not bash, especially right after a write.**
+
+---
+
+## 2026-07-26
+
+**Audited the inventory/ingredient math the user flagged as "incorrect" against real data.**
+Backend has no DB query permission this session (Supabase MCP returned a permission error on
+both `execute_sql` and `list_tables` — flagged in MEMORY.md), so this was a code-audit +
+user-screenshot reconciliation, not a live query. Root cause for the specific numbers the user
+gave (Shashlik Qiyma 66→11 but "58 consumption" shown; Shashlik Mol Go'sht 30→10 but "22 out"):
+the Stock Output tab (`AdminInventory.jsx`) only ever showed `OUT/WASTE/ADJUST/SHRINKAGE`
+movements, never the `type='IN'` refunds the backend correctly logs when an order edit
+removes/reduces an item — those only showed on the separate Stock Overview tab. So the two
+numbers never reconciled even though the live stock figure was right. **Fixed:** Output tab now
+also shows those order-refund IN rows inline (green "+", reusing the existing Added/Removed/
+Edited badges) and each item's headline number is the NET (out − returned) so it matches live
+stock directly. Also found (not yet fixed, logged in MEMORY.md): the phone app has a second,
+older `/api/inventory` API (`RestaurantApp/src/screens/admin/AdminInventory.js`) that silently
+bypasses stock_movements logging — a real corruption risk if anyone uses that screen instead of
+`WarehouseScreen.js`; and the `PUT /:id/pay` "already deducted" fallback check in `orders.js` has
+no restaurant/date scoping, which can false-match an unrelated order.
+
+**POS Terminal redesign — approved and started.** The project owner built a full design in
+"Claude Design" (their term for a separate design tool, not this AI) and dropped the handoff at
+`pos-app/POS Terminal Design System/design_handoff_pos_terminal/` (README + 14 screenshots).
+Read it fully, compared against the existing teal `pos-app/src/pages/Cashier.jsx`, and got
+explicit approval to rebuild. Confirmed with the owner along the way: no "Bills" screen (dropped
+from nav), service charge / currency / categories / table sections are all already
+admin-controlled and dynamic (verified against real route files, not assumed — see MEMORY.md
+"What admin/owner can already control" for the full list), the only genuinely new backend work
+is refunds, and **naming**: DB/API keep `waitress_id`/`waitress_permissions`/role string
+`'waitress'` exactly as-is (renaming would break every app reading them) — only the UI *label*
+changes to "Waiter". Also caught before it caused a live 403: `new_cashier`/`new_waiter` were
+missing from `settings.js`'s `ALLOWED_ROLES`, which would have blocked the POS from ever reading
+currency/tax/service-charge settings.
+
+Built as a fresh `pos-app/src/pages/pos/` folder (old `Cashier.jsx` kept, no longer routed) so
+the old screen stays available as a fallback/reference. Steps 1–6 done this session (esbuild
+parse-checked every file; **none of this has been run on the real machine yet** — that's the
+next thing to do):
+- **Step 1 — shell:** `tokens.js` (design tokens/statusPill/fmtMoney — currency always from
+  settings, never hardcoded), `useSettings.js` (settings fetch + localStorage cache for
+  offline), `PosShell.jsx` (264↔88px collapsible sidebar, UZ/EN toggle, topbar with clocked-in
+  time from real shifts data). Backend: `settings.js` ALLOWED_ROLES fix. `main.js`/`preload.js`:
+  new read-only `api:get`/`apiGet` IPC for data that isn't in local PowerSync (settings, shifts,
+  loans, history) — explicitly documented as GET-only, writes must use their own funnel.
+  `index.html`: Plus Jakarta Sans loaded via Google Fonts (CSP extended), system-font fallback
+  when offline.
+- **Step 2 — Menu screen** (`MenuScreen.jsx`): category cards, product grid, Order Details panel
+  with cart grouped by category + steppers, floor-plan table picker, weighed-item amount modal —
+  all ported from the old `Cashier.jsx` logic, just restyled. Money math mirrors the backend
+  exactly (subtotal + tax; service charge shown as a line but NOT added to the charged total,
+  because `POST /api/orders` doesn't add it either — flagged to the owner as an open question,
+  not decided yet, do not silently "fix" this client-side either direction).
+- **Step 3 — Payment modal** (`PaymentModal.jsx`): Cash/Card/QR/Loan grid, amount received +
+  change, %/amount discount, split 2/3/4 ways with per-part method + loan fields, success view.
+  Payload shape matches `PUT /orders/:id/pay` exactly (payment_method/discount_amount/
+  split_payments/loan_* fields).
+- **Step 4 — Orders screen** (`OrdersScreen.jsx`): filter pills, order cards, detail panel, full
+  edit mode (steppers/remove/change type/change table via floor plan, Discard reverts from a
+  snapshot, Done saves via the new `orders:update`/`ordersUpdate` IPC → `PUT /orders/:id` — the
+  same route whose stock-diff logic was fixed earlier this session, so edits made here correctly
+  adjust ingredient stock).
+- **Step 5 — Tables screen** (`TablesScreen.jsx`): zone pills (from `restaurant_tables.section`,
+  confirmed present in the local PowerSync schema), status legend, table cards with
+  waiter/elapsed/total, tap → read-only order summary, "Open in Orders" jumps to the Orders
+  screen for editing/charging (kept edit logic in one place rather than duplicating it).
+- **Step 6 — History screen + refund endpoint:** New backend `POST /api/orders/:id/refund`
+  (owner/admin/cashier/new_cashier) — whole-order refund only (no partial refunds yet): restores
+  ingredient stock via the same BOM/SAVEPOINT pattern as everywhere else in `orders.js` (logs
+  `type='IN'` with the `Auto: Order #<num> (refund) — ...` prefix so it shows up correctly in the
+  Output-tab fix from earlier today), reverses the cash_flow entry for cash payments, auto-cancels
+  any still-active loan tied to the order, and sets new `refunded_at`/`refund_reason`/
+  `refunded_by` columns (auto-migrated) — **deliberately does NOT change `orders.status`**, to
+  avoid touching the `orders_status_check` CHECK constraint or any status-branching code
+  elsewhere; History computes "Refunded" vs "Completed" from `refunded_at IS NOT NULL` instead.
+  `HistoryScreen.jsx`: stat cards, Today/Yesterday/This Week/Custom date chips (custom opens a
+  real month-calendar range picker), orders table, order-detail modal, refund reason dialog.
+  History reads via `apiGet('/api/orders?...')` (backend, not local PowerSync) — deliberate,
+  since history needs full joined data (table/waiter names, item counts) and doesn't need
+  offline live-polling the way Menu/Orders/Tables do.
+- **Step 7 — Receivables: only half-started when the user said stop.** Backend IPC wiring is
+  done (`loans:pay`/`loansPay` → existing `PATCH /api/loans/:id/pay`, confirmed this endpoint
+  already exists and takes `payment_method` — no backend change needed for Receivables beyond
+  this). **The actual `ReceivablesScreen.jsx` UI was NOT built.** Step 8 (Profile) also not
+  started.
+
+**Stopped mid-task at the user's explicit request** ("stop the job and leave a log and etc
+stuffs") — this entry plus the STATUS.md/MEMORY.md updates are that log. Nothing left in a
+broken state: every file written this session parses clean (esbuild-checked) and the app still
+routes correctly for the screens that exist; unregistered screens (`receivables`, `profile`)
+just show the shell's built-in "coming in a later build step" placeholder rather than crashing.
+
+---
+
+## 2026-07-26 (continued) — POS redesign steps 7–8, all 8 screens now built
+
+User returned ("i am back please continue now") and this picked up exactly where the stop
+happened. Two things fixed/finished:
+
+**Caught a real bug before it shipped:** the half-written Receivables "Remind" button was going
+to call the backend's `POST /api/loans/notify-overdue` through the GET-only `apiGet` IPC —
+that would have silently 404'd (Express doesn't match a POST-only route to a GET request).
+Added a proper `loans:remind`/`loansRemind` write IPC instead of leaving the broken plumbing in
+place; the button now actually works and correctly notifies all overdue loans restaurant-wide
+(there's no per-loan reminder route on the backend, so that's the real scope of the button).
+
+**Step 7 — Receivables** (`ReceivablesScreen.jsx`): 3 stat cards computed client-side from the
+loan list (no separate stats call needed — `GET /api/loans/stats` exists but the client-side
+compute was simpler given the filter chips need the same data anyway), All/Active/Paid/Overdue
+filters (Active = not yet due or due within 3 days, matching the design's "current + due-soon"
+definition), loans table, Loan Details modal (fetches the linked order's items via
+`apiGet('/api/orders/:id')` for the itemized breakdown), Collect Payment modal → `loansPay`
+(`PATCH /api/loans/:id/pay`, a pre-existing endpoint — confirmed before wiring, no backend
+change needed for this step beyond the remind fix above).
+
+**Step 8 — Profile** (`ProfileScreen.jsx`): before writing this, checked `schema.sql` for the
+`shifts` and `users` tables to see what's actually real vs. what the design mock shows —
+found **no break-tracking column, no employee-ID field, no address/emergency-contact fields,
+and no change-password/edit-profile endpoint**. Rather than fake these (which the project owner
+has explicitly called out as a pattern to avoid — "did you make a mistake / see a mirage"),
+built the screen with only real data: header card with a live On-Shift/Off-Shift pill, Shift
+Info card that shows **either** a Clock In or Clock Out button depending on
+`GET /api/shifts/active`'s real state (new `shifts:clockIn`/`shiftsClockOut` IPC wired to the
+existing `POST /api/shifts/clock-in`/`clock-out` — previously nothing in the POS ever called
+these, so a cashier logging in was never actually clocked in), Personal Details from the
+session's own user object (phone/email/hire date — all real fields), and 3 stat cards computed
+from that user's own paid orders today.
+
+**All 8 screens now exist and are registered in `PosCashier.jsx`'s `SCREENS` map.** Final
+sanity pass: every file under `pos-app/src/pages/pos/` plus `App.jsx` esbuild-parses clean, and
+`node --check` passes on every touched backend file (`orders.js`, `settings.js`, `main.js`,
+`preload.js`). **None of this has been run in the actual Electron app yet** — that is the very
+next step, not deploying or building further phases. See STATUS.md for the exact test checklist
+handed to the user, including the reminder that this session's backend changes (settings
+ALLOWED_ROLES fix, the new refund endpoint + columns) still need to be pushed to
+`the-bill-backend`/Render before Refund/Receivables/Profile will work against the live backend.

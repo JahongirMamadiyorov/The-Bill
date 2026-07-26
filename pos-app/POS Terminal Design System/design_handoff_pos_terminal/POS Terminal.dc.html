@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<script src="./image-slot.js"></script>
+<style>
+body{margin:0}
+a{color:#1C9C5E;text-decoration:none}
+a:hover{color:#167A4C}
+*{box-sizing:border-box}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#D8E6DD;border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</helmet>
+<div style="{{ outerWrapperStyle }}">
+<div style="{{ canvasStyle }}">
+
+<div style="{{ sidebarStyle }}">
+  <div style="display:flex;align-items:center;gap:11px;padding:0 6px 20px;flex-shrink:0">
+    <div style="width:40px;height:40px;border-radius:12px;background:#23B26E;color:#fff;font-weight:800;font-size:19px;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ restaurantInitial }}</div>
+    <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;line-height:1.25;min-width:0">
+        <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ restaurantName }}</span>
+        <span style="font-size:10.5px;color:#7C8792;white-space:nowrap">Restaurant management system</span>
+      </div>
+    </sc-if>
+  </div>
+  <div style="height:1px;background:#F0F2F1;margin:0 4px 14px;flex-shrink:0"></div>
+  <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
+    <div style="{{ menuNavStyle }}" onClick="{{ setNavMenu }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"></rect><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"></rect><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"></rect><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"></rect></svg>
+      <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Menu</span></sc-if>
+    </div>
+    <div style="{{ ordersNavStyle }}" onClick="{{ setNavOrders }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><rect x="5" y="4.5" width="14" height="17" rx="2"></rect><path d="M9 4.5V3.5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 3.5v1"></path><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"></path></svg>
+      <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Orders</span></sc-if>
+    </div>
+    <div style="{{ tablesNavStyle }}" onClick="{{ setNavTables }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><rect x="2.5" y="6" width="19" height="4.5" rx="1.2"></rect><path d="M6 10.5V20M18 10.5V20"></path></svg>
+      <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Tables</span></sc-if>
+    </div>
+    <div style="{{ historyNavStyle }}" onClick="{{ setNavHistory }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12.5" r="8.5"></circle><path d="M12 7.5v5l3.5 2"></path></svg>
+      <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>History</span></sc-if>
+    </div>
+    <div style="{{ receivablesNavStyle }}" onClick="{{ setNavReceivables }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><rect x="2.5" y="6.5" width="19" height="13" rx="2"></rect><path d="M2.5 10h19"></path><circle cx="16.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"></circle></svg>
+      <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Receivables</span></sc-if>
+    </div>
+    <div style="{{ profileNavStyle }}" onClick="{{ setNavProfile }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7"></path></svg>
+      <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Profile</span></sc-if>
+    </div>
+  </div>
+  <div style="flex:1;min-height:8px"></div>
+  <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;flex-shrink:0;color:#7C8792">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c2.5 2.3 2.5 14.7 0 17-2.5-2.3-2.5-14.7 0-17z"></path></svg>
+    <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;display:flex;background:#F1F4F2;border-radius:10px;padding:3px;gap:3px">
+        <span onClick="{{ setLangUz }}" style="{{ langUzStyle }}">UZ</span>
+        <span onClick="{{ setLangEn }}" style="{{ langEnStyle }}">EN</span>
+      </div>
+    </sc-if>
+  </div>
+  <div style="height:1px;background:#F0F2F1;margin:0 4px 8px;flex-shrink:0"></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;color:#7C8792;font-weight:600;font-size:14px;flex-shrink:0" style-hover="background:#F4F6F5" onClick="{{ toggleCollapse }}">
+    <span style="{{ collapseIconStyle }};display:flex;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 6l-6 6 6 6"></path><path d="M19 6l-6 6 6 6"></path></svg></span>
+    <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Collapse</span></sc-if>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;cursor:pointer;color:#E14F45;font-weight:600;font-size:14px;flex-shrink:0" style-hover="background:#FDEBEA">
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 4H6.5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2H9"></path><path d="M14 8l4 4-4 4"></path><path d="M18 12H9.5"></path></svg>
+    <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span>Logout</span></sc-if>
+  </div>
+</div>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:20px;height:100%">
+
+  <div style="flex-shrink:0;height:60px;display:flex;align-items:center;justify-content:space-between;gap:20px">
+    <sc-if value="{{ showSearch }}" hint-placeholder-val="{{ true }}">
+      <div style="flex: 1; max-width: 460px; height: 100%; background: #fff; border-radius: 14px; display: flex; align-items: center; gap: 10px; padding: 0 18px; box-shadow: 0 4px 14px rgba(20,45,35,0.05); width: 100%">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AA4AE" stroke-width="2" stroke-linecap="round" style="flex-shrink:0"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+        <span style="color:#B0B8BF;font-size:14px">{{ searchPlaceholder }}</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:25px;font-weight:800">My Profile</span>
+    </sc-if>
+    <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-shrink:0">
+      
+      
+    </div><div style="width:46px;height:46px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(20,45,35,0.05);position:relative;flex-shrink:0">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#7C8792" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a5 5 0 0 0-5 5v3.2c0 .9-.3 1.7-.9 2.4L5 15h14l-1.1-1.4a3.8 3.8 0 0 1-.9-2.4V8a5 5 0 0 0-5-5z"></path><path d="M10 18a2 2 0 0 0 4 0"></path></svg>
+        <span style="position:absolute;top:11px;right:12px;width:8px;height:8px;border-radius:50%;background:#23B26E;border:2px solid #fff"></span>
+      </div><div style="display: flex; align-items: center; gap: 11px">
+        
+        <div style="display:flex;flex-direction:column;line-height:1.3">
+          <span style="font-weight:700;font-size:14px">{{ staffName }}</span>
+          <span style="font-size:11.5px;color:#7C8792">Clocked in at 06:33 AM</span>
+        </div>
+      </div>
+  </div>
+
+  <sc-if value="{{ isMenu }}" hint-placeholder-val="{{ true }}">
+  <div style="flex:1;min-height:0;display:flex;gap:20px">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:18px;overflow-y:auto;padding-right:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <span style="font-size:18px;font-weight:800">Category</span>
+        <div style="display:flex;gap:8px">
+          <button style="width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid #EEF1F1;display:flex;align-items:center;justify-content:center;color:#7C8792;cursor:pointer"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+          <button style="width:34px;height:34px;border-radius:50%;background:#23B26E;border:none;display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></button>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;flex-shrink:0">
+        <div style="width:120px;height:88px;border-radius:16px;border:1.5px solid #23B26E;background:#E4F7EC;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1C9C5E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10l-1.1 6.5a3.9 3.9 0 0 1-7.8 0L7 3z"></path><path d="M12 13.5V20M8.5 20h7"></path></svg>
+          <span style="font-size:12.5px;font-weight:700;color:#1C9C5E">Bar</span>
+        </div>
+        <div style="width:120px;height:88px;border-radius:16px;border:1.5px solid #EEF1F1;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer" style-hover="border-color:#23B26E">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7C8792" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11h17a7.5 7 0 0 1-17 0z"></path><path d="M12 11V7.5"></path></svg>
+          <span style="font-size:12.5px;font-weight:600;color:#1E2433">Food</span>
+        </div>
+        <div style="width:120px;height:88px;border-radius:16px;border:1.5px solid #EEF1F1;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer" style-hover="border-color:#23B26E">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7C8792" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.2 2h3.6v3.8l1.7 2.7v11a1.8 1.8 0 0 1-1.8 1.8h-3.4A1.8 1.8 0 0 1 8.5 19.5v-11l1.7-2.7V2z"></path><path d="M8.6 13h6.8"></path></svg>
+          <span style="font-size:12.5px;font-weight:600;color:#1E2433">Wine</span>
+        </div>
+        <div style="width:120px;height:88px;border-radius:16px;border:1.5px solid #EEF1F1;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer" style-hover="border-color:#23B26E">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7C8792" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12h17a7.5 7 0 0 1-17 0z"></path><path d="M9 5c0 .9-1 1-1 2M12.5 4c0 .9-1 1-1 2M16 5c0 .9-1 1-1 2"></path></svg>
+          <span style="font-size:12.5px;font-weight:600;color:#1E2433">Soup</span>
+        </div>
+        <div style="width:120px;height:88px;border-radius:16px;border:1.5px solid #EEF1F1;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer" style-hover="border-color:#23B26E">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7C8792" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l8.5 15h-17L12 3.5z"></path><circle cx="12" cy="12.5" r="1" fill="#7C8792" stroke="none"></circle><circle cx="10.3" cy="15.7" r="1" fill="#7C8792" stroke="none"></circle></svg>
+          <span style="font-size:12.5px;font-weight:600;color:#1E2433">Pizzas</span>
+        </div>
+        <div style="width:120px;height:88px;border-radius:16px;border:1.5px solid #EEF1F1;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer" style-hover="border-color:#23B26E">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7C8792" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12.5c4-4.5 12-4.5 16 0-4 4.5-12 4.5-16 0z"></path><path d="M19 12.5l2.5-2.7v5.4L19 12.5z"></path><circle cx="7.2" cy="11.6" r="0.7" fill="#7C8792" stroke="none"></circle></svg>
+          <span style="font-size:12.5px;font-weight:600;color:#1E2433">Fish</span>
+        </div>
+      </div>
+      <span style="font-size:18px;font-weight:800;flex-shrink:0">Menu</span>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding-bottom:6px">
+        <sc-for list="{{ menuItems }}" as="item" hint-placeholder-count="12">
+          <div style="background: #fff; border: 1px solid #EEF1F1; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; position: relative">
+            <div style="width:100%;height:120px">
+              <image-slot id="menu-img-{{item.id}}" shape="rounded" radius="14" placeholder="{{item.name}} photo"></image-slot>
+            </div>
+            <span style="font-weight:700;font-size:14px;line-height:1.3">{{item.name}}</span>
+            <span style="font-weight:700;color:#1C9C5E;font-size:13.5px">{{item.price}}</span>
+            <button style="width:100%;height:38px;border-radius:10px;background:#23B26E;border:none;color:#fff;font-weight:700;font-size:12.5px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-family:inherit" style-hover="background:#1C9C5E">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+              <span>ADD</span>
+            </button>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="width:372px;flex-shrink:0;background:#fff;border-radius:20px;padding:22px;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(20,45,35,0.06);height:100%;min-height:0">
+      <span style="font-size:18px;font-weight:800;margin-bottom:16px;flex-shrink:0">Order Details</span>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;flex-shrink:0">
+        <div>
+          <div style="font-weight:800;font-size:15px;margin-bottom:5px">Emily Carter</div>
+          <div style="font-size:11.5px;color:#7C8792">TUE, JUL 25 2026 · 07:42 PM</div>
+          <div style="font-size:11.5px;color:#7C8792;margin-top:2px">(415) 555-0199</div>
+        </div>
+        <div style="width:34px;height:34px;border-radius:10px;background:#E4F7EC;color:#1C9C5E;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">EC</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-shrink:0">
+        
+        <div style="width:34px;height:34px;border-radius:10px;background:#F5F7F6;color:#7C8792;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h14M18 7l-3.5-3.5M20 17H6M6 17l3.5 3.5"></path></svg></div>
+        <div style="width:34px;height:34px;border-radius:10px;background:#F5F7F6;color:#7C8792;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="9" width="12" height="7" rx="1.5"></rect><path d="M8 9V4.5h8V9M8 15.5V19h8v-3.5"></path></svg></div>
+        <div style="width:34px;height:34px;border-radius:10px;background:#F5F7F6;color:#7C8792;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v9M9.2 9.8c0-1.1 1.2-1.8 2.8-1.8s2.8.7 2.8 1.7c0 2.4-5.6 1-5.6 3.4 0 1 1.2 1.7 2.8 1.7s2.8-.6 2.8-1.6"></path></svg></div>
+        <div style="width:34px;height:34px;border-radius:10px;background:#F5F7F6;color:#7C8792;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5L11.5 3H18a2 2 0 0 1 2 2v6.5L11.5 20 3 11.5z"></path><circle cx="15" cy="8" r="1.3" fill="currentColor" stroke="none"></circle></svg></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;flex-shrink:0">
+        <span style="padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:700;background:#23B26E;color:#fff">Dine In</span>
+        <span style="padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1">Takeout</span>
+        
+        <span style="padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1">Delivery</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:12px 2px;border-top:1px solid #F0F2F1;border-bottom:1px solid #F0F2F1;margin-bottom:14px;flex-shrink:0">
+        <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Order</div><div style="font-size:14px;font-weight:800;margin-top:3px">#1082</div></div>
+        <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Table</div><div style="font-size:14px;font-weight:800;margin-top:3px">#4</div></div>
+        <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Server</div><div style="font-size:14px;font-weight:800;margin-top:3px">Ava Martinez</div></div>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-right:2px">
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <span style="display:inline-flex;background:#23B26E;color:#fff;font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:999px;width:fit-content">Salad</span>
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:700">Caesar Salad</span><span style="font-size:13.5px;font-weight:700">$9.00</span></div>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">
+            <button onClick="{{ decSalad }}" style="width:24px;height:24px;border-radius:7px;background:#F5F7F6;border:none;color:#1E2433;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;display:flex;align-items:center;justify-content:center">−</button>
+            <span style="font-size:13px;font-weight:700;min-width:16px;text-align:center">{{ qtySalad }}</span>
+            <button onClick="{{ incSalad }}" style="width:24px;height:24px;border-radius:7px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;display:flex;align-items:center;justify-content:center">+</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <span style="display:inline-flex;background:#23B26E;color:#fff;font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:999px;width:fit-content">Food</span>
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:700">Classic Cheeseburger</span><span style="font-size:13.5px;font-weight:700">$12.00</span></div>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">
+            <button onClick="{{ decMain }}" style="width:24px;height:24px;border-radius:7px;background:#F5F7F6;border:none;color:#1E2433;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;display:flex;align-items:center;justify-content:center">−</button>
+            <span style="font-size:13px;font-weight:700;min-width:16px;text-align:center">{{ qtyMain }}</span>
+            <button onClick="{{ incMain }}" style="width:24px;height:24px;border-radius:7px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;display:flex;align-items:center;justify-content:center">+</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            
+            
+            
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <span style="display:inline-flex;background:#23B26E;color:#fff;font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:999px;width:fit-content">Desert</span>
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:700">Chocolate Lava Cake</span><span style="font-size:13.5px;font-weight:700">$8.00</span></div>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">
+            <button onClick="{{ decDessert }}" style="width:24px;height:24px;border-radius:7px;background:#F5F7F6;border:none;color:#1E2433;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;display:flex;align-items:center;justify-content:center">−</button>
+            <span style="font-size:13px;font-weight:700;min-width:16px;text-align:center">{{ qtyDessert }}</span>
+            <button onClick="{{ incDessert }}" style="width:24px;height:24px;border-radius:7px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;display:flex;align-items:center;justify-content:center">+</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1px solid #F0F2F1;padding-top:12px;margin-top:12px;display:flex;flex-direction:column;gap:7px;flex-shrink:0">
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Sub Total</span><span style="font-size:13px;font-weight:600">$29.00</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Discount</span><span style="font-size:13px;font-weight:600">$0.00</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Service Charge</span><span style="font-size:13px;font-weight:600">$1.50</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:13px;color:#7C8792">Tax</span><span style="font-size:13px;font-weight:600">$2.10</span></div>
+        <div style="display:flex;justify-content:space-between;padding-top:9px;border-top:1px solid #F0F2F1"><span style="font-size:15.5px;font-weight:800">Total</span><span style="font-size:19px;font-weight:800">$32.60</span></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-shrink:0">
+        <button style="flex:1;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;font-family:inherit"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="9" width="12" height="7" rx="1.5"></rect><path d="M8 9V4.5h8V9M8 15.5V19h8v-3.5"></path></svg><span>Print</span></button>
+        <button style="flex:1;height:44px;border-radius:12px;background:#F2872F;border:none;color:#fff;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Fire</button>
+      </div>
+      <button onClick="{{ openPayment }}" style="width:100%;height:50px;border-radius:14px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:15px;margin-top:10px;cursor:pointer;font-family:inherit;flex-shrink:0" style-hover="background:#1C9C5E">Charge $32.60</button>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isOrders }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex;gap:20px">
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div style="display:flex;gap:10px">
+        <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:700;background:#23B26E;color:#fff;cursor:pointer">All Orders</span>
+        <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1;cursor:pointer">Dine In</span>
+        <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1;cursor:pointer">Takeout</span>
+        
+        <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1;cursor:pointer">Delivery</span>
+      </div>
+      <span style="font-size:13px;color:#7C8792;font-weight:600">6 active orders</span>
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto">
+      <sc-if value="{{ showTableScheme }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:15px;font-weight:800">Choose a table for Order {{selOrder.id}}</span>
+            <span style="font-size:12.5px;color:#7C8792;font-weight:600">· tap a table to assign it</span>
+          </div>
+          <div style="display:flex;gap:16px">
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1C9C5E"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Available</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#E14F45"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Occupied</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#B7791E"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Reserved</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#2A5FD1"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Needs Bill</span></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding-bottom:6px">
+          <sc-for list="{{ tablePickerCards }}" as="tk" hint-placeholder-count="12">
+            <div onClick="{{tk.pick}}" style="background:#fff;border:2px solid {{tk.pickBorder}};border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:7px;cursor:pointer">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <span style="font-weight:800;font-size:14.5px">{{tk.num}}</span>
+                <span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;background:{{tk.statusBg}};color:{{tk.statusColor}}">{{tk.status}}</span>
+              </div>
+              <span style="font-size:11.5px;color:#7C8792">{{tk.seats}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ showEditMenu }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <span style="font-size:15px;font-weight:800">Add items to Order {{selOrder.id}}</span>
+          <span style="font-size:12.5px;color:#7C8792;font-weight:600">· tap ADD to put an item on the order</span>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <sc-for list="{{ editCatPills }}" as="cp" hint-placeholder-count="7">
+            <span onClick="{{cp.set}}" style="{{cp.style}}">{{cp.label}}</span>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding-bottom:6px">
+          <sc-for list="{{ catalogList }}" as="ci" hint-placeholder-count="12">
+            <div style="background:#fff;border:1px solid #EEF1F1;border-radius:18px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+              <div style="width:100%;height:120px">
+                <image-slot id="menu-img-{{ci.id}}" shape="rounded" radius="14" placeholder="{{ci.name}} photo"></image-slot>
+              </div>
+              <span style="font-weight:700;font-size:14px;line-height:1.3">{{ci.name}}</span>
+              <span style="font-weight:700;color:#1C9C5E;font-size:13.5px">{{ci.price}}</span>
+              <button onClick="{{ci.add}}" style="width:100%;height:38px;border-radius:10px;background:#23B26E;border:none;color:#fff;font-weight:700;font-size:12.5px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-family:inherit" style-hover="background:#1C9C5E">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+                <span>ADD</span>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ notEditingOrder }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding-bottom:6px">
+        <sc-for list="{{ orderRows }}" as="row" hint-placeholder-count="6">
+          <div onClick="{{row.select}}" style="background:#fff;border:2px solid {{row.cardBorder}};border-radius:18px;padding:16px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px;cursor:pointer">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-weight:800;font-size:16px">{{row.id}}</span>
+              <span style="display:inline-flex;padding:5px 12px;border-radius:999px;font-size:11.5px;font-weight:700;width:fit-content;background:{{row.statusBg}};color:{{row.statusColor}}">{{row.status}}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:12.5px;color:#7C8792;font-weight:600">{{row.place}}</span>
+              <span style="font-size:11.5px;color:#B0B8BF">{{row.time}}</span>
+            </div>
+            <div style="height:1px;background:#F0F2F1;margin:2px 0"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                <div style="width:27px;height:27px;border-radius:8px;background:#E4F7EC;color:#1C9C5E;font-weight:800;font-size:10.5px;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{row.waiterInitials}}</div>
+                <span style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{row.waiter}}</span>
+              </div>
+              <span style="font-size:12px;color:#7C8792;flex-shrink:0">{{row.items}}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
+              <span style="font-size:18px;font-weight:800">{{row.total}}</span>
+              
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      </sc-if>
+    </div>
+  </div>
+  <div style="width:372px;flex-shrink:0;background:#fff;border-radius:20px;padding:22px;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(20,45,35,0.06);height:100%;min-height:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0">
+      <span style="font-size:18px;font-weight:800">Order {{selOrder.id}}</span>
+      <span style="display:inline-flex;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:700;background:{{selOrder.statusBg}};color:{{selOrder.statusColor}}">{{selOrder.status}}</span>
+    </div>
+    <div style="font-size:12px;color:#7C8792;margin-bottom:14px;flex-shrink:0">{{selOrder.metaLine}}</div>
+    <sc-if value="{{ editingOrder }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;flex-shrink:0">
+        <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Order Type</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{ orderTypePills }}" as="tp" hint-placeholder-count="4">
+            <span onClick="{{tp.set}}" style="{{tp.style}}">{{tp.label}}</span>
+          </sc-for>
+        </div>
+        <sc-if value="{{ selIsDineIn }}" hint-placeholder-val="{{ true }}">
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;margin-top:4px">Table</span>
+          <button onClick="{{ openTablePicker }}" style="height:40px;border-radius:10px;border:1.5px solid #E7EBEF;background:#fff;color:#1E2433;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:space-between;padding:0 14px;width:100%">
+            <span>{{ selTable }}</span>
+            <span style="color:#1C9C5E;font-size:12px;font-weight:700">Change on floor plan</span>
+          </button>
+        </sc-if>
+      </div>
+    </sc-if>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 2px;border-top:1px solid #F0F2F1;border-bottom:1px solid #F0F2F1;margin-bottom:14px;flex-shrink:0">
+      <div style="width:34px;height:34px;border-radius:10px;background:#E4F7EC;color:#1C9C5E;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{selOrder.waiterInitials}}</div>
+      <div style="display:flex;flex-direction:column;line-height:1.3">
+        <span style="font-size:13.5px;font-weight:700">{{selOrder.waiter}}</span>
+        <span style="font-size:11px;color:#7C8792">Waiter</span>
+      </div>
+      <span style="margin-left:auto;font-size:12px;color:#7C8792;font-weight:600">{{selOrder.items}}</span>
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:2px">
+      <sc-for list="{{ selOrderItems }}" as="oi" hint-placeholder-count="3">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            <span style="font-size:13.5px;font-weight:700">{{oi.name}}</span>
+            <span style="font-size:12px;color:#7C8792;font-weight:600;flex-shrink:0">{{oi.qty}}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <sc-if value="{{ editingOrder }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{oi.dec}}" style="width:22px;height:22px;border-radius:50%;background:#F5F7F6;border:none;color:#1E2433;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;line-height:1">−</button>
+              <button onClick="{{oi.inc}}" style="width:22px;height:22px;border-radius:50%;background:#E4F7EC;border:none;color:#1C9C5E;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;line-height:1">+</button>
+            </sc-if>
+            <span style="font-size:13.5px;font-weight:700;flex-shrink:0;min-width:48px;text-align:right">{{oi.price}}</span>
+            <sc-if value="{{ editingOrder }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{oi.remove}}" style="width:22px;height:22px;border-radius:50%;background:#FDEBEA;border:none;color:#E14F45;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;line-height:1">×</button>
+            </sc-if>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="border-top:1px solid #F0F2F1;padding-top:12px;margin-top:12px;display:flex;flex-direction:column;gap:7px;flex-shrink:0">
+      <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Sub Total</span><span style="font-size:13px;font-weight:600">{{ selOrderSubtotal }}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:13px;color:#7C8792">Tax &amp; Fees</span><span style="font-size:13px;font-weight:600">{{ selOrderFees }}</span></div>
+      <div style="display:flex;justify-content:space-between;padding-top:9px;border-top:1px solid #F0F2F1"><span style="font-size:15.5px;font-weight:800">Total</span><span style="font-size:19px;font-weight:800">{{ selOrderTotal }}</span></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:14px;flex-shrink:0">
+      <sc-if value="{{ notEditingOrder }}" hint-placeholder-val="{{ true }}">
+        <button style="flex:1;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Print</button>
+      </sc-if>
+      <sc-if value="{{ editingOrder }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ discardEdit }}" style="flex:1;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E14F45;color:#E14F45;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Discard</button>
+      </sc-if>
+      <button onClick="{{ toggleEditOrder }}" style="flex:1;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">{{ editLabel }}</button>
+      
+    </div>
+    <button onClick="{{ openPayment }}" style="width:100%;height:50px;border-radius:14px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:15px;margin-top:10px;cursor:pointer;font-family:inherit;flex-shrink:0" style-hover="background:#1C9C5E">Charge {{ selOrderTotal }}</button>
+  </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isTables }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex;gap:20px">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:16px;overflow-y:auto;padding-right:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div style="display:flex;gap:10px">
+          <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:700;background:#23B26E;color:#fff;cursor:pointer">Main Hall</span>
+          <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1;cursor:pointer">Patio</span>
+          <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1;cursor:pointer">Bar</span>
+          <span style="padding:9px 20px;border-radius:999px;font-size:13.5px;font-weight:600;background:#fff;color:#7C8792;border:1px solid #EEF1F1;cursor:pointer">Private Room</span>
+        </div>
+        <div style="display:flex;gap:16px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1C9C5E"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Available</span></div>
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#E14F45"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Occupied</span></div>
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#B7791E"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Reserved</span></div>
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#2A5FD1"></span><span style="font-size:12px;color:#7C8792;font-weight:600">Needs Bill</span></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding-bottom:6px">
+        <sc-for list="{{ tableCards }}" as="t" hint-placeholder-count="12">
+          <div style="background:#fff;border:2px solid {{t.border}};border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <span style="font-weight:800;font-size:15.5px">{{t.num}}</span>
+              <span style="font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:{{t.statusBg}};color:{{t.statusColor}}">{{t.status}}</span>
+            </div>
+            <span style="font-size:12px;color:#7C8792">{{t.seats}}</span>
+            <sc-if value="{{t.detail}}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:11.5px;color:#4A5560;background:#F7F9F8;border-radius:8px;padding:8px 10px;margin-top:2px;font-weight:600">{{t.detail}}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="width:372px;flex-shrink:0;background:#fff;border-radius:20px;padding:22px;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(20,45,35,0.06);height:100%;min-height:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0">
+        <span style="font-size:18px;font-weight:800">Order {{selOrder.id}}</span>
+        <span style="display:inline-flex;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:700;background:{{selOrder.statusBg}};color:{{selOrder.statusColor}}">{{selOrder.status}}</span>
+      </div>
+      <div style="font-size:12px;color:#7C8792;margin-bottom:14px;flex-shrink:0">{{selOrder.metaLine}}</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 2px;border-top:1px solid #F0F2F1;border-bottom:1px solid #F0F2F1;margin-bottom:14px;flex-shrink:0">
+        <div style="width:34px;height:34px;border-radius:10px;background:#E4F7EC;color:#1C9C5E;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{selOrder.waiterInitials}}</div>
+        <div style="display:flex;flex-direction:column;line-height:1.3">
+          <span style="font-size:13.5px;font-weight:700">{{selOrder.waiter}}</span>
+          <span style="font-size:11px;color:#7C8792">Waiter</span>
+        </div>
+        <span style="margin-left:auto;font-size:12px;color:#7C8792;font-weight:600">{{selOrder.items}}</span>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:2px">
+        <sc-for list="{{ selOrderItems }}" as="ti" hint-placeholder-count="3">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="font-size:13.5px;font-weight:700">{{ti.name}}</span>
+              <span style="font-size:12px;color:#7C8792;font-weight:600;flex-shrink:0">{{ti.qty}}</span>
+            </div>
+            <span style="font-size:13.5px;font-weight:700;flex-shrink:0">{{ti.price}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="border-top:1px solid #F0F2F1;padding-top:12px;margin-top:12px;display:flex;flex-direction:column;gap:7px;flex-shrink:0">
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Sub Total</span><span style="font-size:13px;font-weight:600">{{ selOrderSubtotal }}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-size:13px;color:#7C8792">Tax &amp; Fees</span><span style="font-size:13px;font-weight:600">{{ selOrderFees }}</span></div>
+        <div style="display:flex;justify-content:space-between;padding-top:9px;border-top:1px solid #F0F2F1"><span style="font-size:15.5px;font-weight:800">Total</span><span style="font-size:19px;font-weight:800">{{ selOrderTotal }}</span></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-shrink:0">
+        <button style="flex:1;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Print</button>
+        <button onClick="{{ editFromTables }}" style="flex:1;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Edit</button>
+      </div>
+      <button onClick="{{ openPayment }}" style="width:100%;height:50px;border-radius:14px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:15px;margin-top:10px;cursor:pointer;font-family:inherit;flex-shrink:0" style-hover="background:#1C9C5E">Charge {{ selOrderTotal }}</button>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;flex-shrink:0">
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Today's Sales</span><div style="width:30px;height:30px;border-radius:9px;background:#E4F7EC;display:flex;align-items:center;justify-content:center;color:#1C9C5E"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v9M9.2 9.8c0-1.1 1.2-1.8 2.8-1.8s2.8.7 2.8 1.7c0 2.4-5.6 1-5.6 3.4 0 1 1.2 1.7 2.8 1.7s2.8-.6 2.8-1.6"></path></svg></div></div>
+        <span style="font-size:25px;font-weight:800">$2,340.50</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Orders Completed</span><div style="width:30px;height:30px;border-radius:9px;background:#E8F0FE;display:flex;align-items:center;justify-content:center;color:#2A5FD1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg></div></div>
+        <span style="font-size:25px;font-weight:800">86</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Avg Ticket</span><div style="width:30px;height:30px;border-radius:9px;background:#FFF3DC;display:flex;align-items:center;justify-content:center;color:#B7791E"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4.5" width="14" height="17" rx="2"></rect><path d="M8.5 11h7M8.5 14.5h7"></path></svg></div></div>
+        <span style="font-size:25px;font-weight:800">$27.20</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Refunds</span><div style="width:30px;height:30px;border-radius:9px;background:#FDEBEA;display:flex;align-items:center;justify-content:center;color:#E14F45"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h14M18 7l-3.5-3.5M20 17H6M6 17l3.5 3.5"></path></svg></div></div>
+        <span style="font-size:25px;font-weight:800">2 <span style="font-size:14px;color:#7C8792;font-weight:600">· $45.00</span></span>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-shrink:0">
+      <span onClick="{{ setHistToday }}" style="{{ histTodayStyle }}">Today</span>
+      <span onClick="{{ setHistYesterday }}" style="{{ histYesterdayStyle }}">Yesterday</span>
+      <span onClick="{{ setHistWeek }}" style="{{ histWeekStyle }}">This Week</span>
+      <span onClick="{{ openDatePicker }}" style="{{ histCustomStyle }}">{{ customChipLabel }}</span>
+    </div>
+    <div style="flex:1;min-height:0;background:#fff;border-radius:20px;box-shadow:0 12px 32px rgba(20,45,35,0.06);overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:grid;grid-template-columns:150px 90px 110px 1fr 80px 90px 100px 130px;align-items:center;padding:16px 24px;flex-shrink:0;border-bottom:1px solid #F0F2F1">
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Date &amp; Time</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Order</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Table</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">WAITERS</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Items</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Total</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Payment</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Status</span>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto">
+        <sc-for list="{{ historyRows }}" as="h" hint-placeholder-count="8">
+          <div onClick="{{h.view}}" style="display:grid;grid-template-columns:150px 90px 110px 1fr 80px 90px 100px 130px;align-items:center;padding:14px 24px;border-bottom:1px solid #F6F7F6;cursor:pointer" style-hover="background:#F7F9F8">
+            <span style="color:#7C8792;font-size:12.5px">{{h.date}}</span>
+            <span style="font-weight:700;font-size:13px">{{h.order}}</span>
+            <span style="color:#7C8792;font-size:13px">{{h.place}}</span>
+            <span style="font-weight:600;font-size:13.5px">{{h.waiter}}</span>
+            <span style="color:#7C8792;font-size:13px">{{h.items}}</span>
+            <span style="font-weight:700;font-size:13.5px">{{h.total}}</span>
+            <span style="color:#7C8792;font-size:13px">{{h.payment}}</span>
+            <span style="display:inline-flex;padding:5px 12px;border-radius:999px;font-size:11.5px;font-weight:700;width:fit-content;background:{{h.statusBg}};color:{{h.statusColor}}">{{h.status}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isReceivables }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:16px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;flex-shrink:0">
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Total Outstanding</span><div style="width:30px;height:30px;border-radius:9px;background:#E4F7EC;display:flex;align-items:center;justify-content:center;color:#1C9C5E"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="19" height="13" rx="2"></rect><path d="M2.5 10h19"></path></svg></div></div>
+        <span style="font-size:25px;font-weight:800">$1,240.00</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Overdue</span><div style="width:30px;height:30px;border-radius:9px;background:#FDEBEA;display:flex;align-items:center;justify-content:center;color:#E14F45"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"></circle></svg></div></div>
+        <span style="font-size:25px;font-weight:800;color:#E14F45">$380.00</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:#7C8792;font-weight:600">Customers with Balance</span><div style="width:30px;height:30px;border-radius:9px;background:#E8F0FE;display:flex;align-items:center;justify-content:center;color:#2A5FD1"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7"></path></svg></div></div>
+        <span style="font-size:25px;font-weight:800">14</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-shrink:0">
+      <span onClick="{{ setRecvAll }}" style="{{ recvAllStyle }}">All</span>
+      <span onClick="{{ setRecvActive }}" style="{{ recvActiveStyle }}">Active</span>
+      <span onClick="{{ setRecvPaid }}" style="{{ recvPaidStyle }}">Paid</span>
+      <span onClick="{{ setRecvOverdue }}" style="{{ recvOverdueStyle }}">Overdue</span>
+    </div>
+    <div style="flex:1;min-height:0;background:#fff;border-radius:20px;box-shadow:0 12px 32px rgba(20,45,35,0.06);overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:grid;grid-template-columns:1.7fr 150px 120px 120px 110px 110px 210px;align-items:center;padding:16px 24px;flex-shrink:0;border-bottom:1px solid #F0F2F1">
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Customer</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Phone</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Owed</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Last Charge</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Due</span>
+        <span style="font-size:11.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Status</span>
+        <span></span>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto">
+        <sc-for list="{{ receivableRows }}" as="r" hint-placeholder-count="7">
+          <div onClick="{{r.view}}" style="display:grid;grid-template-columns:1.7fr 150px 120px 120px 110px 110px 210px;align-items:center;padding:13px 24px;border-bottom:1px solid #F6F7F6;cursor:pointer" style-hover="background:#F7F9F8">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;font-weight:800;font-size:11.5px;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{r.initials}}</div>
+              <span style="font-weight:700;font-size:13.5px">{{r.name}}</span>
+            </div>
+            <span style="color:#7C8792;font-size:12.5px">{{r.phone}}</span>
+            <span style="font-weight:800;font-size:13.5px;color:{{r.amountColor}}">{{r.amount}}</span>
+            <span style="color:#7C8792;font-size:12.5px">{{r.lastCharge}}</span>
+            <span style="color:#7C8792;font-size:12.5px">{{r.due}}</span>
+            <span style="display:inline-flex;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:700;width:fit-content;background:{{r.statusBg}};color:{{r.statusColor}}">{{r.status}}</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button onClick="{{r.recordPay}}" style="height:30px;padding:0 14px;border-radius:8px;border:1.5px solid #23B26E;background:#fff;color:#1C9C5E;font-weight:700;font-size:11.5px;cursor:pointer;font-family:inherit">Record Payment</button>
+              <button style="height:30px;padding:0 6px;border:none;background:none;color:#7C8792;font-weight:600;font-size:11.5px;cursor:pointer;font-family:inherit" style-hover="color:#1E2433">Remind</button>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:18px;padding-right:4px">
+    <div style="background:#fff;border-radius:20px;padding:26px;display:flex;align-items:center;gap:22px;box-shadow:0 12px 32px rgba(20,45,35,0.06);flex-shrink:0">
+      
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:22px;font-weight:800">{{ staffName }}</span>
+          <span style="padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;background:#E4F7EC;color:#1C9C5E">On Shift</span>
+        </div>
+        <div style="font-size:14px;color:#7C8792;font-weight:600">Front Desk Cashier · Employee ID EMP-0231</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-shrink:0">
+        
+        
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;flex-shrink:0">
+      <div style="background:#fff;border-radius:20px;padding:24px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:16px">
+        <span style="font-size:16px;font-weight:800">Shift Info</span>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792;font-weight:600">Clocked In</span><span style="font-size:13.5px;font-weight:700">06:33 AM</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792;font-weight:600">Shift Length</span><span style="font-size:13.5px;font-weight:700">5h 42m</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792;font-weight:600">Break Taken</span><span style="font-size:13.5px;font-weight:700">15 min</span></div>
+        <button style="width:100%;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E14F45;color:#E14F45;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;margin-top:4px">Clock Out</button>
+      </div>
+      <div style="background:#fff;border-radius:20px;padding:24px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:15px">
+        <span style="font-size:16px;font-weight:800;margin-bottom:1px">Personal Details</span>
+        <div style="display:flex;align-items:center;gap:10px"><span style="color:#7C8792;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h3.2l1.3 4-2 1.6a12.5 12.5 0 0 0 6 6l1.6-2 4 1.3V18a1 1 0 0 1-1 1C11 19 5 13 4 6a1 1 0 0 1 1-1z"></path></svg></span><span style="font-size:13.5px;font-weight:600">(415) 555-0199</span></div>
+        <div style="display:flex;align-items:center;gap:10px"><span style="color:#7C8792;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3.5 6.5l8.5 6.5 8.5-6.5"></path></svg></span><span style="font-size:13.5px;font-weight:600">email&nbsp;</span></div>
+        <div style="display:flex;align-items:center;gap:10px"><span style="color:#7C8792;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21.5s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg></span><span style="font-size:13.5px;font-weight:600">214 Bryant St, San Francisco, CA</span></div>
+        <div style="display:flex;align-items:center;gap:10px"><span style="color:#7C8792;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7"></path></svg></span><span style="font-size:13.5px;font-weight:600">Emergency: Daniel Martinez · (415) 555-0123</span></div>
+        <div style="display:flex;align-items:center;gap:10px"><span style="color:#7C8792;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg></span><span style="font-size:13.5px;font-weight:600">Hired Mar 3, 2023</span></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;flex-shrink:0">
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <span style="font-size:12px;color:#7C8792;font-weight:600">Orders Handled Today</span>
+        <span style="font-size:25px;font-weight:800">42</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <span style="font-size:12px;color:#7C8792;font-weight:600">Sales Handled Today</span>
+        <span style="font-size:25px;font-weight:800">$1,180.00</span>
+      </div>
+      <div style="background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 32px rgba(20,45,35,0.06);display:flex;flex-direction:column;gap:10px">
+        <span style="font-size:12px;color:#7C8792;font-weight:600">Avg Serve Time</span>
+        <span style="font-size:25px;font-weight:800">6m 10s</span>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+<sc-if value="{{ showPayment }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(20,35,28,0.45);display:flex;align-items:center;justify-content:center;z-index:80">
+  <div style="width:900px;max-height:880px;background:#fff;border-radius:22px;box-shadow:0 30px 70px rgba(20,45,35,0.25);display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:22px 26px;border-bottom:1px solid #F0F2F1;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:44px;height:44px;border-radius:12px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"></rect><path d="M2.5 9.5h19"></path></svg></div>
+        <div>
+          <div style="font-size:17px;font-weight:800">Process Payment</div>
+          <div style="font-size:11.5px;color:#7C8792;margin-top:2px;font-weight:600">TUE, 25 JUL 2026 · 07:44 PM</div>
+        </div>
+      </div>
+      <button onClick="{{ closePayment }}" style="width:36px;height:36px;border-radius:10px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+    <sc-if value="{{ notConfirmed }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;min-height:0;display:flex">
+      <div style="width:380px;flex-shrink:0;padding:24px;display:flex;flex-direction:column;gap:16px;border-right:1px solid #F0F2F1;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Order Items</span>
+          <span style="font-size:12.5px;font-weight:700;color:#1C9C5E">3 items</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <sc-for list="{{ payItems }}" as="pi" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13.5px;font-weight:700;line-height:1.3">{{pi.name}}</div>
+                <div style="font-size:11.5px;color:#7C8792;margin-top:2px">{{pi.unit}}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+                <button onClick="{{pi.dec}}" style="width:22px;height:22px;border-radius:50%;background:#F5F7F6;border:none;color:#1E2433;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;line-height:1">−</button>
+                <span style="font-size:12.5px;font-weight:700;min-width:20px;text-align:center">×{{pi.qty}}</span>
+                <button onClick="{{pi.inc}}" style="width:22px;height:22px;border-radius:50%;background:#E4F7EC;border:none;color:#1C9C5E;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;line-height:1">+</button>
+              </div>
+              <span style="font-size:13.5px;font-weight:800;min-width:52px;text-align:right;flex-shrink:0">{{pi.lineTotal}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border-top:1px solid #F0F2F1;padding-top:14px;display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Subtotal</span><span style="font-size:13px;font-weight:700">{{ paySubtotal }}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Service Charge</span><span style="font-size:13px;font-weight:700">$1.50</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;color:#7C8792">Tax</span><span style="font-size:13px;font-weight:700">$2.10</span></div>
+          <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #F0F2F1"><span style="font-size:15px;font-weight:800">Total</span><span style="font-size:20px;font-weight:800;color:#1C9C5E">{{ payTotal }}</span></div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:0;padding:24px;display:flex;flex-direction:column;gap:20px;overflow-y:auto">
+        <div>
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:10px">Payment Method</span>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div onClick="{{ setPayCash }}" style="{{ payCashStyle }}">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.6"></circle></svg>
+              <span style="font-size:12.5px;font-weight:700">Cash</span>
+            </div>
+            <div onClick="{{ setPayCard }}" style="{{ payCardStyle }}">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"></rect><path d="M2.5 9.5h19"></path></svg>
+              <span style="font-size:12.5px;font-weight:700">Card</span>
+            </div>
+            <div onClick="{{ setPayQr }}" style="{{ payQrStyle }}">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20v.01"></path></svg>
+              <span style="font-size:12.5px;font-weight:700">QR Code</span>
+            </div>
+            <div onClick="{{ setPayLoan }}" style="{{ payLoanStyle }}">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="19" height="13" rx="2"></rect><path d="M2.5 10h19"></path><circle cx="16.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"></circle></svg>
+              <span style="font-size:12.5px;font-weight:700">Loan</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:10px">Amount Received</span>
+          <div style="height:46px;border-radius:12px;border:1.5px solid #EEF1F1;display:flex;align-items:center;padding:0 14px;font-size:15px;font-weight:800;color:#1E2433">{{ payTotal }}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:0 14px;height:42px;border-radius:12px;background:#F7F9F8;margin-top:10px">
+            <span style="font-size:12.5px;color:#7C8792;font-weight:600">Change to give back</span>
+            <span style="font-size:13.5px;font-weight:800">$0.00</span>
+          </div>
+        </div>
+        <div>
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:10px">Apply Discount (Optional)</span>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <span style="height:38px;border-radius:10px;background:#23B26E;color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer">%</span>
+            <span style="height:38px;border-radius:10px;background:#F5F7F6;color:#7C8792;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer">$</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;height:42px;border-radius:12px;border:1.5px solid #EEF1F1;padding:0 14px">
+            <span style="font-size:12.5px;color:#B0B8BF">0 — 100</span>
+            <span style="font-size:12.5px;color:#B0B8BF">%</span>
+          </div>
+        </div>
+        <div>
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:10px">Split Bill (Optional)</span>
+          <div style="display:flex;gap:10px">
+            <span onClick="{{ setSplit2 }}" style="{{ split2Style }}">2 ways</span>
+            <span onClick="{{ setSplit3 }}" style="{{ split3Style }}">3 ways</span>
+            <span onClick="{{ setSplit4 }}" style="{{ split4Style }}">4 ways</span>
+          </div>
+        </div>
+        <sc-if value="{{ hasSplit }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ splitParts }}" as="p" hint-placeholder-count="2">
+              <div style="border:1.5px solid #EEF1F1;border-radius:12px;padding:14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <span style="font-size:13px;font-weight:800">Part {{p.n}}</span>
+                  <div onClick="{{p.togglePaid}}" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                    <div style="width:16px;height:16px;border-radius:4px;border:1.5px solid #D8DEDB;display:flex;align-items:center;justify-content:center;background:{{p.checkBg}}">
+                      <sc-if value="{{p.paid}}" hint-placeholder-val="{{ false }}">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg>
+                      </sc-if>
+                    </div>
+                    <span style="font-size:12px;color:#7C8792;font-weight:600">Paid</span>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;height:38px;border-radius:10px;border:1.5px solid #EEF1F1;padding:0 12px;margin-bottom:10px">
+                  <span style="font-size:13.5px;font-weight:800">{{p.amount}}</span>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <span onClick="{{p.setCash}}" style="{{p.cashStyle}}">Cash</span>
+                  <span onClick="{{p.setCard}}" style="{{p.cardStyle}}">Card</span>
+                  <span onClick="{{p.setQr}}" style="{{p.qrStyle}}">QR</span>
+                  <span onClick="{{p.setLoan}}" style="{{p.loanStyle}}">Loan</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isLoan }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;align-items:flex-start;gap:10px;background:#FFF3DC;border-radius:12px;padding:12px 14px">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#B7791E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M12 3l10 18H2L12 3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r="1" fill="#B7791E" stroke="none"></circle></svg>
+              <span style="font-size:12.5px;color:#8A5A15;font-weight:600;line-height:1.4">Order will be marked paid. Debt tracked until customer returns.</span>
+            </div>
+            <div>
+              <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:8px">Customer Name</span>
+              <div style="height:44px;border-radius:12px;border:1.5px solid #EEF1F1;display:flex;align-items:center;padding:0 14px;color:#B0B8BF;font-size:13.5px">Name...</div>
+            </div>
+            <div>
+              <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:8px">Phone</span>
+              <div style="height:44px;border-radius:12px;border:1.5px solid #EEF1F1;display:flex;align-items:center;padding:0 14px;color:#B0B8BF;font-size:13.5px">Phone number...</div>
+            </div>
+            <div>
+              <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:8px">Expected Return Date</span>
+              <div style="height:44px;border-radius:12px;border:1.5px solid #EEF1F1;display:flex;align-items:center;gap:8px;padding:0 14px;color:#B0B8BF;font-size:13.5px">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B0B8BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg>
+                <span>Pick a date</span>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+        <div>
+          <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:10px">Notes</span>
+          <div style="height:64px;border-radius:12px;border:1.5px solid #EEF1F1;padding:12px 14px;color:#B0B8BF;font-size:13px">Add payment notes...</div>
+        </div>
+        <button onClick="{{ confirmPayment }}" style="width:100%;height:52px;border-radius:14px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:inherit" style-hover="background:#1C9C5E">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg>
+          <span>Confirm Payment · {{ payTotal }}</span>
+        </button>
+        <span onClick="{{ closePayment }}" style="text-align:center;font-size:13px;color:#7C8792;font-weight:600;cursor:pointer">Cancel</span>
+      </div>
+    </div>
+    </sc-if>
+    <sc-if value="{{ paymentConfirmed }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:40px">
+        <div style="width:72px;height:72px;border-radius:50%;background:#E4F7EC;display:flex;align-items:center;justify-content:center;color:#1C9C5E">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg>
+        </div>
+        <div style="font-size:19px;font-weight:800;color:#1E2433">Payment Confirmed</div>
+        <div style="font-size:14px;color:#7C8792;font-weight:600">{{ payTotal }} received for Order #1082</div>
+        <button onClick="{{ closePayment }}" style="height:46px;padding:0 32px;border-radius:12px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;margin-top:8px">Done</button>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ showHistoryDetail }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(20,35,28,0.45);display:flex;align-items:center;justify-content:center;z-index:70">
+  <div style="width:880px;max-height:840px;background:#fff;border-radius:22px;box-shadow:0 30px 70px rgba(20,45,35,0.25);display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 26px;border-bottom:1px solid #F0F2F1;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:44px;height:44px;border-radius:12px;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg></div>
+        <div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px;font-weight:800">Order {{selHist.order}}</span>
+            <span style="display:inline-flex;padding:4px 11px;border-radius:999px;font-size:11px;font-weight:700;background:{{selHist.statusBg}};color:{{selHist.statusColor}}">{{selHist.status}}</span>
+          </div>
+          <div style="font-size:11.5px;color:#7C8792;margin-top:3px;font-weight:600">{{selHist.date}}</div>
+        </div>
+      </div>
+      <button onClick="{{ closeHistory }}" style="width:36px;height:36px;border-radius:10px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+    <div style="flex:1;min-height:0;display:flex">
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto">
+        <div style="display:flex;border-bottom:1px solid #F0F2F1;flex-shrink:0">
+          <div style="flex:1;padding:16px 20px;border-right:1px solid #F0F2F1;display:flex;align-items:center;gap:10px">
+            <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="4.5" rx="1.2"></rect><path d="M6 10.5V20M18 10.5V20"></path></svg></div>
+            <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Table</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selHist.place}}</div></div>
+          </div>
+          <div style="flex:1;padding:16px 20px;display:flex;align-items:center;gap:10px">
+            <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7"></path></svg></div>
+            <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Waiter</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selHist.waiter}}</div></div>
+          </div>
+        </div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em">Order Items</span>
+            <span style="font-size:11.5px;font-weight:700;color:#1C9C5E;background:#E4F7EC;padding:4px 11px;border-radius:999px">{{selHist.items}}</span>
+          </div>
+          <div style="border:1px solid #EEF1F1;border-radius:14px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 90px 110px;padding:11px 16px;background:#F7F9F8;border-bottom:1px solid #F0F2F1">
+              <span style="font-size:10.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Name</span>
+              <span style="font-size:10.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;text-align:center">Qty</span>
+              <span style="font-size:10.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em;text-align:right">Amount</span>
+            </div>
+            <sc-for list="{{ selHistItems }}" as="hi" hint-placeholder-count="3">
+              <div style="display:grid;grid-template-columns:1fr 90px 110px;padding:12px 16px;border-bottom:1px solid #F6F7F6;align-items:center">
+                <span style="font-size:13px;font-weight:700">{{hi.name}}</span>
+                <span style="font-size:12.5px;color:#7C8792;text-align:center;font-weight:600">{{hi.qty}}</span>
+                <span style="font-size:13px;font-weight:800;text-align:right;color:#1C9C5E">{{hi.amount}}</span>
+              </div>
+            </sc-for>
+            <div style="display:grid;grid-template-columns:1fr 110px;padding:12px 16px;background:#F7F9F8;align-items:center">
+              <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#7C8792">Subtotal</span>
+              <span style="font-size:13.5px;font-weight:800;text-align:right">{{selHist.subtotal}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="width:290px;flex-shrink:0;border-left:1px solid #F0F2F1;padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div style="border:1.5px solid #23B26E;background:#E4F7EC;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:36px;height:36px;border-radius:10px;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.6"></circle></svg></div>
+          <div><div style="font-size:10px;color:#4A8A66;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Payment Method</div><div style="font-size:14.5px;font-weight:800;color:#1C9C5E;margin-top:2px">{{selHist.payment}}</div></div>
+        </div>
+        <div style="border:1px solid #EEF1F1;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px">
+          <span style="font-size:10.5px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.04em">Summary</span>
+          <div style="display:flex;justify-content:space-between"><span style="font-size:12.5px;color:#7C8792">Subtotal</span><span style="font-size:12.5px;font-weight:700">{{selHist.subtotal}}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="font-size:12.5px;color:#7C8792">Service &amp; Tax</span><span style="font-size:12.5px;font-weight:700">{{selHist.serviceTax}}</span></div>
+          <div style="display:flex;justify-content:space-between;padding-top:9px;border-top:1px solid #F0F2F1"><span style="font-size:13.5px;font-weight:800">Total Paid</span><span style="font-size:17px;font-weight:800;color:#1C9C5E">{{selHist.total}}</span></div>
+        </div>
+        <div style="flex:1"></div>
+        <sc-if value="{{ canRefund }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ openRefund }}" style="width:100%;height:46px;border-radius:12px;background:#fff;border:1.5px solid #E14F45;color:#E14F45;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h14M18 7l-3.5-3.5M20 17H6M6 17l3.5 3.5"></path></svg><span>Process Refund</span></button>
+        </sc-if>
+        <button onClick="{{ closeHistory }}" style="width:100%;height:46px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ showRefund }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(20,35,28,0.45);display:flex;align-items:center;justify-content:center;z-index:95">
+  <div style="width:390px;background:#fff;border-radius:20px;box-shadow:0 30px 70px rgba(20,45,35,0.3);padding:22px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="width:42px;height:42px;border-radius:50%;background:#FDEBEA;color:#E14F45;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h14M18 7l-3.5-3.5M20 17H6M6 17l3.5 3.5"></path></svg></div>
+      <div>
+        <div style="font-size:16px;font-weight:800">Process Refund</div>
+        <div style="font-size:12px;color:#7C8792;margin-top:2px;font-weight:600">{{selHist.order}} · {{selHist.total}}</div>
+      </div>
+    </div>
+    <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Select a reason...</span>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ refundReasons }}" as="rr" hint-placeholder-count="4">
+        <div onClick="{{rr.set}}" style="{{rr.rowStyle}}">
+          <span style="{{rr.dotOuter}}"><span style="{{rr.dotInner}}"></span></span>
+          <span>{{rr.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button onClick="{{ closeRefund }}" style="flex:1;height:46px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Cancel</button>
+      <button onClick="{{ confirmRefund }}" style="flex:1;height:46px;border-radius:12px;background:#E14F45;border:none;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:7px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg><span>Confirm</span></button>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ showDatePicker }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(20,35,28,0.45);display:flex;align-items:center;justify-content:center;z-index:85">
+  <div style="width:400px;max-height:860px;background:#fff;border-radius:20px;box-shadow:0 30px 70px rgba(20,45,35,0.3);padding:22px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:10px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg></div>
+        <span style="font-size:16px;font-weight:800">Pick a period</span>
+      </div>
+      <button onClick="{{ closeDatePicker }}" style="width:32px;height:32px;border-radius:9px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="{{ calFromBoxStyle }}">
+        <div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">From</div>
+        <div style="font-size:14px;font-weight:800;margin-top:2px;color:#1C9C5E">{{ calFromLabel }}</div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B8BF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 6l6 6-6 6"></path></svg>
+      <div style="{{ calToBoxStyle }}">
+        <div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">To</div>
+        <div style="font-size:14px;font-weight:800;margin-top:2px">{{ calToLabel }}</div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:11.5px;color:#7C8792;font-weight:600">{{ calHint }}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <button onClick="{{ prevMonth }}" style="width:30px;height:30px;border-radius:9px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+      <span style="font-size:14px;font-weight:800">{{ calTitle }}</span>
+      <button onClick="{{ nextMonth }}" style="width:30px;height:30px;border-radius:9px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">Mo</span>
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">Tu</span>
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">We</span>
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">Th</span>
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">Fr</span>
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">Sa</span>
+      <span style="text-align:center;font-size:10.5px;font-weight:700;color:#B0B8BF">Su</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+      <sc-for list="{{ calCells }}" as="c" hint-placeholder-count="35">
+        <span onClick="{{c.pick}}" style="{{c.style}}">{{c.label}}</span>
+      </sc-for>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onClick="{{ quickToday }}" style="height:34px;padding:0 14px;border-radius:9px;background:#fff;border:1.5px solid #EEF1F1;color:#1E2433;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">Today</button>
+      <button onClick="{{ quickWeek }}" style="height:34px;padding:0 14px;border-radius:9px;background:#fff;border:1.5px solid #EEF1F1;color:#1E2433;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">This Week</button>
+      <button onClick="{{ quickMonth }}" style="height:34px;padding:0 14px;border-radius:9px;background:#fff;border:1.5px solid #EEF1F1;color:#1E2433;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">This Month</button>
+      <button onClick="{{ quickLastMonth }}" style="height:34px;padding:0 14px;border-radius:9px;background:#fff;border:1.5px solid #EEF1F1;color:#1E2433;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">Last Month</button>
+    </div>
+    <button onClick="{{ applyRange }}" style="width:100%;height:48px;border-radius:12px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#1C9C5E">Apply: {{ calFromLabel }} → {{ calToLabel }}</button>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ showLoanDetail }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(20,35,28,0.45);display:flex;align-items:center;justify-content:center;z-index:75">
+  <div style="width:640px;max-height:900px;background:#fff;border-radius:22px;box-shadow:0 30px 70px rgba(20,45,35,0.25);display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #F0F2F1;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:44px;height:44px;border-radius:12px;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"></rect><path d="M2.5 9.5h19"></path></svg></div>
+        <div>
+          <div style="font-size:17px;font-weight:800">Loan Details</div>
+          <div style="font-size:12px;color:#7C8792;margin-top:2px;font-weight:600">{{selLoan.name}}</div>
+        </div>
+      </div>
+      <button onClick="{{ closeLoanDetail }}" style="width:36px;height:36px;border-radius:10px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+      <div style="border-radius:14px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;background:{{selLoan.bannerBg}}">
+        <div>
+          <div style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:{{selLoan.bannerColor}}">{{selLoan.bannerLabel}}</div>
+          <div style="font-size:24px;font-weight:800;margin-top:3px;color:{{selLoan.bannerColor}}">{{selLoan.amount}}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7C8792">Due Date</div>
+          <div style="font-size:14px;font-weight:800;margin-top:2px">{{selLoan.due}}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 20c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7"></path></svg></div>
+          <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Customer</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.name}}</div></div>
+        </div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h3.2l1.3 4-2 1.6a12.5 12.5 0 0 0 6 6l1.6-2 4 1.3V18a1 1 0 0 1-1 1C11 19 5 13 4 6a1 1 0 0 1 1-1z"></path></svg></div>
+          <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Phone</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.phone}}</div></div>
+        </div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg></div>
+          <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Order #</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.orderNo}}</div></div>
+        </div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="4.5" rx="1.2"></rect><path d="M6 10.5V20M18 10.5V20"></path></svg></div>
+          <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Table</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.table}}</div></div>
+        </div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg></div>
+          <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Taken On</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.takenOn}}</div></div>
+        </div>
+        <sc-if value="{{ selLoan.isPaid }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg></div>
+            <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Paid On</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.paidOn}}</div></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ selLoan.notPaid }}" hint-placeholder-val="{{ true }}">
+          <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:32px;height:32px;border-radius:9px;background:#E4F7EC;color:#1C9C5E;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12.5" r="8.5"></circle><path d="M12 7.5v5l3.5 2"></path></svg></div>
+            <div><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Due Date</div><div style="font-size:13px;font-weight:800;margin-top:2px">{{selLoan.due}}</div></div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="border:1px solid #EEF1F1;border-radius:14px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#F7F9F8;border-bottom:1px solid #F0F2F1">
+          <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#7C8792">Order Items</span>
+          <span style="font-size:11.5px;font-weight:700;color:#1C9C5E">{{selLoan.itemsCount}}</span>
+        </div>
+        <sc-for list="{{ selLoanItems }}" as="li" hint-placeholder-count="3">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #F6F7F6">
+            <div><div style="font-size:13px;font-weight:700">{{li.name}}</div><div style="font-size:11.5px;color:#7C8792;margin-top:2px">{{li.desc}}</div></div>
+            <span style="font-size:13px;font-weight:800">{{li.amount}}</span>
+          </div>
+        </sc-for>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#F7F9F8">
+          <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:#7C8792">Subtotal</span>
+          <span style="font-size:13.5px;font-weight:800">{{selLoan.subtotal}}</span>
+        </div>
+      </div>
+      <sc-if value="{{ selLoan.isPaid }}" hint-placeholder-val="{{ false }}">
+        <div style="border:1.5px solid #23B26E;background:#E4F7EC;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:34px;height:34px;border-radius:50%;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg></div>
+          <div><div style="font-size:10px;color:#4A8A66;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Paid Via</div><div style="font-size:14px;font-weight:800;color:#1C9C5E;margin-top:2px">{{selLoan.paidVia}}</div></div>
+        </div>
+      </sc-if>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding:16px 24px;border-top:1px solid #F0F2F1;flex-shrink:0">
+      <button onClick="{{ closeLoanDetail }}" style="height:44px;padding:0 24px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit">Close</button>
+      <sc-if value="{{ selLoan.notPaid }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ openCollect }}" style="height:44px;padding:0 24px;border-radius:12px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:8px" style-hover="background:#1C9C5E"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg><span>Mark Paid</span></button>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ showCollect }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(20,35,28,0.45);display:flex;align-items:center;justify-content:center;z-index:92">
+  <div style="width:760px;background:#fff;border-radius:22px;box-shadow:0 30px 70px rgba(20,45,35,0.3);display:flex;overflow:hidden">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #F0F2F1">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="width:44px;height:44px;border-radius:12px;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v9M9.2 9.8c0-1.1 1.2-1.8 2.8-1.8s2.8.7 2.8 1.7c0 2.4-5.6 1-5.6 3.4 0 1 1.2 1.7 2.8 1.7s2.8-.6 2.8-1.6"></path></svg></div>
+          <div>
+            <div style="font-size:16px;font-weight:800">Collect Loan Payment</div>
+            <div style="font-size:11.5px;color:#7C8792;margin-top:2px;font-weight:600">Confirm payment method to mark this loan as paid</div>
+          </div>
+        </div>
+        <button onClick="{{ closeCollect }}" style="width:34px;height:34px;border-radius:10px;background:#F5F7F6;border:none;color:#7C8792;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+      </div>
+      <div style="padding:20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:flex-start;flex:1">
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px"><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Customer</div><div style="font-size:13.5px;font-weight:800;margin-top:3px">{{selLoan.name}}</div></div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px"><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Loan Amount</div><div style="font-size:13.5px;font-weight:800;margin-top:3px;color:#1C9C5E">{{selLoan.amount}}</div></div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px"><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Due Date</div><div style="font-size:13.5px;font-weight:800;margin-top:3px">{{selLoan.due}}</div></div>
+        <div style="background:#F7F9F8;border-radius:12px;padding:14px 16px"><div style="font-size:10px;color:#B0B8BF;font-weight:700;text-transform:uppercase;letter-spacing:.04em">Phone</div><div style="font-size:13.5px;font-weight:800;margin-top:3px">{{selLoan.phone}}</div></div>
+      </div>
+    </div>
+    <div style="width:280px;flex-shrink:0;border-left:1px solid #F0F2F1;background:#FBFCFB;padding:20px;display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:11px;font-weight:700;color:#B0B8BF;text-transform:uppercase;letter-spacing:.03em">Select Payment Method</span>
+      <div onClick="{{ setCollectCash }}" style="{{ collectCashStyle }}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.6"></circle></svg>
+        <span style="font-size:13px;font-weight:700;flex:1">Cash</span>
+        <sc-if value="{{ isCollectCash }}" hint-placeholder-val="{{ true }}"><span style="width:18px;height:18px;border-radius:50%;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg></span></sc-if>
+      </div>
+      <div onClick="{{ setCollectCard }}" style="{{ collectCardStyle }}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"></rect><path d="M2.5 9.5h19"></path></svg>
+        <span style="font-size:13px;font-weight:700;flex:1">Card</span>
+        <sc-if value="{{ isCollectCard }}" hint-placeholder-val="{{ false }}"><span style="width:18px;height:18px;border-radius:50%;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg></span></sc-if>
+      </div>
+      <div onClick="{{ setCollectQr }}" style="{{ collectQrStyle }}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20v.01"></path></svg>
+        <span style="font-size:13px;font-weight:700;flex:1">QR Code</span>
+        <sc-if value="{{ isCollectQr }}" hint-placeholder-val="{{ false }}"><span style="width:18px;height:18px;border-radius:50%;background:#23B26E;color:#fff;display:flex;align-items:center;justify-content:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg></span></sc-if>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 2px">
+        <span style="font-size:12.5px;color:#7C8792;font-weight:600">Total to collect</span>
+        <span style="font-size:16px;font-weight:800;color:#1C9C5E">{{selLoan.amount}}</span>
+      </div>
+      <button onClick="{{ confirmCollect }}" style="width:100%;height:48px;border-radius:12px;background:#23B26E;border:none;color:#fff;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px" style-hover="background:#1C9C5E"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-10"></path></svg><span>Confirm Payment</span></button>
+      <button onClick="{{ closeCollect }}" style="width:100%;height:44px;border-radius:12px;background:#fff;border:1.5px solid #E7EBEF;color:#1E2433;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">Cancel</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;restaurantName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;The Bill&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;staffName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Kassir Jahongir&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;menu&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;menu&quot;,&quot;orders&quot;,&quot;tables&quot;,&quot;history&quot;,&quot;receivables&quot;,&quot;profile&quot;],&quot;section&quot;:&quot;Behavior&quot;},&quot;sidebarCollapsedDefault&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  state = {
+    activeNav: (this.props && this.props.defaultScreen) || 'menu',
+    collapsed: !!(this.props && this.props.sidebarCollapsedDefault),
+    itemQty: {salad:1, main:1, dessert:1},
+    selectedOrder: '#1082',
+    editingOrder: false,
+    editSnapshot: null,
+    editCategory: 'all',
+    orderMeta: {},
+    showTablePicker: false,
+    selectedHistory: null,
+    showRefund: false,
+    refundReason: 'Customer Complaint',
+    refundedOrders: {},
+    showDatePicker: false,
+    histFilter: 'today',
+    recvFilter: 'all',
+    lang: 'en',
+    selectedLoan: null,
+    showCollect: false,
+    collectMethod: 'cash',
+    paidLoans: {},
+    customLabel: null,
+    calYear: 2026,
+    calMonth: 6,
+    calFrom: {y:2026, m:6, d:1},
+    calTo: {y:2026, m:6, d:26},
+    calPicking: 'from',
+    orderItems: this.baseOrderItems(),
+    showPayment: false,
+    paymentMethod: 'cash',
+    splitWays: null,
+    splitPartMethod: {},
+    splitPartPaid: {},
+    paymentConfirmed: false,
+    ...this.computeScale()
+  };
+
+  splitMethodStyle(i, method) {
+    const active = (this.state.splitPartMethod[i] || 'cash') === method;
+    return {
+      flex:1, height:'28px', borderRadius:'8px', cursor:'pointer',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize:'11px', fontWeight:700,
+      border: active ? 'none' : '1.5px solid #EEF1F1',
+      background: active ? '#23B26E' : '#fff',
+      color: active ? '#fff' : '#7C8792'
+    };
+  }
+
+  setSplitPartMethod(i, method) {
+    this.setState(s => ({splitPartMethod: {...s.splitPartMethod, [i]: method}}));
+  }
+
+  toggleSplitPaid(i) {
+    return () => this.setState(s => ({splitPartPaid: {...s.splitPartPaid, [i]: !s.splitPartPaid[i]}}));
+  }
+
+  changeQty(key, delta) {
+    return () => this.setState(s => ({itemQty: {...s.itemQty, [key]: Math.max(1, s.itemQty[key] + delta)}}));
+  }
+
+  baseOrderItems() {
+    return {
+      '#1082': [{name:'Caesar Salad',qty:1,unit:9},{name:'Classic Cheeseburger',qty:1,unit:12},{name:'Chocolate Lava Cake',qty:1,unit:8}],
+      '#1081': [{name:'Caesar Salad',qty:1,unit:9},{name:'Onion Rings',qty:1,unit:7}],
+      '#1080': [{name:'Margherita Pizza',qty:1,unit:14},{name:'Grilled Chicken',qty:1,unit:16.5},{name:'Crispy Fries',qty:2,unit:6},{name:'Caesar Salad',qty:1,unit:9}],
+      '#1079': [{name:'Caesar Salad',qty:1,unit:9}],
+      '#1078': [{name:'BBQ Chicken Wings',qty:1,unit:11},{name:'Classic Cheeseburger',qty:1,unit:12},{name:'Onion Rings',qty:1,unit:7},{name:'Mozzarella Sticks',qty:1,unit:8}],
+      '#1076': [{name:'Four Cheese Pizza',qty:1,unit:16},{name:'Bacon Beef Burger',qty:1,unit:13.5},{name:'BBQ Chicken Wings',qty:1,unit:11},{name:'Crispy Fries',qty:2,unit:6},{name:'Caesar Salad',qty:1,unit:9}]
+    };
+  }
+
+  orderFees() {
+    return {'#1082':3.6, '#1081':2, '#1080':2.7, '#1079':0.5, '#1078':3, '#1076':2.25};
+  }
+
+  catalog() {
+    return [
+      {name:'Margherita Pizza',unit:14,cat:'pizzas'},{name:'Pepperoni Pizza',unit:15.5,cat:'pizzas'},{name:'Four Cheese Pizza',unit:16,cat:'pizzas'},
+      {name:'Grilled Chicken',unit:16.5,cat:'food'},{name:'BBQ Chicken Wings',unit:11,cat:'food'},{name:'Classic Cheeseburger',unit:12,cat:'food'},
+      {name:'Bacon Beef Burger',unit:13.5,cat:'food'},{name:'Crispy Fries',unit:6,cat:'food'},{name:'Onion Rings',unit:7,cat:'food'},
+      {name:'Caesar Salad',unit:9,cat:'food'},{name:'Grilled Salmon',unit:19,cat:'fish'},{name:'Mozzarella Sticks',unit:8,cat:'food'},
+      {name:'Fish and Chips',unit:13,cat:'fish'},{name:'Mojito',unit:7.5,cat:'bar'},{name:'Aperol Spritz',unit:9,cat:'bar'},
+      {name:'House Red Wine',unit:8,cat:'wine'},{name:'Chardonnay',unit:8.5,cat:'wine'},{name:'Tomato Soup',unit:7,cat:'soup'},
+      {name:'Chicken Noodle Soup',unit:8.5,cat:'soup'}
+    ];
+  }
+
+  calSerial(d) { return d.y * 10000 + d.m * 100 + d.d; }
+
+  fmtCal(d) {
+    if (!d) return '—';
+    return d.y + '-' + String(d.m + 1).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
+  }
+
+  pickDay(dd) {
+    this.setState(s => {
+      const ser = this.calSerial(dd);
+      if (s.calPicking !== 'to' || !s.calFrom) return {calFrom: dd, calTo: null, calPicking: 'to'};
+      if (ser < this.calSerial(s.calFrom)) return {calFrom: dd, calTo: null, calPicking: 'to'};
+      return {calTo: dd, calPicking: 'from'};
+    });
+  }
+
+  setCalRange(from, to, month) {
+    this.setState(s => ({calFrom: from, calTo: to, calPicking: 'from', calMonth: month !== undefined ? month : s.calMonth}));
+  }
+
+  effMeta(id) {
+    const base = this.orderRows().find(r => r.id === id) || this.orderRows()[0];
+    const o = this.state.orderMeta[id] || {};
+    return {type: o.type || base.type, table: o.table || (base.place.indexOf('Table') === 0 ? base.place : 'Table 1')};
+  }
+
+  langStyle(key) {
+    const active = this.state.lang === key;
+    return {
+      flex: 1, height: '28px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '12px', cursor: 'pointer',
+      fontWeight: active ? 800 : 600,
+      background: active ? '#23B26E' : 'transparent',
+      color: active ? '#fff' : '#7C8792',
+      transition: 'background .15s,color .15s'
+    };
+  }
+
+  recvChipStyle(key) {
+    const active = this.state.recvFilter === key;
+    return {
+      padding: '9px 20px', borderRadius: '999px', fontSize: '13.5px', cursor: 'pointer',
+      fontWeight: active ? 700 : 600,
+      background: active ? '#23B26E' : '#fff',
+      color: active ? '#fff' : '#7C8792',
+      border: active ? 'none' : '1px solid #EEF1F1'
+    };
+  }
+
+  loanBucket(r) {
+    if (this.state.paidLoans[r.name]) return 'paid';
+    return r.status === 'Overdue' ? 'overdue' : 'active';
+  }
+
+  collectMethodStyle(key) {
+    const active = this.state.collectMethod === key;
+    return {
+      display:'flex', alignItems:'center', gap:'12px', padding:'13px 14px', borderRadius:'12px', cursor:'pointer',
+      border: active ? '1.5px solid #23B26E' : '1.5px solid #EEF1F1',
+      background: active ? '#E4F7EC' : '#fff',
+      color: active ? '#1C9C5E' : '#7C8792'
+    };
+  }
+
+  histChipStyle(key) {
+    const active = this.state.histFilter === key;
+    return {
+      padding: '9px 20px', borderRadius: '999px', fontSize: '13.5px', cursor: 'pointer',
+      fontWeight: active ? 700 : 600,
+      background: active ? '#23B26E' : '#fff',
+      color: active ? '#fff' : '#7C8792',
+      border: active ? 'none' : '1px solid #EEF1F1'
+    };
+  }
+
+  setOrderMeta(id, patch) {
+    this.setState(s => ({orderMeta: {...s.orderMeta, [id]: {...(s.orderMeta[id] || {}), ...patch}}}));
+  }
+
+  orderTotals(orderId) {
+    const list = this.state.orderItems[orderId] || [];
+    const sub = list.reduce((a, it) => a + it.unit * it.qty, 0);
+    const fees = this.orderFees()[orderId] || 0;
+    return {sub: sub, fees: fees, total: sub + fees, count: list.reduce((a, it) => a + it.qty, 0)};
+  }
+
+  editItem(orderId, name, delta) {
+    return () => this.setState(s => ({orderItems: {...s.orderItems, [orderId]: s.orderItems[orderId].map(it => it.name === name ? {...it, qty: Math.max(1, it.qty + delta)} : it)}}));
+  }
+
+  removeOrderItem(orderId, name) {
+    return () => this.setState(s => ({orderItems: {...s.orderItems, [orderId]: s.orderItems[orderId].filter(it => it.name !== name)}}));
+  }
+
+  addOrderItem(orderId, name, unit) {
+    return () => this.setState(s => {
+      const list = s.orderItems[orderId] || [];
+      const exists = list.some(it => it.name === name);
+      return {orderItems: {...s.orderItems, [orderId]: exists ? list.map(it => it.name === name ? {...it, qty: it.qty + 1} : it) : [...list, {name: name, qty: 1, unit: unit}]}};
+    });
+  }
+
+  payMethodStyle(key) {
+    const active = this.state.paymentMethod === key;
+    return {
+      display:'flex', flexDirection:'column', alignItems:'center', gap:'8px',
+      padding:'14px 10px', borderRadius:'12px', cursor:'pointer',
+      border: active ? '1.5px solid #23B26E' : '1.5px solid #EEF1F1',
+      background: active ? '#E4F7EC' : '#fff',
+      color: active ? '#1C9C5E' : '#7C8792'
+    };
+  }
+
+  splitStyle(n) {
+    const active = this.state.splitWays === n;
+    return {
+      flex:1, height:'38px', borderRadius:'10px', cursor:'pointer',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize:'13px', fontWeight:700,
+      border: active ? 'none' : '1.5px solid #EEF1F1',
+      background: active ? '#23B26E' : '#fff',
+      color: active ? '#fff' : '#1E2433'
+    };
+  }
+
+  componentDidMount() {
+    this._onResize = () => this.setState(this.computeScale());
+    window.addEventListener('resize', this._onResize);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('resize', this._onResize);
+  }
+
+  computeScale() {
+    const w = (typeof window !== 'undefined' && window.innerWidth) || 1920;
+    const h = (typeof window !== 'undefined' && window.innerHeight) || 1080;
+    const scale = Math.min(w / 1920, h / 1080);
+    return {
+      scale: scale,
+      offsetX: (w - 1920 * scale) / 2,
+      offsetY: (h - 1080 * scale) / 2
+    };
+  }
+
+  navStyle(key) {
+    const active = this.state.activeNav === key;
+    const collapsed = this.state.collapsed;
+    return {
+      display: 'flex',
+      alignItems: 'center',
+      gap: collapsed ? '0px' : '12px',
+      justifyContent: collapsed ? 'center' : 'flex-start',
+      padding: collapsed ? '13px 0' : '11px 14px',
+      borderRadius: '12px',
+      cursor: 'pointer',
+      background: active ? '#E4F7EC' : 'transparent',
+      color: active ? '#1C9C5E' : '#7C8792',
+      fontWeight: active ? 700 : 600,
+      fontSize: '14.5px',
+      transition: 'background .15s,color .15s'
+    };
+  }
+
+  menuItems() {
+    return [
+      {id:1,name:'Margherita Pizza',price:'$14.00'},
+      {id:2,name:'Pepperoni Pizza',price:'$15.50'},
+      {id:3,name:'Four Cheese Pizza',price:'$16.00'},
+      {id:4,name:'Grilled Chicken',price:'$16.50'},
+      {id:5,name:'BBQ Chicken Wings',price:'$11.00'},
+      {id:6,name:'Classic Cheeseburger',price:'$12.00'},
+      {id:7,name:'Bacon Beef Burger',price:'$13.50'},
+      {id:8,name:'Crispy Fries',price:'$6.00'},
+      {id:9,name:'Onion Rings',price:'$7.00'},
+      {id:10,name:'Caesar Salad',price:'$9.00'},
+      {id:11,name:'Grilled Salmon',price:'$19.00'},
+      {id:12,name:'Mozzarella Sticks',price:'$8.00'}
+    ];
+  }
+
+  orderRows() {
+    return [
+      {id:'#1082',place:'Table 4',type:'Dine In',waiter:'Alex Rivera',waiterInitials:'AR',items:'3 items',total:'$32.60',subtotal:'$29.00',fees:'$3.60',status:'Preparing',statusBg:'#FFF3DC',statusColor:'#B7791E',time:'2 min ago',itemsList:[
+        {name:'Caesar Salad',qty:'×1',price:'$9.00'},
+        {name:'Classic Cheeseburger',qty:'×1',price:'$12.00'},
+        {name:'Chocolate Lava Cake',qty:'×1',price:'$8.00'}
+      ]},
+      {id:'#1081',place:'Takeout',type:'Takeout',waiter:'Sofia Mendes',waiterInitials:'SM',items:'2 items',total:'$18.00',subtotal:'$16.00',fees:'$2.00',status:'Ready to Serve',statusBg:'#E8F0FE',statusColor:'#2A5FD1',time:'5 min ago',itemsList:[
+        {name:'Caesar Salad',qty:'×1',price:'$9.00'},
+        {name:'Onion Rings',qty:'×1',price:'$7.00'}
+      ]},
+      {id:'#1080',place:'Table 7',type:'Dine In',waiter:'Jordan Blake',waiterInitials:'JB',items:'5 items',total:'$54.20',subtotal:'$51.50',fees:'$2.70',status:'Served',statusBg:'#E4F7EC',statusColor:'#1C9C5E',time:'12 min ago',itemsList:[
+        {name:'Margherita Pizza',qty:'×1',price:'$14.00'},
+        {name:'Grilled Chicken',qty:'×1',price:'$16.50'},
+        {name:'Crispy Fries',qty:'×2',price:'$12.00'},
+        {name:'Caesar Salad',qty:'×1',price:'$9.00'}
+      ]},
+      {id:'#1079',place:'Curbside',type:'Curbside',waiter:'Priya Desai',waiterInitials:'PD',items:'1 item',total:'$9.50',subtotal:'$9.00',fees:'$0.50',status:'Ready to Serve',statusBg:'#E8F0FE',statusColor:'#2A5FD1',time:'14 min ago',itemsList:[
+        {name:'Caesar Salad',qty:'×1',price:'$9.00'}
+      ]},
+      {id:'#1078',place:'Table 2',type:'Dine In',waiter:'Marcus Chen',waiterInitials:'MC',items:'4 items',total:'$41.00',subtotal:'$38.00',fees:'$3.00',status:'Preparing',statusBg:'#FFF3DC',statusColor:'#B7791E',time:'18 min ago',itemsList:[
+        {name:'BBQ Chicken Wings',qty:'×1',price:'$11.00'},
+        {name:'Classic Cheeseburger',qty:'×1',price:'$12.00'},
+        {name:'Onion Rings',qty:'×1',price:'$7.00'},
+        {name:'Mozzarella Sticks',qty:'×1',price:'$8.00'}
+      ]},
+      {id:'#1076',place:'Table 9',type:'Dine In',waiter:'Nadia Osei',waiterInitials:'NO',items:'6 items',total:'$63.75',subtotal:'$61.50',fees:'$2.25',status:'Served',statusBg:'#E4F7EC',statusColor:'#1C9C5E',time:'31 min ago',itemsList:[
+        {name:'Four Cheese Pizza',qty:'×1',price:'$16.00'},
+        {name:'Bacon Beef Burger',qty:'×1',price:'$13.50'},
+        {name:'BBQ Chicken Wings',qty:'×1',price:'$11.00'},
+        {name:'Crispy Fries',qty:'×2',price:'$12.00'},
+        {name:'Caesar Salad',qty:'×1',price:'$9.00'}
+      ]}
+    ];
+  }
+
+  tableCards() {
+    return [
+      {num:'Table 1',seats:'4 seats',status:'Available',statusBg:'#E4F7EC',statusColor:'#1C9C5E',border:'#EEF1F1',detail:null},
+      {num:'Table 2',seats:'2 seats',status:'Occupied',statusBg:'#FDEBEA',statusColor:'#E14F45',border:'#EEF1F1',detail:'Marcus Webb · 32 min · $18.00'},
+      {num:'Table 3',seats:'6 seats',status:'Reserved',statusBg:'#FFF3DC',statusColor:'#B7791E',border:'#EEF1F1',detail:'7:30 PM · Party of 5'},
+      {num:'Table 4',seats:'4 seats',status:'Occupied',statusBg:'#FDEBEA',statusColor:'#E14F45',border:'#1C9C5E',detail:'Ava Martinez · 18 min · $32.60'},
+      {num:'Table 5',seats:'2 seats',status:'Available',statusBg:'#E4F7EC',statusColor:'#1C9C5E',border:'#EEF1F1',detail:null},
+      {num:'Table 6',seats:'8 seats',status:'Needs Bill',statusBg:'#E8F0FE',statusColor:'#2A5FD1',border:'#EEF1F1',detail:'Dan Torres · 54 min · $63.75'},
+      {num:'Table 7',seats:'4 seats',status:'Occupied',statusBg:'#FDEBEA',statusColor:'#E14F45',border:'#EEF1F1',detail:'Grace Lin · 8 min · $22.00'},
+      {num:'Table 8',seats:'2 seats',status:'Available',statusBg:'#E4F7EC',statusColor:'#1C9C5E',border:'#EEF1F1',detail:null},
+      {num:'Table 9',seats:'6 seats',status:'Reserved',statusBg:'#FFF3DC',statusColor:'#B7791E',border:'#EEF1F1',detail:'8:00 PM · Party of 6'},
+      {num:'Table 10',seats:'4 seats',status:'Available',statusBg:'#E4F7EC',statusColor:'#1C9C5E',border:'#EEF1F1',detail:null},
+      {num:'Table 11',seats:'4 seats',status:'Occupied',statusBg:'#FDEBEA',statusColor:'#E14F45',border:'#EEF1F1',detail:'Hannah Kim · 41 min · $54.20'},
+      {num:'Table 12',seats:'2 seats',status:'Needs Bill',statusBg:'#E8F0FE',statusColor:'#2A5FD1',border:'#EEF1F1',detail:'Leo Fischer · 60 min · $29.90'}
+    ];
+  }
+
+  historyRows() {
+    return [
+      {date:'Jul 25, 9:44 PM',order:'#1077',place:'Takeout',customer:'Omar Siddiqui',waiter:'Sofia Mendes',items:'2 items',total:'$22.30',payment:'Card',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Classic Cheeseburger',qty:'×1',amt:12},{name:'Mozzarella Sticks',qty:'×1',amt:8}
+      ]},
+      {date:'Jul 25, 9:43 PM',order:'#1075',place:'Table 1',customer:'Leo Fischer',waiter:'Marcus Chen',items:'3 items',total:'$29.90',payment:'Cash',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'BBQ Chicken Wings',qty:'×1',amt:11},{name:'Onion Rings',qty:'×1',amt:7},{name:'Caesar Salad',qty:'×1',amt:9}
+      ]},
+      {date:'Jul 25, 9:42 PM',order:'#1074',place:'Table 3',customer:'Nina Patel',waiter:'Ava Martinez',items:'4 items',total:'$38.20',payment:'Card',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Margherita Pizza',qty:'×1',amt:14},{name:'Crispy Fries',qty:'×2',amt:12},{name:'Tomato Soup',qty:'×1',amt:7}
+      ]},
+      {date:'Jul 25, 9:15 PM',order:'#1073',place:'Takeout',customer:'Sam Wu',waiter:'Jordan Blake',items:'2 items',total:'$16.00',payment:'Cash',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Onion Rings',qty:'×1',amt:7},{name:'Mozzarella Sticks',qty:'×1',amt:8}
+      ]},
+      {date:'Jul 25, 8:50 PM',order:'#1072',place:'Table 6',customer:'Julia Ross',waiter:'Nadia Osei',items:'6 items',total:'$71.40',payment:'Card',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Four Cheese Pizza',qty:'×1',amt:16},{name:'Grilled Salmon',qty:'×1',amt:19},{name:'Crispy Fries',qty:'×2',amt:12},{name:'Caesar Salad',qty:'×2',amt:18}
+      ]},
+      {date:'Jul 25, 8:20 PM',order:'#1071',place:'Table 1',customer:'Marcus Webb',waiter:'Priya Desai',items:'3 items',total:'$25.00',payment:'Card',status:'Refunded',statusBg:'#FDEBEA',statusColor:'#E14F45',itemsList:[
+        {name:'BBQ Chicken Wings',qty:'×1',amt:11},{name:'Crispy Fries',qty:'×1',amt:6},{name:'Onion Rings',qty:'×1',amt:7}
+      ]},
+      {date:'Jul 25, 7:55 PM',order:'#1070',place:'Curbside',customer:'Dan Torres',waiter:'Alex Rivera',items:'1 item',total:'$9.50',payment:'Cash',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Caesar Salad',qty:'×1',amt:9}
+      ]},
+      {date:'Jul 25, 7:30 PM',order:'#1069',place:'Table 8',customer:'Grace Lin',waiter:'Sofia Mendes',items:'5 items',total:'$58.60',payment:'Card',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Pepperoni Pizza',qty:'×1',amt:15.5},{name:'Grilled Chicken',qty:'×1',amt:16.5},{name:'Crispy Fries',qty:'×2',amt:12},{name:'Mojito',qty:'×1',amt:7.5}
+      ]},
+      {date:'Jul 25, 7:05 PM',order:'#1068',place:'Table 2',customer:'Leo Fischer',waiter:'Marcus Chen',items:'2 items',total:'$19.00',payment:'Cash',status:'Cancelled',statusBg:'#F1F3F5',statusColor:'#6B7280',itemsList:[
+        {name:'Tomato Soup',qty:'×1',amt:7},{name:'Classic Cheeseburger',qty:'×1',amt:12}
+      ]},
+      {date:'Jul 25, 6:40 PM',order:'#1067',place:'Table 5',customer:'Hannah Kim',waiter:'Ava Martinez',items:'4 items',total:'$44.30',payment:'Card',status:'Completed',statusBg:'#E4F7EC',statusColor:'#1C9C5E',itemsList:[
+        {name:'Bacon Beef Burger',qty:'×1',amt:13.5},{name:'BBQ Chicken Wings',qty:'×1',amt:11},{name:'Onion Rings',qty:'×1',amt:7},{name:'Chardonnay',qty:'×1',amt:8.5}
+      ]}
+    ];
+  }
+
+  receivableRows() {
+    return [
+      {name:'Johnson Mitchell',initials:'JM',phone:'(415) 123-4567',amount:'$220.00',amountColor:'#E14F45',lastCharge:'Jul 10, 2026',due:'Jul 20, 2026',status:'Overdue',statusBg:'#FDEBEA',statusColor:'#E14F45',orderNo:'#0996',table:'Table 3',takenOn:'Jul 10, 2026 · 8:12 PM',itemsList:[
+        {name:'Grilled Salmon',desc:'4 × $19.00',amt:76},{name:'Four Cheese Pizza',desc:'3 × $16.00',amt:48},{name:'BBQ Chicken Wings',desc:'4 × $11.00',amt:44},{name:'Chardonnay',desc:'6 × $8.50',amt:51}
+      ]},
+      {name:'Priya Nair',initials:'PN',phone:'(628) 555-0199',amount:'$85.00',amountColor:'#B7791E',lastCharge:'Jul 18, 2026',due:'Jul 28, 2026',status:'Due Soon',statusBg:'#FFF3DC',statusColor:'#B7791E',orderNo:'#1021',table:'Takeout',takenOn:'Jul 18, 2026 · 1:35 PM',itemsList:[
+        {name:'Pepperoni Pizza',desc:'2 × $15.50',amt:31},{name:'Grilled Chicken',desc:'2 × $16.50',amt:33},{name:'Mojito',desc:'2 × $7.50',amt:15}
+      ]},
+      {name:'Marcus Webb',initials:'MW',phone:'(510) 555-0142',amount:'$160.00',amountColor:'#E14F45',lastCharge:'Jul 5, 2026',due:'Jul 15, 2026',status:'Overdue',statusBg:'#FDEBEA',statusColor:'#E14F45',orderNo:'#0974',table:'Table 6',takenOn:'Jul 5, 2026 · 7:48 PM',itemsList:[
+        {name:'Bacon Beef Burger',desc:'4 × $13.50',amt:54},{name:'Crispy Fries',desc:'4 × $6.00',amt:24},{name:'Grilled Salmon',desc:'2 × $19.00',amt:38},{name:'House Red Wine',desc:'5 × $8.00',amt:40}
+      ]},
+      {name:'Grace Lin',initials:'GL',phone:'(415) 555-0110',amount:'$45.00',amountColor:'#1C9C5E',lastCharge:'Jul 20, 2026',due:'Aug 1, 2026',status:'Current',statusBg:'#E4F7EC',statusColor:'#1C9C5E',orderNo:'#1034',table:'Table 2',takenOn:'Jul 20, 2026 · 6:20 PM',itemsList:[
+        {name:'Margherita Pizza',desc:'2 × $14.00',amt:28},{name:'Caesar Salad',desc:'1 × $9.00',amt:9},{name:'Tomato Soup',desc:'1 × $7.00',amt:7}
+      ]},
+      {name:'Omar Siddiqui',initials:'OS',phone:'(650) 555-0177',amount:'$300.00',amountColor:'#E14F45',lastCharge:'Jul 12, 2026',due:'Jul 22, 2026',status:'Overdue',statusBg:'#FDEBEA',statusColor:'#E14F45',orderNo:'#1003',table:'Table 9',takenOn:'Jul 12, 2026 · 9:05 PM',itemsList:[
+        {name:'Grilled Salmon',desc:'6 × $19.00',amt:114},{name:'Four Cheese Pizza',desc:'5 × $16.00',amt:80},{name:'Aperol Spritz',desc:'8 × $9.00',amt:72},{name:'Mozzarella Sticks',desc:'4 × $8.00',amt:32}
+      ]},
+      {name:'Hannah Kim',initials:'HK',phone:'(415) 555-0133',amount:'$130.00',amountColor:'#1C9C5E',lastCharge:'Jul 22, 2026',due:'Aug 2, 2026',status:'Current',statusBg:'#E4F7EC',statusColor:'#1C9C5E',orderNo:'#1042',table:'Table 5',takenOn:'Jul 22, 2026 · 8:44 PM',itemsList:[
+        {name:'Grilled Chicken',desc:'4 × $16.50',amt:66},{name:'Onion Rings',desc:'3 × $7.00',amt:21},{name:'Chardonnay',desc:'5 × $8.50',amt:42.5}
+      ]},
+      {name:'Leo Fischer',initials:'LF',phone:'(510) 555-0188',amount:'$300.00',amountColor:'#B7791E',lastCharge:'Jul 19, 2026',due:'Jul 29, 2026',status:'Due Soon',statusBg:'#FFF3DC',statusColor:'#B7791E',orderNo:'#1028',table:'Takeout',takenOn:'Jul 19, 2026 · 12:15 PM',itemsList:[
+        {name:'Pepperoni Pizza',desc:'6 × $15.50',amt:93},{name:'BBQ Chicken Wings',desc:'8 × $11.00',amt:88},{name:'Mojito',desc:'10 × $7.50',amt:75},{name:'Crispy Fries',desc:'7 × $6.00',amt:42}
+      ]}
+    ];
+  }
+
+  renderVals() {
+    const collapsed = this.state.collapsed;
+    const active = this.state.activeNav;
+    const restaurantName = (this.props && this.props.restaurantName) || 'The Bill';
+    const searchMap = {orders:'Search orders',tables:'Search tables',history:'Search history',receivables:'Search receivables',menu:'Search menu'};
+    return {
+      outerWrapperStyle: {width:'100vw', height:'100vh', overflow:'hidden', background:'#EAF6EF', position:'relative'},
+      canvasStyle: {position:'absolute', left: this.state.offsetX + 'px', top: this.state.offsetY + 'px', width:'1920px', height:'1080px', transform:'scale(' + this.state.scale + ')', transformOrigin:'top left', display:'flex', gap:'20px', padding:'24px', boxSizing:'border-box', fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif", color:'#1E2433', overflow:'hidden'},
+      sidebarStyle: {width: collapsed ? '88px' : '264px', background:'#fff', borderRadius:'22px', padding: collapsed ? '22px 12px' : '22px 18px', display:'flex', flexDirection:'column', boxShadow:'0 12px 32px rgba(20,45,35,0.06)', height:'100%', flexShrink:0, transition:'width .18s ease'},
+      showLabels: !collapsed,
+      menuNavStyle: this.navStyle('menu'),
+      ordersNavStyle: this.navStyle('orders'),
+      tablesNavStyle: this.navStyle('tables'),
+      historyNavStyle: this.navStyle('history'),
+      receivablesNavStyle: this.navStyle('receivables'),
+      profileNavStyle: this.navStyle('profile'),
+      collapseIconStyle: {transform: collapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition:'transform .2s'},
+      setNavMenu: () => this.setState({activeNav:'menu'}),
+      setNavOrders: () => this.setState({activeNav:'orders'}),
+      setNavTables: () => this.setState({activeNav:'tables'}),
+      setNavHistory: () => this.setState({activeNav:'history'}),
+      setNavReceivables: () => this.setState({activeNav:'receivables'}),
+      setNavProfile: () => this.setState({activeNav:'profile'}),
+      toggleCollapse: () => this.setState(s => ({collapsed: !s.collapsed})),
+      isMenu: active === 'menu',
+      isOrders: active === 'orders',
+      isTables: active === 'tables',
+      isHistory: active === 'history',
+      isReceivables: active === 'receivables',
+      isProfile: active === 'profile',
+      showSearch: active !== 'profile',
+      searchPlaceholder: searchMap[active] || 'Search menu',
+      showPayment: this.state.showPayment,
+      openPayment: () => this.setState({showPayment:true}),
+      closePayment: () => this.setState({showPayment:false, paymentConfirmed:false}),
+      confirmPayment: () => this.setState({paymentConfirmed:true}),
+      notConfirmed: !this.state.paymentConfirmed,
+      paymentConfirmed: this.state.paymentConfirmed,
+      payCashStyle: this.payMethodStyle('cash'),
+      payCardStyle: this.payMethodStyle('card'),
+      payQrStyle: this.payMethodStyle('qr'),
+      payLoanStyle: this.payMethodStyle('loan'),
+      setPayCash: () => this.setState({paymentMethod:'cash'}),
+      setPayCard: () => this.setState({paymentMethod:'card'}),
+      setPayQr: () => this.setState({paymentMethod:'qr'}),
+      setPayLoan: () => this.setState({paymentMethod:'loan'}),
+      split2Style: this.splitStyle(2),
+      split3Style: this.splitStyle(3),
+      split4Style: this.splitStyle(4),
+      setSplit2: () => this.setState(s => ({splitWays: s.splitWays === 2 ? null : 2})),
+      setSplit3: () => this.setState(s => ({splitWays: s.splitWays === 3 ? null : 3})),
+      setSplit4: () => this.setState(s => ({splitWays: s.splitWays === 4 ? null : 4})),
+      payItems: (() => {
+        const q = this.state.itemQty;
+        const unit = {salad:9, main:12, dessert:8};
+        const fmt = n => '$' + n.toFixed(2);
+        return [
+          {name:'Caesar Salad', unit:fmt(unit.salad), qty:q.salad, lineTotal:fmt(unit.salad*q.salad), inc:this.changeQty('salad',1), dec:this.changeQty('salad',-1)},
+          {name:'Classic Cheeseburger', unit:fmt(unit.main), qty:q.main, lineTotal:fmt(unit.main*q.main), inc:this.changeQty('main',1), dec:this.changeQty('main',-1)},
+          {name:'Chocolate Lava Cake', unit:fmt(unit.dessert), qty:q.dessert, lineTotal:fmt(unit.dessert*q.dessert), inc:this.changeQty('dessert',1), dec:this.changeQty('dessert',-1)}
+        ];
+      })(),
+      paySubtotal: '$' + (9*this.state.itemQty.salad + 12*this.state.itemQty.main + 8*this.state.itemQty.dessert).toFixed(2),
+      payTotal: '$' + (9*this.state.itemQty.salad + 12*this.state.itemQty.main + 8*this.state.itemQty.dessert + 1.5 + 2.1).toFixed(2),
+      isLoan: this.state.paymentMethod === 'loan',
+      hasSplit: !!this.state.splitWays,
+      splitParts: (() => {
+        const n = this.state.splitWays;
+        if (!n) return [];
+        const totalNum = 9*this.state.itemQty.salad + 12*this.state.itemQty.main + 8*this.state.itemQty.dessert + 1.5 + 2.1;
+        const per = totalNum / n;
+        const arr = [];
+        for (let i = 1; i <= n; i++) {
+          const paid = !!this.state.splitPartPaid[i];
+          arr.push({
+            n: i,
+            amount: '$' + per.toFixed(2),
+            paid: paid,
+            checkBg: paid ? '#23B26E' : '#fff',
+            togglePaid: this.toggleSplitPaid(i),
+            cashStyle: this.splitMethodStyle(i, 'cash'),
+            cardStyle: this.splitMethodStyle(i, 'card'),
+            qrStyle: this.splitMethodStyle(i, 'qr'),
+            loanStyle: this.splitMethodStyle(i, 'loan'),
+            setCash: () => this.setSplitPartMethod(i, 'cash'),
+            setCard: () => this.setSplitPartMethod(i, 'card'),
+            setQr: () => this.setSplitPartMethod(i, 'qr'),
+            setLoan: () => this.setSplitPartMethod(i, 'loan')
+          });
+        }
+        return arr;
+      })(),
+      qtySalad: this.state.itemQty.salad,
+      qtyMain: this.state.itemQty.main,
+      qtyDessert: this.state.itemQty.dessert,
+      incSalad: this.changeQty('salad', 1),
+      decSalad: this.changeQty('salad', -1),
+      incMain: this.changeQty('main', 1),
+      decMain: this.changeQty('main', -1),
+      incDessert: this.changeQty('dessert', 1),
+      decDessert: this.changeQty('dessert', -1),
+      langUzStyle: this.langStyle('uz'),
+      langEnStyle: this.langStyle('en'),
+      setLangUz: () => this.setState({lang: 'uz'}),
+      setLangEn: () => this.setState({lang: 'en'}),
+      restaurantName: restaurantName,
+      restaurantInitial: restaurantName.charAt(0).toUpperCase(),
+      staffName: (this.props && this.props.staffName) || 'Ava Martinez',
+      menuItems: this.menuItems(),
+      orderRows: this.orderRows().map(r => {
+        const t = this.orderTotals(r.id);
+        const m = this.effMeta(r.id);
+        return {
+          ...r,
+          place: m.type === 'Dine In' ? m.table : m.type,
+          type: m.type,
+          items: t.count + (t.count === 1 ? ' item' : ' items'),
+          total: '$' + t.total.toFixed(2),
+          select: () => this.setState({selectedOrder: r.id}),
+          cardBorder: this.state.selectedOrder === r.id ? '#1C9C5E' : 'transparent'
+        };
+      }),
+      selOrder: (() => {
+        const r = this.orderRows().find(x => x.id === this.state.selectedOrder) || this.orderRows()[0];
+        const t = this.orderTotals(r.id);
+        const m = this.effMeta(r.id);
+        return {
+          ...r,
+          items: t.count + (t.count === 1 ? ' item' : ' items'),
+          metaLine: (m.type === 'Dine In' ? m.table + ' · ' : '') + m.type + ' · ' + r.time
+        };
+      })(),
+      selIsDineIn: this.effMeta(this.state.selectedOrder).type === 'Dine In',
+      orderTypePills: ['Dine In','Takeout','Curbside','Delivery'].map(t => {
+        const active = this.effMeta(this.state.selectedOrder).type === t;
+        return {
+          label: t,
+          set: () => this.setOrderMeta(this.state.selectedOrder, {type: t}),
+          style: {padding:'7px 14px', borderRadius:'999px', fontSize:'12px', cursor:'pointer', fontWeight: active ? 700 : 600, background: active ? '#23B26E' : '#fff', color: active ? '#fff' : '#7C8792', border: active ? 'none' : '1px solid #EEF1F1'}
+        };
+      }),
+      selTable: this.effMeta(this.state.selectedOrder).table,
+      showEditMenu: this.state.editingOrder && !this.state.showTablePicker,
+      showTableScheme: this.state.editingOrder && this.state.showTablePicker,
+      showTablePicker: this.state.showTablePicker,
+      openTablePicker: () => this.setState({showTablePicker: true}),
+      editFromTables: () => this.setState(s => ({
+        activeNav: 'orders',
+        editingOrder: true,
+        showTablePicker: false,
+        editSnapshot: {
+          items: (s.orderItems[s.selectedOrder] || []).map(it => ({...it})),
+          meta: {...(s.orderMeta[s.selectedOrder] || {})}
+        }
+      })),
+      closeTablePicker: () => this.setState({showTablePicker: false}),
+      tablePickerCards: this.tableCards().map(t => ({
+        num: t.num, seats: t.seats, status: t.status, statusBg: t.statusBg, statusColor: t.statusColor,
+        pickBorder: this.effMeta(this.state.selectedOrder).table === t.num ? '#1C9C5E' : '#EEF1F1',
+        pick: () => this.setState(s => ({showTablePicker: false, orderMeta: {...s.orderMeta, [s.selectedOrder]: {...(s.orderMeta[s.selectedOrder] || {}), table: t.num}}}))
+      })),
+      selOrderItems: (this.state.orderItems[this.state.selectedOrder] || []).map(it => ({
+        name: it.name,
+        qty: '×' + it.qty,
+        price: '$' + (it.unit * it.qty).toFixed(2),
+        inc: this.editItem(this.state.selectedOrder, it.name, 1),
+        dec: this.editItem(this.state.selectedOrder, it.name, -1),
+        remove: this.removeOrderItem(this.state.selectedOrder, it.name)
+      })),
+      selOrderSubtotal: '$' + this.orderTotals(this.state.selectedOrder).sub.toFixed(2),
+      selOrderFees: '$' + this.orderTotals(this.state.selectedOrder).fees.toFixed(2),
+      selOrderTotal: '$' + this.orderTotals(this.state.selectedOrder).total.toFixed(2),
+      editingOrder: this.state.editingOrder,
+      notEditingOrder: !this.state.editingOrder,
+      editLabel: this.state.editingOrder ? 'Done' : 'Edit',
+      toggleEditOrder: () => this.setState(s => s.editingOrder
+        ? {editingOrder: false, editSnapshot: null, showTablePicker: false}
+        : {editingOrder: true, editSnapshot: {
+            items: (s.orderItems[s.selectedOrder] || []).map(it => ({...it})),
+            meta: {...(s.orderMeta[s.selectedOrder] || {})}
+          }}),
+      discardEdit: () => this.setState(s => ({
+        editingOrder: false,
+        showTablePicker: false,
+        orderItems: s.editSnapshot ? {...s.orderItems, [s.selectedOrder]: s.editSnapshot.items} : s.orderItems,
+        orderMeta: s.editSnapshot ? {...s.orderMeta, [s.selectedOrder]: s.editSnapshot.meta} : s.orderMeta,
+        editSnapshot: null
+      })),
+      catalogList: this.catalog().map((c, i) => ({
+        id: i + 1,
+        name: c.name,
+        cat: c.cat,
+        price: '$' + c.unit.toFixed(2),
+        add: this.addOrderItem(this.state.selectedOrder, c.name, c.unit)
+      })).filter(c => this.state.editCategory === 'all' || c.cat === this.state.editCategory),
+      editCatPills: ['all','bar','food','wine','soup','pizzas','fish'].map(k => {
+        const active = this.state.editCategory === k;
+        return {
+          label: k === 'all' ? 'All' : k.charAt(0).toUpperCase() + k.slice(1),
+          set: () => this.setState({editCategory: k}),
+          style: {
+            padding:'9px 20px', borderRadius:'999px', fontSize:'13.5px', cursor:'pointer',
+            fontWeight: active ? 700 : 600,
+            background: active ? '#23B26E' : '#fff',
+            color: active ? '#fff' : '#7C8792',
+            border: active ? 'none' : '1px solid #EEF1F1'
+          }
+        };
+      }),
+      tableCards: this.tableCards(),
+      historyRows: this.historyRows().map(h => {
+        const refunded = !!this.state.refundedOrders[h.order];
+        return {
+          ...h,
+          status: refunded ? 'Refunded' : h.status,
+          statusBg: refunded ? '#FDEBEA' : h.statusBg,
+          statusColor: refunded ? '#E14F45' : h.statusColor,
+          view: () => this.setState({selectedHistory: h.order})
+        };
+      }),
+      showHistoryDetail: !!this.state.selectedHistory,
+      selHist: (() => {
+        const h = this.historyRows().find(x => x.order === this.state.selectedHistory);
+        if (!h) return {itemsList: []};
+        const refunded = !!this.state.refundedOrders[h.order];
+        const sub = h.itemsList.reduce((a, i) => a + i.amt, 0);
+        const totalNum = parseFloat(h.total.slice(1));
+        return {
+          ...h,
+          status: refunded ? 'Refunded' : h.status,
+          statusBg: refunded ? '#FDEBEA' : h.statusBg,
+          statusColor: refunded ? '#E14F45' : h.statusColor,
+          subtotal: '$' + sub.toFixed(2),
+          serviceTax: '$' + (totalNum - sub).toFixed(2)
+        };
+      })(),
+      selHistItems: (() => {
+        const h = this.historyRows().find(x => x.order === this.state.selectedHistory);
+        return h ? h.itemsList.map(i => ({name: i.name, qty: i.qty, amount: '$' + i.amt.toFixed(2)})) : [];
+      })(),
+      canRefund: (() => {
+        const h = this.historyRows().find(x => x.order === this.state.selectedHistory);
+        return !!h && h.status === 'Completed' && !this.state.refundedOrders[h.order];
+      })(),
+      closeHistory: () => this.setState({selectedHistory: null, showRefund: false}),
+      openRefund: () => this.setState({showRefund: true}),
+      closeRefund: () => this.setState({showRefund: false}),
+      showRefund: this.state.showRefund,
+      confirmRefund: () => this.setState(s => ({refundedOrders: {...s.refundedOrders, [s.selectedHistory]: true}, showRefund: false, selectedHistory: null})),
+      refundReasons: ['Customer Complaint','Wrong Order','Duplicate Payment','Other'].map(rn => {
+        const active = this.state.refundReason === rn;
+        return {
+          label: rn,
+          set: () => this.setState({refundReason: rn}),
+          rowStyle: {display:'flex', alignItems:'center', gap:'10px', padding:'12px 14px', borderRadius:'12px', cursor:'pointer', border: active ? '1.5px solid #E14F45' : '1.5px solid #EEF1F1', background: active ? '#FDEBEA' : '#fff', fontWeight:700, fontSize:'13.5px', color:'#1E2433'},
+          dotOuter: {width:'16px', height:'16px', borderRadius:'50%', border: active ? '1.5px solid #E14F45' : '1.5px solid #C9D1D4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0},
+          dotInner: {width:'8px', height:'8px', borderRadius:'50%', background: active ? '#E14F45' : 'transparent'}
+        };
+      }),
+      histTodayStyle: this.histChipStyle('today'),
+      histYesterdayStyle: this.histChipStyle('yesterday'),
+      histWeekStyle: this.histChipStyle('week'),
+      histCustomStyle: this.histChipStyle('custom'),
+      setHistToday: () => this.setState({histFilter: 'today'}),
+      setHistYesterday: () => this.setState({histFilter: 'yesterday'}),
+      setHistWeek: () => this.setState({histFilter: 'week'}),
+      customChipLabel: this.state.customLabel || 'Custom',
+      showDatePicker: this.state.showDatePicker,
+      openDatePicker: () => this.setState({showDatePicker: true}),
+      closeDatePicker: () => this.setState({showDatePicker: false}),
+      calTitle: ['January','February','March','April','May','June','July','August','September','October','November','December'][this.state.calMonth] + ' ' + this.state.calYear,
+      prevMonth: () => this.setState(s => s.calMonth === 0 ? {calMonth: 11, calYear: s.calYear - 1} : {calMonth: s.calMonth - 1}),
+      nextMonth: () => this.setState(s => s.calMonth === 11 ? {calMonth: 0, calYear: s.calYear + 1} : {calMonth: s.calMonth + 1}),
+      calFromLabel: this.fmtCal(this.state.calFrom),
+      calToLabel: this.fmtCal(this.state.calTo || this.state.calFrom),
+      calHint: this.state.calPicking === 'to' ? 'Tap a date to set end' : 'Tap a date to set start',
+      calFromBoxStyle: {flex:1, borderRadius:'12px', padding:'10px 14px', cursor:'default', border: this.state.calPicking !== 'to' ? '1.5px solid #23B26E' : '1.5px solid #EEF1F1', background: this.state.calPicking !== 'to' ? '#E4F7EC' : '#fff'},
+      calToBoxStyle: {flex:1, borderRadius:'12px', padding:'10px 14px', cursor:'default', border: this.state.calPicking === 'to' ? '1.5px solid #23B26E' : '1.5px solid #EEF1F1', background: this.state.calPicking === 'to' ? '#E4F7EC' : '#fff'},
+      calCells: (() => {
+        const y = this.state.calYear, m = this.state.calMonth;
+        const firstDow = (new Date(y, m, 1).getDay() + 6) % 7;
+        const dim = new Date(y, m + 1, 0).getDate();
+        const fromS = this.state.calFrom ? this.calSerial(this.state.calFrom) : null;
+        const toS = this.state.calTo ? this.calSerial(this.state.calTo) : fromS;
+        const cells = [];
+        for (let i = 0; i < firstDow; i++) cells.push({label:'', pick:null, style:{height:'34px'}});
+        for (let d = 1; d <= dim; d++) {
+          const dd = {y:y, m:m, d:d};
+          const s = this.calSerial(dd);
+          const isEnd = s === fromS || s === toS;
+          const inRange = fromS !== null && toS !== null && s > fromS && s < toS;
+          cells.push({
+            label: String(d),
+            pick: () => this.pickDay(dd),
+            style: {height:'34px', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'12.5px', cursor:'pointer', fontWeight: isEnd ? 800 : 600, background: isEnd ? '#23B26E' : (inRange ? '#E4F7EC' : 'transparent'), color: isEnd ? '#fff' : (inRange ? '#1C9C5E' : '#1E2433')}
+          });
+        }
+        return cells;
+      })(),
+      quickToday: () => this.setCalRange({y:2026,m:6,d:26}, {y:2026,m:6,d:26}, 6),
+      quickWeek: () => this.setCalRange({y:2026,m:6,d:20}, {y:2026,m:6,d:26}, 6),
+      quickMonth: () => this.setCalRange({y:2026,m:6,d:1}, {y:2026,m:6,d:26}, 6),
+      quickLastMonth: () => this.setCalRange({y:2026,m:5,d:1}, {y:2026,m:5,d:30}, 5),
+      applyRange: () => this.setState(s => ({
+        histFilter: 'custom',
+        customLabel: this.fmtCal(s.calFrom) + ' → ' + this.fmtCal(s.calTo || s.calFrom),
+        showDatePicker: false
+      })),
+      receivableRows: this.receivableRows().map(r => {
+        const paid = !!this.state.paidLoans[r.name];
+        return {
+          ...r,
+          status: paid ? 'Paid' : r.status,
+          statusBg: paid ? '#E4F7EC' : r.statusBg,
+          statusColor: paid ? '#1C9C5E' : r.statusColor,
+          amountColor: paid ? '#1C9C5E' : r.amountColor,
+          view: () => this.setState({selectedLoan: r.name}),
+          recordPay: () => this.setState({selectedLoan: r.name, showCollect: true})
+        };
+      }).filter(r => this.state.recvFilter === 'all' || this.loanBucket(r) === this.state.recvFilter),
+      recvAllStyle: this.recvChipStyle('all'),
+      recvActiveStyle: this.recvChipStyle('active'),
+      recvPaidStyle: this.recvChipStyle('paid'),
+      recvOverdueStyle: this.recvChipStyle('overdue'),
+      setRecvAll: () => this.setState({recvFilter: 'all'}),
+      setRecvActive: () => this.setState({recvFilter: 'active'}),
+      setRecvPaid: () => this.setState({recvFilter: 'paid'}),
+      setRecvOverdue: () => this.setState({recvFilter: 'overdue'}),
+      showLoanDetail: !!this.state.selectedLoan && !this.state.showCollect,
+      showCollect: this.state.showCollect,
+      closeLoanDetail: () => this.setState({selectedLoan: null, showCollect: false}),
+      closeCollect: () => this.setState({showCollect: false}),
+      openCollect: () => this.setState({showCollect: true}),
+      collectCashStyle: this.collectMethodStyle('cash'),
+      collectCardStyle: this.collectMethodStyle('card'),
+      collectQrStyle: this.collectMethodStyle('qr'),
+      setCollectCash: () => this.setState({collectMethod: 'cash'}),
+      setCollectCard: () => this.setState({collectMethod: 'card'}),
+      setCollectQr: () => this.setState({collectMethod: 'qr'}),
+      isCollectCash: this.state.collectMethod === 'cash',
+      isCollectCard: this.state.collectMethod === 'card',
+      isCollectQr: this.state.collectMethod === 'qr',
+      confirmCollect: () => this.setState(s => ({
+        paidLoans: {...s.paidLoans, [s.selectedLoan]: {via: s.collectMethod === 'cash' ? 'Cash' : s.collectMethod === 'card' ? 'Card' : 'QR Code', on: 'Jul 26, 2026 · 7:10 PM'}},
+        showCollect: false
+      })),
+      selLoan: (() => {
+        const r = this.receivableRows().find(x => x.name === this.state.selectedLoan);
+        if (!r) return {itemsList: []};
+        const paid = this.state.paidLoans[r.name];
+        const overdue = r.status === 'Overdue';
+        const sub = r.itemsList.reduce((a, i) => a + i.amt, 0);
+        return {
+          ...r,
+          bannerLabel: paid ? 'PAID' : (overdue ? 'OVERDUE' : 'ACTIVE'),
+          bannerBg: paid ? '#E4F7EC' : (overdue ? '#FDEBEA' : '#FFF3DC'),
+          bannerColor: paid ? '#1C9C5E' : (overdue ? '#E14F45' : '#B7791E'),
+          isPaid: !!paid,
+          notPaid: !paid,
+          paidVia: paid ? paid.via : '',
+          paidOn: paid ? paid.on : '',
+          itemsCount: r.itemsList.length + (r.itemsList.length === 1 ? ' item' : ' items'),
+          subtotal: '$' + sub.toFixed(2)
+        };
+      })(),
+      selLoanItems: (() => {
+        const r = this.receivableRows().find(x => x.name === this.state.selectedLoan);
+        return r ? r.itemsList.map(i => ({name: i.name, desc: i.desc, amount: '$' + i.amt.toFixed(2)})) : [];
+      })()
+    };
+  }
+}
+</script>
+</body>
+</html>

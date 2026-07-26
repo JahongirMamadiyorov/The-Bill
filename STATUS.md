@@ -3,7 +3,80 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-Last updated: 2026-07-08 (backend stock-deduction bug fixed, needs deploy + test)
+Last updated: 2026-07-26 (POS redesign ALL 8 STEPS BUILT — esbuild-parse-verified only,
+NOT yet run on the real machine. That's the next thing to do, before any further building.)
+
+## POS Terminal redesign — all 8 steps built (approved 2026-07-26)
+
+The project owner built a full design in Claude Design (their separate design tool) and
+approved rebuilding the `new_cashier` `/pos` screens to match it. Design source of truth:
+`pos-app/POS Terminal Design System/design_handoff_pos_terminal/` (README.md has all
+tokens; screenshots/ has all 14 states). 6 screens (Menu, Orders, Tables, History,
+Receivables, Profile) + 5 modals. NO "Bills" screen. Old teal `src/pages/Cashier.jsx`
+kept as reference but no longer routed — new code lives in `pos-app/src/pages/pos/`.
+
+Was paused mid-Step-7 at the user's request ("stop the job and leave a log"), then resumed and
+finished steps 7 and 8 in the next session. Full detail in SESSIONS.md 2026-07-26 entries.
+
+All 8 screens exist and are wired to real backend data (esbuild-parse-verified every file,
+**NOT yet run on the real machine — that is the very next thing to do, before shipping or
+building anything further on top of this**):
+- **Step 1 shell:** `tokens.js`, `useSettings.js`, `PosShell.jsx` (264↔88px sidebar, UZ/EN,
+  topbar), `index.html` (Plus Jakarta Sans). Backend: `settings.js` ALLOWED_ROLES fix (was
+  403-ing new_cashier/new_waiter). `main.js`/`preload.js`: new read-only `api:get`/`apiGet` IPC.
+- **Step 2 Menu** (`MenuScreen.jsx`): categories, product grid, cart w/ category-grouped
+  steppers, floor-plan table picker, weighed-item modal, Fire.
+- **Step 3 Payment modal** (`PaymentModal.jsx`): Cash/Card/QR/Loan, change calc, discount,
+  split 2/3/4 ways, loan fields, success view. Payload matches `PUT /orders/:id/pay` exactly.
+- **Step 4 Orders** (`OrdersScreen.jsx`): filter pills, cards, detail panel, full edit mode
+  (steppers/remove/change type/change table, Discard/Done) via new `orders:update`/
+  `ordersUpdate` IPC → `PUT /orders/:id`.
+- **Step 5 Tables** (`TablesScreen.jsx`): zone pills from `restaurant_tables.section`, status
+  legend, cards w/ waiter·elapsed·total, "Open in Orders" jump.
+- **Step 6 History + refund** (`HistoryScreen.jsx` + new backend `POST /orders/:id/refund`):
+  stat cards, date chips incl. custom calendar range, orders table, detail modal, refund
+  dialog. New `orders` columns `refunded_at`/`refund_reason`/`refunded_by` (auto-migrated,
+  does NOT touch `status`). History reads via `apiGet('/api/orders?...')`, not local
+  PowerSync (needs joined data, not offline-critical).
+- **Step 7 Receivables** (`ReceivablesScreen.jsx`): 3 stat cards (computed client-side from
+  `GET /api/loans`, not a separate stats call — Total Outstanding/Overdue/Customers with
+  Balance), All/Active/Paid/Overdue filter chips, loans table, Loan Details modal (pulls order
+  items via `apiGet('/api/orders/:id')`), Collect Payment modal → `loansPay` (`PATCH
+  /api/loans/:id/pay`). "Remind" button uses a new `loans:remind`/`loansRemind` IPC →
+  `POST /api/loans/notify-overdue` (notifies ALL overdue loans restaurant-wide, not per-row —
+  that's what the backend endpoint does, there's no single-loan reminder route).
+- **Step 8 Profile** (`ProfileScreen.jsx`): header card (avatar, name, On Shift/Off Shift pill,
+  role), Shift Info card with a real Clock In **or** Clock Out button depending on
+  `GET /api/shifts/active` (new `shifts:clockIn`/`shifts:clockOut` IPC → the existing
+  `POST /api/shifts/clock-in`/`clock-out`), Personal Details card (phone/email/hire date from
+  the session user), 3 stat cards (orders handled/sales/avg serve time today, computed from
+  `GET /api/orders?waitress_id=...&status=paid&from=today&to=today`). **Deliberately omits**
+  the design's Break/Employee ID fields and Edit Profile/Change Password buttons — checked
+  `schema.sql` and there's no break-tracking column, no employee-ID field, and no
+  change-password endpoint; showing fake fields with no real data behind them was rejected in
+  favor of building them for real later if wanted (see MEMORY.md).
+
+**Next step: run it.** Nothing beyond esbuild parse-checks and `node --check` on the touched
+backend files has verified any of this. Before building anything further (Kitchen, Admin,
+Owner, New Waiter phases) or considering this shippable:
+1. `npm install` in `pos-app` if not done recently, then the two-terminal dev flow
+   (`npm run dev:renderer` then `npm run dev`), log in as a `new_cashier` user.
+2. Push the backend changes (`settings.js` ALLOWED_ROLES, new `orders.js` refund endpoint +
+   refund columns) to `the-bill-backend` / Render — none of this session's backend work is
+   live yet, so Refund/Receivables/Profile screens will error against the current deployed
+   backend until it's pushed.
+3. Click through all 8 screens for real: Menu → Fire/Charge, Orders → edit mode (does stock
+   actually adjust correctly on save?), Tables, History → try a refund on a real paid order,
+   Receivables → collect a loan payment, Profile → clock in/out.
+4. Report back anything broken — this was built screen-by-screen from the design spec and the
+   existing backend contracts, but has real integration risk (local PowerSync field names,
+   IPC wiring, money math) that only a real run will surface.
+
+Standing rules for this rebuild (don't relitigate): DB/API names stay
+`waitress_id`/`waitress_permissions`/role string `'waitress'` — only the UI *label* says
+"Waiter". Money mirrors the backend exactly (subtotal + tax − discount); service charge is
+DISPLAY-ONLY everywhere in this codebase (backend never adds it to `total_amount`) — flagged
+to the owner as an open question, not decided, don't silently change it either direction.
 
 ## Done
 

@@ -233,3 +233,80 @@ see above) — root-caused entirely from code + the user's screenshots:
 - Comfortable making architecture decisions once trade-offs are explained plainly and concretely
   in plain language (avoid unexplained jargon); prefers a single clear recommendation over a long
   menu of options when a direct question is asked.
+- Uses a separate tool he calls "Claude Design" to produce high-fidelity design handoffs (HTML
+  prototype + README with exact design tokens + numbered screenshots) that he then drops into
+  the project folder and asks this AI to implement pixel-for-pixel. Treat these as authoritative
+  specs, not inspiration — read the whole README before writing any code.
+- Explicitly checks this AI's claims against the real code before accepting them ("make sure you
+  did not make any mistakes") — has caught real errors this way (e.g. wrong assumption that
+  service charge / currency / clock-in needed new backend work, when they already existed). Any
+  claim about "what's missing" or "what needs to be built" should be verified by reading the
+  actual route/schema files first, not stated from a design doc's absence of mention.
+- Will interrupt mid-task with "stop the job and leave a log" — when this happens, stop
+  immediately (don't finish the in-flight file first if it's not already safe), verify nothing
+  is left syntactically broken, and write the SESSIONS/STATUS/MEMORY update before responding.
+
+## POS Terminal redesign (started 2026-07-26) — key facts for resuming
+
+- Design handoff lives at `pos-app/POS Terminal Design System/design_handoff_pos_terminal/`
+  (README.md + 14 screenshots) — re-read the README before touching any screen in this rebuild,
+  it has the exact color/spacing/shadow tokens already extracted into `pos-app/src/pages/pos/
+  tokens.js`. Don't re-derive tokens from screenshots; use `tokens.js`.
+- New code lives entirely under `pos-app/src/pages/pos/` — one file per screen/modal, registered
+  in `PosCashier.jsx`'s `SCREENS` map. The old `pos-app/src/pages/Cashier.jsx` (teal design) is
+  kept but no longer routed — don't delete it until the redesign is fully verified working.
+- **Naming rule (explicit, do not "fix"):** the design's "Server"/"Waiter" language is
+  UI-display-only. Every DB column, API field, and role string keeps its original name —
+  `orders.waitress_id`, `waitress_permissions` table, role string `'waitress'` in the
+  `users` CHECK constraint. Renaming any of these breaks every other app reading them.
+- **What admin/owner already control (verified against real route files, 2026-07-26 — do not
+  reassume these need new backend work without re-checking):**
+  - Currency symbol, tax rate/enabled, service charge rate/enabled, receipt/kitchen printer
+    lists and per-line toggles — all via `restaurant_settings` / `GET,PUT /api/settings`.
+  - Menu categories and kitchen stations — fully dynamic CRUD via `menu.js`
+    (`/api/menu/categories`, `/api/menu/stations`), not fixed lists.
+  - Table zones/sections — dynamic via `table_sections` table + `tables.js` `/sections`
+    endpoints, not hardcoded "Main Hall/Patio/Bar".
+  - Clock-in/out, manual attendance, payroll — fully built in `shifts.js`
+    (`POST /api/shifts/clock-in`, `/clock-out`, `GET /active`, `/mine`, `/payroll`, etc.).
+  - Loans list/stats/pay — `loans.js` (`GET /`, `GET /stats`, `PATCH /:id/pay`).
+  - **The only genuinely new backend work for this whole redesign was refunds** — no refund
+    endpoint existed before `POST /api/orders/:id/refund` was added this session.
+- **`settings.js` `ALLOWED_ROLES` did not include `new_cashier`/`new_waiter`** before this
+  session — the POS would have gotten 403 on every settings read. Fixed; if a future POS screen
+  needs a different backend route that's role-gated to old roles only (`cashier`, `waitress`,
+  etc.), check whether `new_cashier`/`new_waiter` need adding there too — this class of bug is
+  easy to miss because the route "looks" like it should just work.
+- **`api:get`/`apiGet` IPC pattern** (`main.js`/`preload.js`): a generic **read-only** passthrough
+  to the backend for data that isn't in the local PowerSync schema (settings, shifts, loans,
+  order history with joins). Explicitly GET-only by validation in the handler — every write
+  still needs its own named IPC handler through `submitOrderWrite()` (or a dedicated one that
+  calls it), same offline-queuing-insertion-point reasoning as the original Fire/Charge funnel.
+  Don't repurpose `apiGet` for writes even for "simple" ones.
+- **Refunds don't change `orders.status`** — a paid, refunded order stays `status='paid'` with
+  `refunded_at`/`refund_reason`/`refunded_by` set instead. This was a deliberate choice to avoid
+  touching the `orders_status_check` CHECK constraint (which would need a migration + auditing
+  every place that branches on `status`) — anywhere that needs to distinguish a refunded order
+  should check `refunded_at IS NOT NULL`, not add `'refunded'` to status comparisons.
+- **Open question, not decided — do not resolve either direction without asking:** service
+  charge is shown everywhere (receipts, this POS) but the backend has never added it into
+  `orders.total_amount` (verified in `orders.js` POST / and PUT /:id — only tax is added to the
+  charged total). Flagged to the owner; if they want it actually charged, the backend order-total
+  math needs to change first, then the POS just re-reads the corrected total — don't add it
+  client-side as a workaround.
+- **Supabase MCP had no query permission this session** (`execute_sql`/`list_tables` both
+  returned "You do not have permission to perform this action") — the ingredient-math audit this
+  session was done entirely from code + the user's own screenshots, not live queries. If DB
+  access is available in a future session, it's worth double-checking the Output-tab fix against
+  real numbers directly rather than relying on the screenshot-based reconciliation alone.
+- **All 8 screens are now built** (finished 2026-07-26, same session as the start, after a
+  user-requested pause/resume in the middle). Nothing has been run in the real app yet — do not
+  treat this as "done," treat it as "ready for its first real test." If a future session is asked
+  to keep building on top of this (Kitchen/Admin/Owner/New Waiter phases, or further POS
+  polish), check STATUS.md first for whether the real-machine test happened and what broke.
+- **Pattern to keep applying:** before adding any UI element from a design mock, check whether
+  real data backs it (grep the actual schema/route, don't infer from the mock alone). This
+  session skipped the design's Break/Employee-ID/Edit-Profile fields on the Profile screen for
+  exactly this reason — schema.sql has no columns for them. The user has explicitly flagged
+  fabricated/assumed fields as "mistakes" and "mirages" before; the standing rule is to omit a
+  field rather than fake it, and say so in a code comment.

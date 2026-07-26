@@ -230,6 +230,57 @@ ipcMain.handle('orders:create', async (_event, payload) =>
 ipcMain.handle('orders:pay', async (_event, { id, data }) =>
   submitOrderWrite('PUT', `/api/orders/${id}/pay`, data));
 
+// Order edit (items/table/type replacement) — backend PUT /orders/:id diffs old
+// vs new item quantities and adjusts ingredient stock accordingly (see
+// orders.js stock_diff_items SAVEPOINT) — POS must always send the FULL items
+// list, not a delta.
+ipcMain.handle('orders:update', async (_event, { id, data }) =>
+  submitOrderWrite('PUT', `/api/orders/${id}`, data));
+
+ipcMain.handle('orders:refund', async (_event, { id, data }) =>
+  submitOrderWrite('POST', `/api/orders/${id}/refund`, data));
+
+// Receivables — collect a loan payment. PATCH /api/loans/:id/pay is a
+// pre-existing backend endpoint (loans.js), unrelated to order writes, but
+// still goes through submitOrderWrite() since it's the same "write needs the
+// backend reachable" rule — no separate funnel needed for one more write.
+ipcMain.handle('loans:pay', async (_event, { id, data }) =>
+  submitOrderWrite('PATCH', `/api/loans/${id}/pay`, data));
+
+ipcMain.handle('loans:remind', async () =>
+  submitOrderWrite('POST', '/api/loans/notify-overdue', {}));
+
+// Self clock-in/out (Profile screen). Backend defaults to the calling user
+// when no user_id is given in the body — see shifts.js.
+ipcMain.handle('shifts:clockIn', async () =>
+  submitOrderWrite('POST', '/api/shifts/clock-in', {}));
+ipcMain.handle('shifts:clockOut', async () =>
+  submitOrderWrite('POST', '/api/shifts/clock-out', {}));
+
+// ── IPC: Generic read-only backend GET ─────────────────────────────────────────
+// For data that is NOT in the local PowerSync database (restaurant settings,
+// shifts/clock-in state, loans, order history with joins). READ-ONLY by design:
+// only GET goes through here. Any write that changes money/kitchen/stock state
+// must go through submitOrderWrite() (or its own deliberate handler) — never
+// through a generic passthrough — so the offline-queuing insertion point stays
+// a single place.
+ipcMain.handle('api:get', async (_event, path_) => {
+  const token = store.get('session')?.token;
+  if (!token) return { ok: false, error: 'Not logged in' };
+  if (typeof path_ !== 'string' || !path_.startsWith('/api/')) {
+    return { ok: false, error: 'Invalid API path' };
+  }
+  try {
+    const res = await request('GET', path_, null, token);
+    if (res.status < 200 || res.status >= 300) {
+      return { ok: false, error: res.body?.error || `Request failed (${res.status})` };
+    }
+    return { ok: true, data: res.body };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Network error — is the backend reachable?' };
+  }
+});
+
 // ── IPC: PowerSync queries ──────────────────────────────────────────────────────
 // Thin, generic pass-through — the renderer sends a SQL string + params, main runs it
 // against the local SQLite database. Renderer never touches the database file directly.
