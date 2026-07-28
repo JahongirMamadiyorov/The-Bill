@@ -5,17 +5,65 @@ import {
   Calendar, ChevronDown, Banknote, TrendingUp,
   Phone, FileText, ShoppingBag, CalendarDays, Hash, Info,
 } from 'lucide-react';
-import { loansAPI, ordersAPI } from '../../../api/client.js';
+import { loansAPI } from '../../../api/client.js';
 import { money } from '../../../lib/adminFormat.js';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
+import { camelizeRows } from '../../../lib/case.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ported verbatim from website/src/pages/admin/AdminLoans.jsx (~939 lines) —
 // customer loans list with stats/search/status-filter/date-range picker, a
-// loan details modal (pulls the linked order's items via ordersAPI.getById),
-// and a collect-payment modal (cash/card/QR). Same "no design/functional
-// changes" rule as every other ported Admin screen — only the imports below
-// were adjusted, nothing else.
+// loan details modal (pulls the linked order's items — originally via
+// ordersAPI.getById, now a local PowerSync read, see below), and a
+// collect-payment modal (cash/card/QR). Same "no design/functional changes"
+// rule as every other ported Admin screen — only the imports below were
+// adjusted, nothing else.
+//
+// ── 2026-07-28: reads converted to local PowerSync, second screen after
+// Tables (task #31) — see that screen's own header comment for the general
+// pattern (psGetAll/psGet + camelizeRows, no restaurant_id filter
+// needed since the local DB is already scoped to one restaurant). Writes are
+// completely untouched: `loansAPI.markPaid` (handleMarkPaid, the Collect
+// Payment flow) still calls PATCH /api/loans/:id/pay over REST exactly as
+// before — PowerSync's write queue is never used in this project.
+//
+// Two reads converted, both verified faithful against the real backend route
+// files before writing any local SQL (restaurant-app/backend/src/routes/
+// loans.js, orders.js):
+// 1. `fetchLoans()` — was `loansAPI.getAll({from,to})` (GET /api/loans). The
+//    real route does `SELECT l.*, o.daily_number, t.name AS table_name,
+//    o.order_type, o.customer_name AS order_customer_name FROM loans l LEFT
+//    JOIN orders o ON l.order_id=o.id LEFT JOIN restaurant_tables t ON
+//    o.table_id=t.id WHERE restaurant_id=$1 [+ status/from/to filters]
+//    ORDER BY l.created_at DESC`. Grepped this whole file for `orderType`/
+//    `order_type`/`orderCustomerName`/`order_customer_name` — zero matches,
+//    so those two joined columns are dead weight for this screen and were
+//    NOT replicated (this screen never sends a `status` query param either —
+//    it fetches everything for the period and filters status client-side in
+//    the `filtered` useMemo — so no local status filter was added either,
+//    matching the real call site exactly). `daily_number`/`table_name` ARE
+//    replicated since the list cards read `loan.dailyNumber`/`loan.tableName`.
+//    `loans`/`orders`/`restaurant_tables` are all fully synced tables, so this
+//    is a faithful local equivalent of the join, not an approximation.
+// 2. `LoanDetailsModal`'s order-items fetch — was `ordersAPI.getById(loan.
+//    orderId)` (GET /api/orders/:id), which returns a whole order row (table
+//    number, waitress name, paid-by name, loanDetails, items). Grepped this
+//    file for every `order.`/`order?.` usage and found exactly ONE: `order?.
+//    items || order?.orderItems` (line ~449, feeding the itemized breakdown +
+//    subtotal). None of the order row's own joined fields (table/waitress/
+//    paid-by/loanDetails — the loan itself is already the `loan` prop, not
+//    read off `order`) are ever touched. So only the real route's items
+//    sub-query needed replicating — `SELECT oi.*, COALESCE(m.name,'Unknown
+//    item') AS name, COALESCE(m.unit,'piece') AS unit FROM order_items oi
+//    LEFT JOIN menu_items m ON oi.menu_item_id=m.id WHERE oi.order_id=$1` —
+//    same join/fallback pattern as TablesScreen.jsx's fetchTableOrder items
+//    query. `order_items`/`menu_items` are both fully synced tables. Fetching
+//    the full order row (with its 3 extra joins) would have been wasted work
+//    for data this screen structurally cannot read.
+//
+// `ordersAPI` import dropped entirely (its one call site, getById, is gone —
+// grepped clean, no other reference). `loansAPI` kept for `getStats`
+// (confirmed unused, see note below) and `markPaid` (the write, unchanged).
 //
 // Adaptations, none of them visible:
 // 1. Only path adjustments for already-ported shared deps (one extra `../`
@@ -421,22 +469,36 @@ function LoanDetailsModal({ loan, onClose, onMarkPaid }) {
   const [loading, setLoading]       = useState(false);
   const [orderError, setOrderError] = useState(null);
 
+  // Local PowerSync read, replacing REST `ordersAPI.getById(loan.orderId)`
+  // (GET /api/orders/:id). Grepped this whole file and the ONLY thing ever
+  // read off the fetched `order` is `order?.items || order?.orderItems` a few
+  // lines below — none of that route's other joined fields (table_number,
+  // waitress_name, collected_by_name, loanDetails) are ever touched by this
+  // screen. So only the items sub-query needed replicating, same join/
+  // fallback pattern TablesScreen.jsx's fetchTableOrder already established:
+  // `order_items` LEFT JOIN `menu_items` for name/unit, both fully synced
+  // tables — a faithful local equivalent, not an approximation.
   useEffect(() => {
     if (!loan) return;
     let cancel = false;
-    const fetchOrder = async () => {
+    const fetchOrderItems = async () => {
       if (!loan.orderId) { setOrder(null); return; }
       setLoading(true); setOrderError(null);
       try {
-        const data = await ordersAPI.getById(loan.orderId);
-        if (!cancel) setOrder(data);
+        const itemRows = await window.electronAPI.psGetAll(`
+          SELECT oi.*, COALESCE(m.name, 'Unknown item') AS name, COALESCE(m.unit, 'piece') AS unit
+          FROM order_items oi
+          LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+          WHERE oi.order_id = ?
+        `, [loan.orderId]);
+        if (!cancel) setOrder({ items: camelizeRows(itemRows) });
       } catch (e) {
-        if (!cancel) setOrderError(e?.error || e?.message || t('cashier.loans.couldNotLoadOrder', 'Could not load order'));
+        if (!cancel) setOrderError(e?.message || t('cashier.loans.couldNotLoadOrder', 'Could not load order'));
       } finally {
         if (!cancel) setLoading(false);
       }
     };
-    fetchOrder();
+    fetchOrderItems();
     return () => { cancel = true; };
   }, [loan, t]);
 
@@ -700,14 +762,41 @@ export default function AdminLoansScreen() {
   const [paying, setPaying] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // Local PowerSync read, replacing REST `loansAPI.getAll({from,to})`
+  // (GET /api/loans). Faithful port of that route's own query
+  // (restaurant-app/backend/src/routes/loans.js): `SELECT l.*, o.daily_number,
+  // t.name AS table_name, o.order_type, o.customer_name AS
+  // order_customer_name FROM loans l LEFT JOIN orders o ON l.order_id=o.id
+  // LEFT JOIN restaurant_tables t ON o.table_id=t.id WHERE restaurant_id=$1
+  // [+ optional status/from/to filters] ORDER BY l.created_at DESC`. The
+  // `order_type`/`order_customer_name` joined columns are deliberately NOT
+  // replicated — grepped this whole file for `orderType`/`order_type`/
+  // `orderCustomerName`/`order_customer_name` and found zero references, so
+  // that part of the join is dead weight for this screen. `daily_number`/
+  // `table_name` ARE replicated (read as `loan.dailyNumber`/`loan.tableName`
+  // on the list cards). No local `status` filter either — this screen never
+  // sends `req.query.status` on this call (status filtering happens entirely
+  // client-side in the `filtered` useMemo below), matching the real call site
+  // exactly. `loans`/`orders`/`restaurant_tables` are all fully synced tables
+  // — no restaurant_id filter needed (local DB is already scoped to this
+  // restaurant, confirmed during the Tables conversion via auth.js's
+  // powersync-token endpoint).
   const fetchLoans = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const data = await loansAPI.getAll({ from: period.from, to: period.to });
-      setLoans(Array.isArray(data) ? data : []);
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT l.*, o.daily_number, t.name AS table_name
+        FROM loans l
+        LEFT JOIN orders o ON l.order_id = o.id
+        LEFT JOIN restaurant_tables t ON o.table_id = t.id
+        WHERE DATE(l.created_at) >= ? AND DATE(l.created_at) <= ?
+        ORDER BY l.created_at DESC
+      `, [period.from, period.to]);
+      setLoans(camelizeRows(rows));
       setError(null);
     } catch (err) {
-      setError(err?.error || err?.message || t('cashier.loans.failedToLoad'));
+      console.error('Failed to fetch loans:', err);
+      setError(err?.message || t('cashier.loans.failedToLoad'));
     } finally {
       if (!silent) setLoading(false);
     }

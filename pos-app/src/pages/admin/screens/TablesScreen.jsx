@@ -3,8 +3,9 @@ import NewOrderModal from './NewOrderModal.jsx';
 import PhoneInput, { formatPhoneDisplay } from '../../../components/PhoneInput.jsx';
 import { useApi } from '../../../hooks/useApi.js';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
-import { tablesAPI, ordersAPI, menuAPI } from '../../../api/client.js';
+import { tablesAPI, ordersAPI } from '../../../api/client.js';
 import { invalidate } from '../../../utils/apiCache.js';
+import { camelizeRow, camelizeRows } from '../../../lib/case.js';
 import {
   Plus, Minus, Trash2, X, Grid3X3, Users, AlertTriangle, RefreshCw,
   Settings, CheckCircle2, Clock, AlertCircle, Sparkles, ClipboardList,
@@ -224,9 +225,28 @@ export default function TablesScreen({ navigate }) {
   }, []);
 
   // ── Data fetch ──────────────────────────────────────────────────────────────
+  // Local PowerSync read, replacing REST `tablesAPI.getSections` (GET /api/tables/sections).
+  // Faithful port of that route's own logic (restaurant-app/backend/src/routes/tables.js
+  // GET /sections): it merges two sources — the `table_sections` registry table and any
+  // DISTINCT non-empty `section` value still referenced on `restaurant_tables` — into one
+  // de-duplicated list. Both backing tables (`table_sections`, `restaurant_tables`) are fully
+  // synced locally and the merge itself is plain client-side Set logic, same as before, just
+  // fed from two local SELECTs instead of one REST round-trip. No restaurant_id filter needed
+  // (local DB is already scoped to this restaurant — see powersync/connector.js fetchCredentials
+  // and the `restaurant_id` custom JWT claim it fetches, which the Sync Streams config filters
+  // on server-side).
   const fetchSections = useCallback(async () => {
     try {
-      const data = await call(tablesAPI.getSections);
+      const [storedRows, fromTablesRows] = await Promise.all([
+        window.electronAPI.psGetAll(`SELECT name FROM table_sections`),
+        window.electronAPI.psGetAll(
+          `SELECT DISTINCT section FROM restaurant_tables WHERE section IS NOT NULL AND section != ''`
+        ),
+      ]);
+      const data = [...new Set([
+        ...(Array.isArray(storedRows) ? storedRows.map(r => r.name) : []),
+        ...(Array.isArray(fromTablesRows) ? fromTablesRows.map(r => r.section) : []),
+      ])];
       if (!Array.isArray(data)) return;
       const now = Date.now();
 
@@ -289,10 +309,31 @@ export default function TablesScreen({ navigate }) {
       .map(t => `${t.id}:${t.status}:${t.occupied_since || ''}:${t.section || ''}:${t.capacity || ''}:${t.table_name || t.tableName || ''}:${t.active_order_id || t.activeOrderId || ''}`)
       .join('|');
 
+  // Local PowerSync read, replacing REST `tablesAPI.getAll` (GET /api/tables). Faithful port of
+  // that route's own query (restaurant-app/backend/src/routes/tables.js GET /): `SELECT t.*` plus
+  // one computed column, `order_total` — COALESCE(SUM(unit_price*quantity) over that table's
+  // not-yet-paid/cancelled orders' items, 0). The REST route's `LEFT JOIN users u ON
+  // t.assigned_to = u.id` (aliased `waitress_name`) is intentionally NOT replicated here — grepped
+  // this whole file for `waitressName`/`waitress_name` and the only reference is
+  // `tableOrder.waitressName`, sourced from fetchTableOrder's own order-row join below, not from
+  // the table list at all, so that join is dead weight for this screen specifically. `orders` and
+  // `order_items` are both fully synced tables, so the subquery is a faithful local equivalent, not
+  // an approximation. No restaurant_id filter needed — see fetchSections' comment above for why.
   const fetchTables = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const data = await call(tablesAPI.getAll);
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT rt.*,
+               COALESCE((
+                 SELECT SUM(oi.unit_price * oi.quantity)
+                 FROM orders o
+                 JOIN order_items oi ON oi.order_id = o.id
+                 WHERE o.table_id = rt.id AND o.status NOT IN ('paid','cancelled')
+               ), 0) AS order_total
+        FROM restaurant_tables rt
+        ORDER BY rt.table_number
+      `);
+      const data = camelizeRows(rows);
       const arr = Array.isArray(data) ? data : [];
       const sig = tablesSignature(arr);
       if (sig !== lastTablesSigRef.current) {
@@ -328,19 +369,42 @@ export default function TablesScreen({ navigate }) {
   }, [fetchTables, fetchSections]);
 
   // ── Fetch active order for a table ──────────────────────────────────────────
+  // Local PowerSync read, replacing REST `ordersAPI.getAll({tableId, status})` +
+  // `ordersAPI.getById(id)` (GET /api/orders?table_id=..&status=.. then GET /api/orders/:id).
+  // Faithful port of both routes' own logic (restaurant-app/backend/src/routes/orders.js):
+  // the list route filters by table_id + status IN (...) and orders by created_at DESC, taking
+  // the first row as "the" active order — replicated here as ORDER BY created_at DESC LIMIT 1
+  // directly in SQL instead of fetching an array and indexing [0]. The detail route's
+  // `LEFT JOIN users u ON o.waitress_id = u.id` (waitress_name) IS replicated, since this screen
+  // reads `tableOrder.waitressName`. Its `LEFT JOIN restaurant_tables`/`paid_by` joins and its
+  // separate `loanDetails` lookup are NOT replicated — grepped this file and neither `tableName`/
+  // `table_number` nor `loanDetails`/`collectedByName` is ever read off `tableOrder`, so those
+  // parts of the REST response are dead weight for this screen. Items are fetched with the same
+  // `LEFT JOIN menu_items` the detail route uses, for the `name`/`unit` fallback columns this
+  // screen's item rows actually render. `orders`/`order_items`/`users`/`menu_items` are all fully
+  // synced tables — no restaurant_id filter needed (see fetchSections' comment above).
   const fetchTableOrder = useCallback(async (tableId, silent = false) => {
     if (!silent) setTableOrderLoading(true);
     try {
-      const data = await ordersAPI.getAll({
-        tableId,
-        status: 'pending,sent_to_kitchen,preparing,ready,bill_requested',
-      });
-      const orders = Array.isArray(data) ? data : (Array.isArray(data?.orders) ? data.orders : []);
-      const active = orders[0] || null;
-      if (active) {
-        // Fetch full order with items
-        const full = await ordersAPI.getById(active.id);
-        setTableOrder(full || active);
+      const orderRow = await window.electronAPI.psGet(`
+        SELECT o.*, u.name AS waitress_name
+        FROM orders o
+        LEFT JOIN users u ON o.waitress_id = u.id
+        WHERE o.table_id = ?
+          AND o.status IN ('pending','sent_to_kitchen','preparing','ready','bill_requested')
+        ORDER BY o.created_at DESC
+        LIMIT 1
+      `, [tableId]);
+      if (orderRow) {
+        const itemRows = await window.electronAPI.psGetAll(`
+          SELECT oi.*, COALESCE(m.name, 'Unknown item') AS name, COALESCE(m.unit, 'piece') AS unit
+          FROM order_items oi
+          LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+          WHERE oi.order_id = ?
+        `, [orderRow.id]);
+        const full = camelizeRow(orderRow);
+        full.items = camelizeRows(itemRows);
+        setTableOrder(full);
       } else {
         setTableOrder(null);
       }
@@ -351,12 +415,30 @@ export default function TablesScreen({ navigate }) {
     }
   }, []);
 
+  // Local PowerSync read, replacing REST `menuAPI.getCategories()` + `menuAPI.getItems()`
+  // (GET /api/menu/categories, GET /api/menu/items — both plain filtered SELECTs per
+  // restaurant-app/backend/src/routes/menu.js, no query params passed by either caller here, so
+  // no `available_only`/`category_id` filtering to replicate). `categories`/`menu_items` are both
+  // fully synced tables. Same ORDER BY as the backend (`sort_order, name` for categories;
+  // `category.sort_order, item.sort_order, item.name` for items, via the same LEFT JOIN) — the
+  // join only exists for that ordering, since `category_name` itself is never read from
+  // `menuItems` in this screen (only `item.categoryId` for the category-pill filter).
   const fetchMenuForAddFood = useCallback(async () => {
     try {
-      const [cats, itms] = await Promise.all([menuAPI.getCategories(), menuAPI.getItems()]);
-      setMenuCategories(Array.isArray(cats) ? cats : []);
-      setMenuItems(Array.isArray(itms) ? itms : []);
-      if (Array.isArray(cats) && cats.length > 0) setAddFoodCat(cats[0].id);
+      const [catRows, itemRows] = await Promise.all([
+        window.electronAPI.psGetAll(`SELECT * FROM categories ORDER BY sort_order, name`),
+        window.electronAPI.psGetAll(`
+          SELECT m.*
+          FROM menu_items m
+          LEFT JOIN categories c ON m.category_id = c.id
+          ORDER BY c.sort_order, m.sort_order, m.name
+        `),
+      ]);
+      const cats = camelizeRows(catRows);
+      const itms = camelizeRows(itemRows);
+      setMenuCategories(cats);
+      setMenuItems(itms);
+      if (cats.length > 0) setAddFoodCat(cats[0].id);
     } catch (err) {
       console.error('Failed to fetch menu:', err);
     }
@@ -1258,13 +1340,18 @@ export default function TablesScreen({ navigate }) {
                         // Orders page with that order pre-opened in the rich detail modal.
                         let orderId = tableOrder?.id || table?.active_order_id || table?.activeOrderId;
                         if (!orderId) {
+                          // Same local-PowerSync equivalent as fetchTableOrder above (just the id,
+                          // no items needed here) — replacing the REST `ordersAPI.getAll({tableId,
+                          // status})` fallback lookup with the identical filtered/ordered SELECT.
                           try {
-                            const data = await ordersAPI.getAll({
-                              tableId: table.id,
-                              status:  'pending,sent_to_kitchen,preparing,ready,bill_requested',
-                            });
-                            const orders = Array.isArray(data) ? data : (Array.isArray(data?.orders) ? data.orders : []);
-                            orderId = orders[0]?.id;
+                            const row = await window.electronAPI.psGet(`
+                              SELECT id FROM orders
+                              WHERE table_id = ?
+                                AND status IN ('pending','sent_to_kitchen','preparing','ready','bill_requested')
+                              ORDER BY created_at DESC
+                              LIMIT 1
+                            `, [table.id]);
+                            orderId = row?.id;
                           } catch (_) { /* ignore */ }
                         }
                         setSelectedTable(null);

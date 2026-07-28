@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
 import { money, fmtDate, fmtDateTime, todayStr } from '../../../lib/adminFormat.js';
 import { warehouseAPI, suppliersAPI, procurementAPI } from '../../../api/client.js';
+import { camelizeRow, camelizeRows } from '../../../lib/case.js';
 import ConfirmDialog from '../../../components/ConfirmDialog.jsx';
 import Dropdown from '../../../components/Dropdown.jsx';
 import DatePicker from '../../../components/DatePicker.jsx';
@@ -70,6 +71,121 @@ import {
 // or `warehouseAPI.audit` — those methods exist in client.js but have no call
 // site here (or, per that earlier research, anywhere else in the website), so
 // nothing needed to change or be added for them.
+//
+// ── 2026-07-28: reads converted to local PowerSync, fifth screen after
+// Tables/Loans/Menu/Orders (task #31) — see those screens' own header
+// comments for the general pattern (psGetAll/psGet + camelizeRow/
+// camelizeRows, no restaurant_id filter needed since local SQLite is already
+// scoped to one restaurant). Writes are completely untouched: every
+// warehouseAPI/suppliersAPI/procurementAPI MUTATING call (create/update/
+// delete warehouse items, receive/consume/adjust stock, create/update/delete
+// suppliers, create/pay/status-change/delete deliveries, remove/adjust a
+// delivery line item) still goes over REST exactly as before, verified by
+// direct comparison against the pre-edit file — only each read's own call
+// site was touched. PowerSync's write queue is never used in this project.
+//
+// Six reads converted, all verified against the real backend route files
+// first (restaurant-app/backend/src/routes/warehouse.js, suppliers.js,
+// procurement.js), each pulled into its own small fetchX() helper so writes'
+// own post-save/lookup refetches (reads, not writes) reuse the same converted
+// query instead of hitting REST a second time:
+// 1. fetchWarehouseItems() — was warehouseAPI.getAll() (GET /api/warehouse).
+//    Real route: `SELECT w.id, w.name, w.category, w.sku_code, w.unit,
+//    w.quantity_in_stock, w.min_stock_level, w.cost_per_unit, w.supplier_id,
+//    s.name AS supplier_name, w.created_at, w.updated_at FROM warehouse_items
+//    w LEFT JOIN suppliers s ON w.supplier_id=s.id WHERE w.restaurant_id=$1
+//    ORDER BY w.name`, then a per-row N+1 fetch of `stock_batches WHERE
+//    item_id=$1 AND quantity_remaining>0 ORDER BY expiry_date ASC NULLS
+//    LAST`, attached as row.batches. The `supplier_name` join is dead weight
+//    — grepped the whole file for `supplierName`/`supplier_name` read off an
+//    item row and found none (same precedent as MenuScreen.jsx's own
+//    fetchWarehouseItems) — NOT replicated. UNLIKE Menu's ingredient-search
+//    picker, though, `item.batches` genuinely IS read here (Stock Overview
+//    tab's nearest-expiry badge and the per-item expandable batch list —
+//    quantityRemaining/expiryDate/receivedAt on each batch), so the N+1
+//    sub-fetch WAS replicated, as one extra query keyed on the fetched item
+//    ids instead of N separate ones. SQLite has no `NULLS LAST` — emulated
+//    with `ORDER BY expiry_date IS NULL, expiry_date ASC` (0/false sorts
+//    before 1/true, so real dates come first, nulls last), matching
+//    Postgres's ordering. Also reused by two write handlers
+//    (handleCreateDelivery/handleChangeDeliveryStatus) that look up an
+//    existing item by name before deciding whether to create a duplicate —
+//    that lookup is itself a read (warehouseAPI.getAll(), not a write), so it
+//    was converted too and reuses this same helper, same "one converted
+//    helper, every read call site" precedent as Menu's fetchItems.
+// 2. fetchSuppliers() — was suppliersAPI.getAll() (GET /api/suppliers), a
+//    plain `SELECT * FROM suppliers WHERE restaurant_id=$1 ORDER BY name` —
+//    direct 1:1 port, no joins to reason about.
+// 3. fetchMovements() — was warehouseAPI.getMovements({}) (GET
+//    /api/warehouse/movements). This screen's only call site always passes an
+//    empty params object (grepped clean), so none of the route's optional
+//    `from`/`to`/`type` query-string filters ever apply — all date/type
+//    filtering happens entirely client-side in the `filteredInMoves`/
+//    `filteredOutMoves` useMemos, unchanged. Real route: `SELECT sm.id,
+//    sm.type, sm.quantity, sm.reason, sm.created_at, wi.id AS item_id,
+//    wi.name AS item_name, wi.unit, wi.cost_per_unit, u.name AS recorded_by
+//    FROM stock_movements sm JOIN warehouse_items wi ON sm.item_id=wi.id LEFT
+//    JOIN users u ON sm.user_id=u.id WHERE sm.restaurant_id=$1 ORDER BY
+//    sm.created_at DESC LIMIT 500`. The `u.name AS recorded_by` join is dead
+//    weight — grepped the whole file for `recordedBy`/`recorded_by` and found
+//    zero reads — NOT replicated. Every other column (itemName/unit/
+//    costPerUnit/quantity/reason/createdAt/type) IS read (movement rows, the
+//    In/Out summary cards, the grouped-by-item Output tab). Kept the real
+//    route's own `LIMIT 500` and its INNER JOIN (not LEFT JOIN) on
+//    warehouse_items — faithful, not an approximation.
+// 4. fetchDeliveries() — was procurementAPI.getDeliveries() (GET
+//    /api/procurement/deliveries). Real route: `SELECT sd.*, COALESCE(di.cnt,
+//    0) AS item_count FROM supplier_deliveries sd LEFT JOIN (SELECT
+//    delivery_id, COUNT(*) AS cnt FROM delivery_items WHERE removed=FALSE
+//    GROUP BY delivery_id) di ON di.delivery_id=sd.id WHERE
+//    sd.restaurant_id=$1 ORDER BY sd.timestamp DESC, sd.created_at DESC`.
+//    `item_count` is dead weight — grepped the whole file for `itemCount`/
+//    `item_count` and found zero reads (this screen's delivery cards show
+//    supplier/status/total/date/due-date, never a line-item count) — NOT
+//    replicated, so this is a plain `SELECT * FROM supplier_deliveries ORDER
+//    BY timestamp DESC, created_at DESC` — every column this screen reads is
+//    already a plain supplier_deliveries column, no join needed at all.
+// 5. fetchDeliveriesDebt() — was procurementAPI.getDeliveriesDebt() (GET
+//    /api/procurement/deliveries/debt), a real aggregate: `SELECT
+//    COALESCE(SUM(total),0) AS total_debt, COUNT(*) AS count FROM
+//    supplier_deliveries WHERE restaurant_id=$1 AND payment_status != 'paid'
+//    AND status IN ('Delivered','Partial')`. Plain SUM/COUNT over one
+//    already-synced table, no cross-table join or app-side grouping — a
+//    faithful local aggregate, not an approximation.
+// 6. fetchDeliveryDetail(id) — was procurementAPI.getDelivery(id) (GET
+//    /api/procurement/deliveries/:id), a single delivery row + its
+//    delivery_items ordered by id — direct 1:1 port. Used by
+//    openDeliveryDetail AND reused by the two delivery-item write handlers'
+//    (handleRemoveDeliveryItem/handleUpdateDeliveryItemQty) own post-save
+//    refresh — same "one converted helper, every call site" precedent as
+//    every prior screen.
+//
+// LEFT ON REST, deliberately: procurementAPI.getSuggestedOrders() (GET
+// /api/procurement/suggested-order). Verified against the real route —
+// unlike every other read on this screen, this one does genuine server-side
+// business logic beyond a plain join/aggregate: it computes
+// `suggested_order_qty = min_stock_level*1.5 - quantity_in_stock` per row,
+// THEN groups the flat row list into a nested `{ supplier, items[] }[]`
+// structure in a JS `.reduce()` on the backend, rounding each suggested
+// quantity up (`Math.max(1, Math.ceil(...))`) and computing a per-item
+// `estimated_cost` — genuine reorder-suggestion business logic, not a
+// faithful SQL-only read, so per the standing rule it stays on REST rather
+// than being approximated in SQLite. Also worth flagging: grepped the whole
+// file for `suggestedOrders` and it's fetched into state (`setSuggested`) but
+// never actually rendered anywhere in this screen's JSX — already dead in the
+// UI today, so this conversion left it exactly as it was either way (removing
+// an unused fetch is outside this task's scope, which only converts reads
+// that ARE used, not a dead-code cleanup pass).
+//
+// Boolean-column check: `warehouse_items`/`suppliers`/`stock_batches`/
+// `stock_movements`/`supplier_deliveries`/`delivery_items` have no boolean
+// columns at all except `delivery_items.removed` — already listed nowhere in
+// case.js's BOOL_FIELDS. Checked directly (not assumed): `item.removed` is
+// read with truthy/falsy checks only (`item.removed ? ... : ...`, `!item.
+// removed`), never a strict `=== false`/`!== false` comparison, so the raw
+// 0/1 integer PowerSync returns behaves identically to a real boolean here —
+// no BOOL_FIELDS addition was needed, unlike Menu's `isAvailable` or Orders'
+// `isFree`/`itemReady`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
@@ -229,16 +345,92 @@ export default function InventoryScreen() {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
   /* ── Load data ─────────────────────────────────────────────────────────────── */
+  // Local PowerSync read, replacing REST `warehouseAPI.getAll()` — see this file's header comment
+  // for the full join/batches-N+1 reasoning. Reused by loadData below AND by the two write
+  // handlers (handleCreateDelivery/handleChangeDeliveryStatus) that look up an existing item by
+  // name before creating one.
+  const fetchWarehouseItems = useCallback(async () => {
+    const itemRows = await window.electronAPI.psGetAll(`SELECT * FROM warehouse_items ORDER BY name`);
+    const items = camelizeRows(itemRows);
+    if (items.length > 0) {
+      const ids = items.map(i => i.id);
+      const placeholders = ids.map(() => '?').join(',');
+      const batchRows = await window.electronAPI.psGetAll(`
+        SELECT * FROM stock_batches
+        WHERE item_id IN (${placeholders}) AND quantity_remaining > 0
+        ORDER BY expiry_date IS NULL, expiry_date ASC
+      `, ids);
+      const batches = camelizeRows(batchRows);
+      const byItem = {};
+      for (const b of batches) { (byItem[b.itemId] ||= []).push(b); }
+      items.forEach(i => { i.batches = byItem[i.id] || []; });
+    }
+    return items;
+  }, []);
+
+  // Local PowerSync read, replacing REST `suppliersAPI.getAll()` — plain 1:1 port, no joins.
+  const fetchSuppliers = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(`SELECT * FROM suppliers ORDER BY name`);
+    return camelizeRows(rows);
+  }, []);
+
+  // Local PowerSync read, replacing REST `warehouseAPI.getMovements({})` — see this file's header
+  // comment for why the `recorded_by` join was dropped and why LIMIT 500 was kept.
+  const fetchMovements = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(`
+      SELECT sm.id, sm.type, sm.quantity, sm.reason, sm.created_at,
+             wi.id AS item_id, wi.name AS item_name, wi.unit, wi.cost_per_unit
+      FROM stock_movements sm
+      JOIN warehouse_items wi ON sm.item_id = wi.id
+      ORDER BY sm.created_at DESC
+      LIMIT 500
+    `);
+    return camelizeRows(rows);
+  }, []);
+
+  // Local PowerSync read, replacing REST `procurementAPI.getDeliveries()` — the `item_count` join
+  // was dropped as dead weight, see this file's header comment.
+  const fetchDeliveries = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(`
+      SELECT * FROM supplier_deliveries ORDER BY timestamp DESC, created_at DESC
+    `);
+    return camelizeRows(rows);
+  }, []);
+
+  // Local PowerSync read, replacing REST `procurementAPI.getDeliveriesDebt()` — a plain SUM/COUNT
+  // aggregate over one already-synced table, faithfully replicable in full (see header comment).
+  const fetchDeliveriesDebt = useCallback(async () => {
+    const row = await window.electronAPI.psGet(`
+      SELECT COALESCE(SUM(total), 0) AS total_debt, COUNT(*) AS count
+      FROM supplier_deliveries
+      WHERE payment_status != 'paid' AND status IN ('Delivered', 'Partial')
+    `);
+    return row ? camelizeRow(row) : { totalDebt: 0, count: 0 };
+  }, []);
+
+  // Local PowerSync read, replacing REST `procurementAPI.getDelivery(id)` — a single delivery row
+  // + its delivery_items ordered by id, direct 1:1 port. Reused by openDeliveryDetail and by the
+  // two delivery-item write handlers' own post-save refresh (handleRemoveDeliveryItem/
+  // handleUpdateDeliveryItemQty).
+  const fetchDeliveryDetail = useCallback(async (id) => {
+    const delivRow = await window.electronAPI.psGet(`SELECT * FROM supplier_deliveries WHERE id = ?`, [id]);
+    if (!delivRow) return null;
+    const itemRows = await window.electronAPI.psGetAll(`SELECT * FROM delivery_items WHERE delivery_id = ? ORDER BY id ASC`, [id]);
+    const full = camelizeRow(delivRow);
+    full.items = camelizeRows(itemRows);
+    return full;
+  }, []);
+
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const [allItems, allSuppliers, allMovements, suggested, allDeliveries, debt] = await Promise.allSettled([
-        warehouseAPI.getAll(),
-        suppliersAPI.getAll(),
-        warehouseAPI.getMovements({}),
-        procurementAPI.getSuggestedOrders(),
-        procurementAPI.getDeliveries(),
-        procurementAPI.getDeliveriesDebt(),
+        fetchWarehouseItems(),
+        fetchSuppliers(),
+        fetchMovements(),
+        procurementAPI.getSuggestedOrders(), // left on REST — real aggregation logic, see header comment
+        fetchDeliveries(),
+        fetchDeliveriesDebt(),
       ]);
       if (allItems.status === 'fulfilled') setItems(Array.isArray(allItems.value) ? allItems.value : []);
       if (allSuppliers.status === 'fulfilled') setSuppliers(Array.isArray(allSuppliers.value) ? allSuppliers.value : []);
@@ -475,7 +667,7 @@ export default function InventoryScreen() {
     const isStockStatus = ['Delivered', 'Partial'].includes(delivForm.status);
     if (isStockStatus) {
       let currentItems = items;
-      try { const fresh = await warehouseAPI.getAll(); if (Array.isArray(fresh)) currentItems = fresh; } catch (_) {}
+      try { const fresh = await fetchWarehouseItems(); if (Array.isArray(fresh)) currentItems = fresh; } catch (_) {}
       for (const line of validItems) {
         const qty = toNum(line.qty);
         if (qty <= 0) continue;
@@ -514,8 +706,8 @@ export default function InventoryScreen() {
     setDelivDetail({ ...d, items: [] });
     setModal('delivery-detail');
     try {
-      const full = await procurementAPI.getDelivery(d.id);
-      setDelivDetail(full);
+      const full = await fetchDeliveryDetail(d.id);
+      setDelivDetail(full || { ...d, items: [] });
     } catch (err) {
       setDelivDetail({ ...d, items: [] });
     }
@@ -553,7 +745,7 @@ export default function InventoryScreen() {
       // If status changed to Delivered/Partial, receive items into stock
       if (['Delivered', 'Partial'].includes(newStatus) && delivDetail?.items?.length) {
         let currentItems = items;
-        try { const fresh = await warehouseAPI.getAll(); if (Array.isArray(fresh)) currentItems = fresh; } catch (_) {}
+        try { const fresh = await fetchWarehouseItems(); if (Array.isArray(fresh)) currentItems = fresh; } catch (_) {}
         for (const line of delivDetail.items) {
           if (line.removed) continue;
           const qty = toNum(line.qty);
@@ -596,7 +788,7 @@ export default function InventoryScreen() {
       await procurementAPI.removeDeliveryItem(lineItemId, reason);
       // Refresh detail
       if (delivDetail) {
-        const full = await procurementAPI.getDelivery(delivDetail.id);
+        const full = await fetchDeliveryDetail(delivDetail.id);
         setDelivDetail(full);
       }
       showToast(t('admin.inventory.itemDeleted')); loadData();
@@ -607,7 +799,7 @@ export default function InventoryScreen() {
     try {
       await procurementAPI.updateDeliveryItemQty(lineItemId, newQty);
       if (delivDetail) {
-        const full = await procurementAPI.getDelivery(delivDetail.id);
+        const full = await fetchDeliveryDetail(delivDetail.id);
         setDelivDetail(full);
       }
       showToast(t('admin.inventory.itemUpdated')); loadData();

@@ -607,6 +607,97 @@ see above) — root-caused entirely from code + the user's screenshots:
   for a cosmetic staleness gap on the very last screen; re-verified there is still no avatar/photo
   upload feature anywhere in this codebase (confirmed again directly against the real file, not
   assumed from the earlier note two entries below).
+- **Task #31 (converting Admin screens' REST reads to local PowerSync), progress so far:**
+  Tables (2026-07-28, first), Loans (2026-07-28, second), Menu (2026-07-28, third), Orders
+  (2026-07-28, fourth), Inventory (2026-07-28, fifth), and Staff (2026-07-28, sixth) are done — see
+  STATUS.md's own sections for each for the exact per-read reasoning. Remaining: Dashboard,
+  Settings, Profile. Standing rules for every remaining screen, established by these six
+  conversions — don't relitigate, just follow:
+  (1) only reads change, every write stays on REST unchanged; (2) verify each REST endpoint's
+  actual query (joins, computed columns) against the real backend route file before writing local
+  SQL, don't guess; (3) if a REST read does something a local SQLite query genuinely can't
+  replicate faithfully (Tables hit two such cases — a computed order-total subquery and a
+  two-source section merge — both still handled fine locally in the end, just called out
+  explicitly), leave that one read on REST and say so rather than approximate it; (4) camelize
+  every local result via `case.js`'s `camelizeRow`/`camelizeRows`, checking `BOOL_FIELDS` for any
+  boolean columns the screen touches; (5) no `restaurant_id` filter needed on local queries —
+  already confirmed project-wide via `auth.js`'s `powersync-token` endpoint; (6) verify with the
+  Linux esbuild scratch install (`/tmp/esbuildcheck`) after every file change. **None of this has
+  been tested on a real machine yet for Tables, Loans, Menu, Orders, Inventory, or Staff** — that's
+  the next concrete step before continuing further screens, not a formality.
+  - **Menu-specific findings worth carrying forward:** a REST read can hide a genuinely non-trivial
+    query behind an innocuous-looking API call from a *different* route file than the screen's own
+    (Menu's ingredient-search picker calls `warehouseAPI.getAll()`, which lives in `warehouse.js`,
+    not `menu.js` — its real route does a supplier LEFT JOIN plus a per-row N+1 `stock_batches`
+    fetch; neither was needed here since this screen only reads `id`/`name`/`unit` off each row,
+    but check the *actual* file the API call hits, not just the screen's most obvious route file).
+    Also: when a screen's writes already re-fetch the same list afterward (Menu's category/item/
+    ingredient saves all did this), pull the converted read into its own named `fetchX()` helper
+    function rather than inlining the query at the call site — that way the write's post-save
+    refetch (a read, not a write) can reuse the same converted function instead of leaving a
+    second, parallel REST call sitting next to the newly-converted one. `isAvailable` was
+    double-checked against `BOOL_FIELDS` per the task brief's explicit flag and confirmed already
+    present/correct (added when `case.js` was first built) — not a bug, but worth the explicit
+    verification since this screen's whole availability-toggle UI depends on it.
+  - **Orders-specific findings worth carrying forward (biggest/richest screen converted so far):**
+    Postgres `LEFT JOIN LATERAL ... ORDER BY created_at DESC LIMIT 1` (picking "the latest row per
+    group" — here, the most recent `loans` row per order) has no direct SQLite equivalent, but
+    replicates cleanly with a `ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY created_at DESC)`
+    window function filtered to `rn=1` in the outer query — better-sqlite3 (PowerSync's local
+    engine) supports SQLite window functions, confirmed working via the esbuild+later real-query
+    shape, no separate workaround needed. Also: a REST list route can join several tables
+    (`restaurant_tables`/`users` twice/an item-count subquery) where the screen only actually reads
+    ONE of the joined columns off the row itself (`table_name`, here) and gets everything else
+    (waitress name, item counts) from a *separate* local lookup/computation instead — always grep
+    every way a field is read (`order.xxx` AND `orderRowVariable.xxx` for every differently-named
+    variable holding an order, e.g. `selectedOrder`/`paymentOrder`/`cancelTarget`/list items) before
+    assuming a joined column is actually consumed; three of four joins here (`waitress_name`,
+    `collected_by_name`, `item_count`) turned out to be dead weight once actually checked. Nested
+    response objects (the detail route's own `loanDetails: {...}` sub-object, distinct from the list
+    route's flattened `loan_status`/`loan_customer_name`/etc. columns) must be replicated as their
+    own nested object too, not just flattened to match the list shape — the component code reads
+    both shapes with an explicit fallback chain (`ld?.customerName || selectedOrder.loanCustomerName`)
+    and silently loses the "prefer the fresher nested detail" behavior if only the flat columns are
+    provided.
+  - **Inventory-specific findings worth carrying forward (largest screen converted so far, ~2170
+    source lines):** a computed/aggregated REST read isn't automatically "must stay on REST" — it
+    depends on WHERE the aggregation happens. `procurementAPI.getDeliveriesDebt()`'s
+    `SUM(total)`/`COUNT(*)` aggregate happens entirely in SQL with no app-side logic, so it
+    converted cleanly to a local aggregate query; `procurementAPI.getSuggestedOrders()` also starts
+    with a SQL aggregate but then does real grouping/rounding/cost-estimation in a JS `.reduce()` on
+    the backend (`{supplier, items[]}[]`, `Math.ceil()`-rounded suggested quantities, computed
+    `estimated_cost`) — that one stayed on REST. Always check whether the route does anything AFTER
+    the SQL query, not just whether the query itself has a `SUM`/`COUNT`/`JOIN`. Also: a read fetched
+    into state can be completely dead in the UI (`suggestedOrders` here is fetched every load but
+    never rendered anywhere in the JSX, confirmed by grep) — leaving a dead read on REST during a
+    reads-only conversion is fine and shouldn't be "fixed" by either converting or removing it,
+    since neither is in scope for this task. Also confirmed a second real instance of the
+    "N+1 sub-fetch dead weight in one screen, genuinely needed in another" pattern Menu already
+    established: `warehouseAPI.getAll()`'s per-row `stock_batches` N+1 was dead weight for Menu's
+    ingredient picker (only `id`/`name`/`unit` read) but genuinely needed here (Inventory's Stock
+    Overview tab reads `item.batches[].quantityRemaining`/`.expiryDate`/`.receivedAt` for the
+    nearest-expiry badge and expandable batch list) — same API call, same route, different screens,
+    different answer; always grep the CONSUMING screen, never assume a prior screen's dead-weight
+    verdict carries over. SQLite has no `NULLS LAST` — emulated with `ORDER BY expiry_date IS NULL,
+    expiry_date ASC` (sorts real dates first, nulls last), a reusable trick for any future screen
+    needing the same "nulls sort last" ordering Postgres gives for free.
+  - **Staff-specific findings worth carrying forward:** confirmed the task brief's own prediction
+    that a screen's "live status" view is a real REST-only case — `shiftsAPI.getStaffStatus()`
+    (GET /shifts/admin/staff-status) does a `DISTINCT ON (user_id)` priority pick (active shift >
+    completed > absence) plus a derived three-way status the raw row never has — left on REST,
+    not force-converted. New SQLite ordering fact, opposite of Inventory's: a plain `ORDER BY x
+    DESC` needs NO `NULLS LAST` trick at all — SQLite already sorts NULL as the smallest value, so
+    descending order puts NULLs last on its own (only ASC needs the explicit `x IS NULL, x ASC`
+    workaround Inventory used). Postgres's `EXTRACT(EPOCH FROM (a - b))/3600` (elapsed hours
+    between two timestamps) translates to SQLite as `(julianday(a) - julianday(b)) * 24` — reusable
+    for any future screen computing elapsed-time/duration columns locally. Also re-confirmed the
+    "grep the CONSUMING screen before trusting a join is needed" rule yet again: `shiftsAPI.getAll`
+    and `staffPaymentsAPI.getAll`'s real routes each join `users` for a name column
+    (`u.name`/`staff_name`), but this screen already has the full staff list loaded separately and
+    always looks names up via `staff.find()` — both joins were dead weight here specifically. Found
+    (not converted, out of explicit task scope): `menuAPI.getStations()` hits `custom_stations`, a
+    table that's already fully synced and would convert with zero difficulty — flagged as a
+    legitimate candidate for a future pass rather than a table this task was scoped to.
 - **Confirmed real, applied free performance wins (2026-07-27), don't redo/re-suggest these:**
   5 missing FK indexes added (`orders.table_id`, `orders.waitress_id`,
   `order_items.menu_item_id`, `menu_items.category_id`, `restaurant_tables.assigned_to`) plus
@@ -618,3 +709,35 @@ see above) — root-caused entirely from code + the user's screenshots:
   again if speed comes up; a Render keep-alive pinger was discussed and approved in principle
   but not yet actually set up (needs the user to create a free UptimeRobot/cron-job.org
   account, can't be done from this sandbox).
+- **Task #31 is now COMPLETE (2026-07-28) — all 9 Admin screens evaluated for local-PowerSync-read
+  conversion.** 7 of 9 got at least one real conversion (Tables, Loans, Menu, Orders, Inventory,
+  Staff, Dashboard); Restaurant Settings stayed entirely on REST (see below); Profile got exactly
+  one small real conversion. Every write across all 9 screens stays on REST unchanged — PowerSync's
+  write queue was never used anywhere in this task, per RULES.md §4.
+  - **`pos-app/src/pages/admin/screens/DashboardScreen.jsx`** — ten reads converted (tables,
+    low-stock, warehouse-all, warehouse-movements-with-date-filter, deliveries-debt+fallback,
+    staff-payments, loan-stats, notifications, best-sellers, today's-orders). Needed `user` added
+    to its props for the notifications read (id-scoped) — `AdminShell.jsx` already passes `user` to
+    every active screen (same mechanism as `onLogout`), no AdminShell change needed. Four reads
+    stay on REST as genuine business logic (admin-daily-summary, staff-status, payroll) or a real
+    sync gap (`accounting.getCashFlow` — `cash_flow` table isn't in `pos-app/powersync/schema.js`
+    at all). One (`reportsAPI.getDashboard()`) deliberately left un-converted despite being simple,
+    since it's a redundant fallback-only read behind an already-REST primary source.
+  - **`pos-app/src/pages/admin/screens/SettingsScreen.jsx`** — re-verified and confirmed to stay
+    on REST: `GET /api/settings` auto-INSERTs a default `restaurant_settings` row if none exists
+    and returns it — a local-only SELECT can't replicate that self-healing insert. Combined with
+    being a genuine one-time-per-visit read (no polling), left untouched.
+  - **`pos-app/src/pages/admin/screens/ProfileScreen.jsx`** — converted: `usersAPI.getMe()` (GET
+    `/api/users/me`, a plain single-row `users` lookup by current-user-id, explicit column list, no
+    joins) → local `SELECT ... FROM users WHERE id = ?` using the `user` prop's id. Checked the
+    cashier-side `pos-app/src/pages/pos/ProfileScreen.jsx` first for precedent — it never calls
+    `usersAPI.getMe()` at all (reads shifts/orders via REST-only `apiGet`), so nothing to reuse.
+  - **New portable SQL pattern from this session**: Postgres's `FILTER (WHERE ...)` aggregate
+    modifier (used by `loans.js`'s `/stats` route) has no reliable SQLite equivalent across all
+    builds — replicate with `SUM(CASE WHEN cond THEN val ELSE 0 END)` inside the aggregate instead,
+    same result, fully portable. Add this to the existing SQLite-equivalents list (LATERAL/DISTINCT
+    ON → ROW_NUMBER() OVER PARTITION BY; NULLS LAST → ORDER BY x IS NULL, x; EXTRACT(EPOCH...)/3600
+    → julianday() arithmetic).
+  - **Still outstanding, same as every prior task #31 session**: none of these conversions —
+    across any of the 9 screens — have been tested on the real machine yet. This is the single
+    most important next step before task #31 can be considered shippable.

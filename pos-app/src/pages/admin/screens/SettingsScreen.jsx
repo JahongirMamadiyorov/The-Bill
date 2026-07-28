@@ -111,6 +111,26 @@ import { settingsAPI } from '../../../api/client.js';
 // Component renamed AdminRestaurantSettings → AdminSettingsScreen on export,
 // matching the AdminMenuScreen/AdminOrdersScreen/AdminLoansScreen/
 // AdminStaffScreen naming convention from earlier screens.
+//
+// ── 2026-07-28: re-verified (task #31, ninth/last screen), left on REST ────
+// Re-checked item 7 above against the real backend route
+// (restaurant-app/backend/src/routes/settings.js) rather than trusting the
+// existing comment unread: `GET /api/settings` is `SELECT * FROM
+// restaurant_settings WHERE restaurant_id = $1` — a single plain select, no
+// joins, confirmed. But the route does one more thing a local read cannot
+// faithfully replicate: if the row is missing (`result.rows.length === 0`)
+// it INSERTs a fresh default row and returns THAT instead of nothing. A
+// local-only `psGet` is a pure SELECT — it cannot create the missing row, so
+// on the (rare, likely never-hit-in-practice-by-now) restaurant with no
+// `restaurant_settings` row yet, a local read would return `undefined` and
+// this screen would break, where REST self-heals. Combined with this being
+// a genuinely single, one-time-per-visit read (`useEffect(() => { load() },
+// [load])`, no polling interval anywhere in this file, confirmed by grep) —
+// there is no speed win worth trading away that self-healing behavior for.
+// Left entirely on REST, no code changes in this file. `restaurant_settings`
+// (already in the local PowerSync schema) stays unused by this screen for
+// exactly this reason, same conclusion as the pre-existing item 7 above,
+// now independently re-confirmed rather than assumed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Toggle ────────────────────────────────────────────────────────────────────

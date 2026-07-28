@@ -3,7 +3,547 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-Last updated: 2026-07-27, end of session (User compared the Admin panel's real-world loading
+## Task #31 COMPLETE (2026-07-28): Dashboard, Restaurant Settings, Profile — final three screens evaluated
+
+All 9 Admin screens have now been individually evaluated for task #31 (Tables, Loans, Menu,
+Orders, Inventory, Staff done in earlier sessions today; this pass covers the final three).
+**Every write in all three files below is completely untouched — only reads changed.**
+
+**Dashboard (`pos-app/src/pages/admin/screens/DashboardScreen.jsx`)** — the richest of the three,
+15 parallel reads per 15s poll. Verified every single one against the real backend route files
+(`reports.js`, `tables.js`, `warehouse.js`, `shifts.js`, `loans.js`, `notifications.js`,
+`accounting.js`, `staff-payments.js`, `procurement.js`) rather than assuming from the task brief's
+"likely mostly aggregates" guess. **Ten converted to local PowerSync reads:**
+1. `tablesAPI.getAll()` → plain `SELECT * FROM restaurant_tables` — this screen doesn't even read
+   the real route's `order_total`/`waitress_name` joins (dead weight, grepped clean).
+2. `warehouseAPI.getLowStock()` → direct 1:1 port, the real route has no joins to begin with.
+3. `warehouseAPI.getAll()` → plain `SELECT * FROM warehouse_items`, supplier join + batches N+1
+   dropped (dead weight — only `quantityInStock`/`costPerUnit` read).
+4. `warehouseAPI.getMovements({from,to})` → local query WITH the date filter replicated (unlike
+   Inventory's own `fetchMovements`, this call site always passes today's range) — kept the real
+   route's `wi.cost_per_unit` join (a discovered pre-existing backend quirk: this route reads the
+   warehouse item's CURRENT cost, not the movement's own point-in-time `stock_movements.cost_per_unit`
+   — replicated faithfully, not "fixed").
+5. `procurementAPI.getDeliveriesDebt()` + its own `getDeliveries()` fallback → reused verbatim from
+   InventoryScreen.jsx's already-verified local queries.
+6. `staffPaymentsAPI.getAll({from,to})` → reused verbatim from StaffScreen.jsx's already-verified
+   local query.
+7. `loansAPI.getStats()` → local aggregate (`CASE WHEN` in place of Postgres's `FILTER (WHERE...)`
+   for SQLite portability) — same active/paid/overdue counts+totals, one query, no joins.
+8. `notificationsAPI.getAll()` → plain `SELECT * FROM notifications WHERE user_id = ? ORDER BY
+   created_at DESC LIMIT 50` — needed the current user's id, so `user` was added to this screen's
+   props (AdminShell.jsx already passes `user` to every screen, same as `onLogout` — no
+   AdminShell change needed).
+9. `reportsAPI.getBestSellers({from,to})` → local `GROUP BY/SUM/ORDER BY DESC/LIMIT 20` aggregate.
+   Judgment call, documented in the file's own header comment: this is technically a "top-N
+   ranking" query (the exact pattern the task brief flagged as risky), but it turned out to be a
+   single straightforward SQL aggregate with zero server-side post-processing (`res.json(result.rows)`
+   directly, no percentage/share math done backend-side) — same precedent as Inventory's
+   `LIMIT 500` movements query and Staff's `ROW_NUMBER()` latest-per-group query, both already
+   converted. Converted on that basis.
+10. `ordersAPI.getAll({from,to})` (feeding `activeOrders`) → plain `SELECT status, order_type FROM
+    orders WHERE created_at BETWEEN ? AND ?` — the real route's massive join set (tables/users×2/
+    item-count/loans LATERAL) is entirely dead weight here (only `.status`/`.orderType` ever read).
+
+**Four left on REST, each independently verified as real business logic or a genuine sync gap:**
+- `reportsAPI.getAdminDailySummary()` (primary KPI source) — genuine multi-step server computation
+  (per-waitress staff performance joins, a 3-query financial-flow breakdown, an hourly sales-trend
+  chart, goods-sold grouped by category).
+- `shiftsAPI.getStaffStatus()` — same "live staff status" real business logic already established
+  on REST for Staff (DISTINCT ON priority-CASE pick mapped onto a derived status).
+- `shiftsAPI.getPayroll({from,to})` — genuine multi-step business logic: salary-type CASE branching
+  (monthly/hourly/daily/weekly, four different formulas) plus a correlated commission subquery.
+- `accountingAPI.getCashFlow({from,to})` — genuine sync gap, not a business-logic call: `cash_flow`
+  is NOT one of the tables in `pos-app/powersync/schema.js` at all (verified directly). Also
+  discovered in passing: the real route completely ignores the `{from,to}` params this screen
+  passes (always scopes to `CURRENT_DATE`/`LIMIT 100` server-side) — not fixed, out of scope.
+
+**One deliberately NOT converted despite being simple** — `reportsAPI.getDashboard()`
+(`simpleDash`, a pre-existing "reliable revenue/orders fallback"). Its three sub-aggregates are
+individually about as simple as several converted above, but every field this screen reads from it
+is only used behind a `||` fallback AFTER the (REST-staying) primary source, so converting just the
+fallback buys no real resilience — if the backend is unreachable, both fail together. Also, faithful
+replication would need a separate `paid_at`-scoped query distinct from item 10's `created_at`-scoped
+one. Documented explicitly in the file's header comment rather than silently left alone.
+
+Boolean check: `notifications.is_read` (→ `isRead`) already in `case.js`'s `BOOL_FIELDS` — verified,
+needed for the unread-count logic.
+
+**Restaurant Settings (`pos-app/src/pages/admin/screens/SettingsScreen.jsx`)** — NOT converted, left
+entirely on REST. Re-verified against the real route (`restaurant-app/backend/src/routes/settings.js`)
+rather than trusting the pre-existing "task #21 recommendation" comment unread: `GET /api/settings`
+is a single plain `SELECT * FROM restaurant_settings WHERE restaurant_id = $1`, BUT the route also
+auto-INSERTs a default row if none exists and returns that — a local-only `psGet` cannot replicate
+that self-healing INSERT (a rare edge case, but a genuine faithfulness gap, not just "low value").
+Combined with this being a true one-time-per-visit read (no polling anywhere in the file, confirmed
+by grep), left untouched. Added an explicit re-verification addendum to the file's own header
+comment; no code changes.
+
+**Profile (`pos-app/src/pages/admin/screens/ProfileScreen.jsx`)** — CONVERTED. Checked the
+cashier-side `pos-app/src/pages/pos/ProfileScreen.jsx` first for precedent (task #19) — it reads via
+REST-only `apiGet` and never calls `usersAPI.getMe()` at all, so no existing local-read pattern to
+reuse; this was a fresh conversion. Verified `GET /api/users/me` first: a single-row lookup by the
+current user's own id from the JWT, explicit column list (already excludes `password_hash`), no
+joins, no aggregation — exactly the "trivial, clearly synced single-row lookup" the task brief
+predicted. Every selected column exists on the local `users` table — converted to `SELECT id, name,
+email, phone, role, salary, salary_type, shift_start, shift_end, is_active, kitchen_station,
+commission_rate, created_at FROM users WHERE id = ?` using the `user` prop's id (AdminShell.jsx
+already passes `user` to every screen). Same "silently fall back to cached data" try/catch shape as
+before. `users.is_active` (→ `isActive`) already in `BOOL_FIELDS`, though not actually rendered on
+this screen. `users.last_login` doesn't exist as a column in Postgres OR locally — the REST route
+never selected it either, so the `profile.lastLogin || profile.last_login || new Date()` fallback
+already resolved to `new Date()` before this conversion too — unchanged behavior. Writes
+(`usersAPI.update`/`updateCredentials`) untouched, import kept for them.
+
+All three files esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next
+check for Dashboard: open it and confirm every KPI card/table grid/low-stock list/warehouse-today
+card/staff-payroll-owed figure/loans-outstanding figure/notification bell all show the same numbers
+as before, and that the 15s auto-poll doesn't flicker or error (watch DevTools console for any
+`fetchLocal*` rejection — these now surface the same way a failed REST call would); Settings/Profile
+need no functional re-test since Settings has zero code changes and Profile's converted read has an
+identical shape to the untouched REST call it replaced, but still worth a visual open-and-check.
+
+### Task #31 wrap-up — all 9 Admin screens now evaluated, summary of the full set
+
+Task #31 ("convert Admin screens to local PowerSync reads, speed pass") is complete. Final
+breakdown of all 9 screens:
+
+- **Real conversions (7 of 9):** Tables, Loans, Menu, Orders, Inventory, Staff, Dashboard — each had
+  at least one read converted from REST to a local PowerSync query, verified read-by-read against
+  the real backend route files (never assumed). Orders and Inventory were the largest/richest
+  conversions; Dashboard (this session) converted the most individual reads (ten) of any single
+  screen, since it's a KPI-aggregator screen touching nearly every table in the app.
+- **Zero conversions, both deliberately (2 of 9):** Restaurant Settings (single infrequent read with
+  a real self-healing auto-insert side effect a local read can't replicate) and — from earlier
+  sessions — none of the other 7 ended up with zero conversions, though several screens (Staff,
+  Inventory, Dashboard) each kept multiple individual reads on REST alongside their converted ones
+  where the read involved genuine server-side business logic (live staff status, payroll
+  calculation, reorder-suggestion logic, admin-daily-summary's staff-performance/financial-flow
+  breakdown).
+- **Profile** ended up with exactly one read, converted (single-user lookup by id, no aggregation) —
+  the smallest possible conversion, but a real one.
+- **Consistent findings across the whole task:** a REST route that LOOKS like a plain select often
+  hides a dead-weight JOIN added for a column this specific screen never reads (verified by grep
+  every time, not assumed) — Menu, Orders, Loans, Inventory, Staff, and Dashboard all hit this
+  independently. Conversely, a route that looks like "just an aggregate" sometimes hides real
+  post-query business logic in JS (Inventory's suggested-orders grouping, Dashboard's payroll/
+  admin-daily-summary) — those stayed on REST. SQLite equivalents were needed for several Postgres-
+  only constructs: `LATERAL`/`DISTINCT ON` → `ROW_NUMBER() OVER (PARTITION BY ...)`, `NULLS LAST` →
+  `ORDER BY x IS NULL, x`, `FILTER (WHERE ...)` → `CASE WHEN ... END` inside `SUM`/`COUNT`,
+  `EXTRACT(EPOCH FROM ...)/3600` → `(julianday(a) - julianday(b)) * 24`.
+- **Every write across all 9 screens stays on REST, unchanged, no exceptions** — PowerSync's local
+  write-queue mechanism was never used anywhere in this whole task, per the standing project rule
+  (RULES.md §4) that writes with real server-side business logic must stay centralized through the
+  Express API.
+- **Still outstanding, same as every prior task #31 session:** none of these conversions have been
+  tested on the real machine yet. This needs a full pass through all 9 screens, following each
+  screen's own "next check" list in this file, before the task can be considered shippable — esbuild
+  passing only confirms syntax/imports resolve, not that any query actually returns correct data
+  against a real synced local SQLite file.
+
+## Task #31, sixth screen done (2026-07-28): Staff screen converted to local PowerSync reads
+
+`pos-app/src/pages/admin/screens/StaffScreen.jsx` is the sixth of the 9 Admin screens converted
+(after Tables, Loans, Menu, Orders, Inventory) — same pattern, same standing rules (writes
+untouched, camelizeRow/camelizeRows on every local result, no restaurant_id filter needed).
+Remaining: Dashboard, Settings, Profile.
+
+**Three reads converted, all verified against the real backend route files first**
+(`restaurant-app/backend/src/routes/users.js`, `shifts.js`, `staff-payments.js`):
+1. `fetchUsers()` (was `usersAPI.getAll()`, GET /api/users) — real route is a plain explicit-
+   column-list `SELECT` (already excludes `password_hash`) filtered to `restaurant_id`, no joins,
+   no business logic. Local `users` table already has every one of those columns — direct 1:1 port.
+2. `fetchShifts({from,to})` (was `shiftsAPI.getAll({from,to})`, GET /api/shifts) — shared by
+   `fetchPeriodShifts` (Attendance tab) and `fetchPayrollData` (Payroll tab). Real route's `LEFT
+   JOIN users` (name/role) and computed `earnings` column are both dead weight — grepped clean,
+   this screen always looks up staff name/role via `staff.find()` off the separately-fetched
+   `staff` array, and "earnings" has zero read call sites (only an unrelated code comment). The
+   `hours_worked` computed column IS replicated faithfully: Postgres's `EXTRACT(EPOCH FROM
+   ...)/3600` becomes SQLite's `(julianday(a) - julianday(b)) * 24`. `COALESCE(shift_date,
+   clock_in::date)` becomes `COALESCE(shift_date, substr(clock_in,1,10))`. No `user_id` filter is
+   ever passed by this admin-only screen, so that branch (and the `waitress`-role self-scope
+   branch) aren't replicated. SQLite sorts NULL as the smallest value, so plain `DESC` ordering
+   already puts NULLs last with no extra `IS NULL` trick needed (unlike Inventory's ASC case).
+3. `fetchLatestPayments()`/`fetchStaffPayments({from,to})` (was `staffPaymentsAPI.getLatest()` GET
+   /api/staff-payments/latest, and `staffPaymentsAPI.getAll({from,to})` GET /api/staff-payments) —
+   `getLatest`'s Postgres-only `DISTINCT ON (user_id)` ("latest row per group") replicated via a
+   `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY payment_date DESC, created_at DESC)` window
+   filtered to rn=1, same technique as Orders' "latest loan per order". `getAll`'s `LEFT JOIN
+   users` for `staff_name` is dead weight — grepped clean, payment rows are always read via
+   amount/paymentDate/paymentMethod/note/userId, never `staffName`. Neither call site passes a
+   `user_id` filter (only `from`/`to`).
+
+**Left on REST, deliberately: `shiftsAPI.getStaffStatus()`** (GET /shifts/admin/staff-status),
+backing `fetchTodayStatus` — the "live staff status" screen the task brief predicted would need
+to stay server-side, confirmed by reading the real route. It does genuine business logic beyond a
+plain read: a `DISTINCT ON (user_id)` subquery picks each user's single most relevant shift row
+for TODAY via a priority CASE (active/clocked-in beats completed beats absence), then the outer
+query maps that onto a derived three-way status the raw row never had (`present`/`late` from the
+real DB status when clocked in, `absent` when an explicit absence record exists with no clock-in,
+or a synthetic `off` when there's no record at all today). Not a faithful SQL-only read — stays
+on REST per the standing rule.
+
+**Also found and deliberately left on REST, out of scope for this task:** `menuAPI.getStations()`
+(GET /api/menu/stations, backing `fetchCustomStations`) is a plain filtered `SELECT name FROM
+custom_stations` with no joins/business logic — it would convert cleanly the same way `fetchUsers`
+did, and `custom_stations` is itself a fully synced table. Not converted because the task brief
+explicitly scoped this conversion to the users/shifts/staff_payments tables only — flagged as a
+legitimate candidate for a future pass, not silently skipped.
+
+**Boolean-column check: no fix needed.** `users.is_active` was already in `case.js`'s
+`BOOL_FIELDS` (`isActive`) before this session — verified directly, needed since this screen does
+strict `m.isActive === false` comparisons throughout (staff cards, `handleToggleStatus`). `shifts`
+and `staff_payments` have no boolean columns at all (checked `powersync/schema.js` directly).
+
+**Write path completely untouched** — every one of `handleSaveStaff`/`handleDeleteStaff`/
+`handleUpdateCredentials`/`handleToggleStatus`/`handleClockIn`/`handleClockOut`/
+`handleMarkAbsent`/`handleManualClockIn`/`handleManualShift`/`handleEditShift`/
+`handleRecordPayment`/`handleDeletePayment` and the custom-station add/delete buttons still call
+their REST write via `usersAPI`/`shiftsAPI`/`staffPaymentsAPI`/`menuAPI` exactly as before
+(verified by direct comparison against the pre-edit file — only each read/refetch call site was
+touched). `shiftsAPI.getStaffStatus`/`menuAPI.getStations` both kept (deliberately left on REST,
+see above); all four API-group imports still have real remaining call sites, none became unused.
+
+Esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next
+check: open Staff from the sidebar, confirm the staff list/role counts/search all load with the
+same data as before; open Attendance and confirm today's per-staff cards and the historical shifts
+table both render (live on-shift status badge should still come from the REST `getStaffStatus`
+call, unaffected); switch the day picker back/forward and confirm the shift list refilters; open
+Payroll, confirm the summary banner and per-staff payroll cards compute the same gross/net/paid/
+remaining numbers as before (this is the most complex client-side math on this screen — give it a
+careful before/after comparison, especially for hourly-salary staff whose `hoursWorked` now comes
+from the new SQLite `julianday()` expression instead of Postgres's `EXTRACT(EPOCH ...)`); open a
+staff member's payroll details modal and confirm the payments list splits into settled/current
+correctly; run each write path (add/edit/delete staff, update login credentials, clock in/out/mark
+absent, manual shift create/edit, record/delete a payment, add/delete a custom kitchen station) and
+confirm all still work exactly as before (untouched REST paths).
+
+## Task #31, fifth screen done (2026-07-28): Inventory screen converted to local PowerSync reads
+
+`pos-app/src/pages/admin/screens/InventoryScreen.jsx` is the fifth of the 9 Admin screens
+converted (after Tables, Loans, Menu, Orders) — same pattern, same standing rules (writes
+untouched, camelizeRow/camelizeRows on every local result, no restaurant_id filter needed).
+Remaining: Dashboard, Staff, Settings, Profile.
+
+**Six reads converted, all verified against the real backend route files first**
+(`restaurant-app/backend/src/routes/warehouse.js`, `suppliers.js`, `procurement.js`), each pulled
+into its own `fetchX()` helper so writes' own post-save/lookup refetches (reads, not writes) reuse
+the same converted query instead of hitting REST a second time:
+1. `fetchWarehouseItems()` (was `warehouseAPI.getAll()`, GET /api/warehouse) — real route:
+   `warehouse_items` LEFT JOIN `suppliers` for `supplier_name`, plus a per-row N+1 fetch of
+   `stock_batches` (quantity_remaining > 0), attached as `row.batches`. The `supplier_name` join is
+   dead weight (grepped clean — zero `supplierName`/`supplier_name` reads off an item row), same as
+   MenuScreen.jsx's own `fetchWarehouseItems` precedent — NOT replicated. UNLIKE Menu's ingredient
+   picker, though, `item.batches` genuinely IS read here (Stock Overview tab's nearest-expiry badge
+   and per-item expandable batch list — `quantityRemaining`/`expiryDate`/`receivedAt`), so the N+1
+   batches sub-fetch WAS replicated as one extra query keyed on the fetched item ids instead of N
+   separate ones. SQLite has no `NULLS LAST` — emulated with `ORDER BY expiry_date IS NULL,
+   expiry_date ASC`, matching Postgres's `ORDER BY expiry_date ASC NULLS LAST`. Also reused by two
+   write handlers (`handleCreateDelivery`/`handleChangeDeliveryStatus`) that look up an existing
+   item by name before creating a duplicate — that lookup is itself a read, so it was converted too.
+2. `fetchSuppliers()` (was `suppliersAPI.getAll()`, GET /api/suppliers) — plain `SELECT * FROM
+   suppliers ORDER BY name`, direct 1:1 port, no joins.
+3. `fetchMovements()` (was `warehouseAPI.getMovements({})`, GET /api/warehouse/movements) — this
+   screen's only call site always passes an empty params object, so none of the route's optional
+   `from`/`to`/`type` filters ever apply (all date/type filtering is client-side in this screen's
+   own `filteredInMoves`/`filteredOutMoves` useMemos). Real route: `stock_movements` INNER JOIN
+   `warehouse_items` (name/unit/cost_per_unit) LEFT JOIN `users` (`recorded_by`), `ORDER BY
+   created_at DESC LIMIT 500`. The `recorded_by` join is dead weight (grepped clean — zero reads) —
+   NOT replicated; the INNER JOIN and `LIMIT 500` were kept faithfully.
+4. `fetchDeliveries()` (was `procurementAPI.getDeliveries()`, GET /api/procurement/deliveries) —
+   real route LEFT JOINs a `delivery_items` count subquery for `item_count`; grepped clean (zero
+   `itemCount`/`item_count` reads — this screen's delivery cards never show a line-item count) —
+   NOT replicated, so this is a plain `SELECT * FROM supplier_deliveries ORDER BY timestamp DESC,
+   created_at DESC`.
+5. `fetchDeliveriesDebt()` (was `procurementAPI.getDeliveriesDebt()`, GET
+   /api/procurement/deliveries/debt) — a real aggregate (`SUM(total)`/`COUNT(*)` over unpaid
+   Delivered/Partial deliveries), faithfully replicated as one local aggregate query.
+6. `fetchDeliveryDetail(id)` (was `procurementAPI.getDelivery(id)`, GET
+   /api/procurement/deliveries/:id) — single delivery row + its `delivery_items` ordered by id,
+   direct 1:1 port. Reused by `openDeliveryDetail` and by both delivery-item write handlers'
+   (`handleRemoveDeliveryItem`/`handleUpdateDeliveryItemQty`) own post-save refresh.
+
+**Left on REST, deliberately: `procurementAPI.getSuggestedOrders()`** (GET
+/api/procurement/suggested-order). Unlike every other read here, the real route does genuine
+server-side business logic beyond a plain join/aggregate — it computes a per-item
+`suggested_order_qty` (`min_stock_level*1.5 - quantity_in_stock`), then groups the flat row list
+into a nested `{supplier, items[]}[]` structure via a JS `.reduce()`, rounding quantities up and
+computing an `estimated_cost` per item. This is real reorder-suggestion business logic, not a
+faithful SQL-only read, so per the standing rule it stays on REST. Also flagged: grepped the whole
+file for `suggestedOrders` and confirmed it's fetched into state but never actually rendered
+anywhere in this screen's JSX today — already dead in the UI, so leaving it on REST has zero
+functional effect either way (removing an unused fetch was judged out of scope for a reads-only
+conversion task).
+
+**Boolean-column check: no fix needed.** `warehouse_items`/`suppliers`/`stock_batches`/
+`stock_movements`/`supplier_deliveries`/`delivery_items` have no boolean columns at all except
+`delivery_items.removed` (checked `powersync/schema.js` directly). `item.removed` is read with
+truthy/falsy checks only (`item.removed ? ... : ...`, `!item.removed`) — never a strict
+`=== false`/`!== false` comparison — so the raw 0/1 integer PowerSync returns behaves identically to
+a real boolean here. No `BOOL_FIELDS` addition needed.
+
+**Write path completely untouched** — every one of `handleAddItem`/`handleEditItem`/
+`handleDeleteItem`/`handleReceive`/`handleRecordOutput`/`handleSaveSupplier`/
+`handleDeleteSupplier`/`handleCreateDelivery`/`handlePayDelivery`/`handleChangeDeliveryStatus`/
+`handleDeleteDelivery`/`handleRemoveDeliveryItem`/`handleUpdateDeliveryItemQty` still calls its REST
+write via `warehouseAPI`/`suppliersAPI`/`procurementAPI` exactly as before (verified by direct
+comparison against the pre-edit file — only each read/refetch call site was touched, never the
+mutating call itself). The existing `window.prompt()`-replacement local modal (`promptModal`/
+`promptValue`) is untouched — this conversion never touched that code path.
+
+Esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next
+check: open Inventory from the sidebar, confirm all four tabs (Stock Overview, Deliveries In,
+Stock Output, Suppliers) load with the same data/counts as before and the 15s silent poll doesn't
+flicker; expand an item row and confirm its stock-batches list (quantity/expiry/received date) and
+the nearest-expiry badge both render correctly, including the NULLS-LAST ordering (items with a
+null-expiry batch should still show batches with real expiry dates first); confirm the unpaid-debt
+banner total matches reality; open a delivery's detail modal and confirm its line items (qty/unit/
+price/expiry/removed-reason) render, then exercise the qty-adjust and remove-item prompts (the
+local-modal `window.prompt()` replacement) and confirm the detail view refreshes correctly
+afterward; run each write path (add/edit/delete item, receive/consume/adjust stock, add/edit/delete
+supplier, create/pay/change-status/delete a delivery) and confirm all still work exactly as before
+(untouched REST paths) — this is the largest screen converted so far, so give it a thorough pass.
+
+## Task #31, fourth screen done (2026-07-28): Orders screen converted to local PowerSync reads
+
+`pos-app/src/pages/admin/screens/OrdersScreen.jsx` is the fourth of the 9 Admin screens converted
+(after Tables, Loans, Menu) — same pattern, same standing rules (writes untouched, camelizeRow/
+camelizeRows on every local result, no restaurant_id filter needed). This was the biggest/richest
+screen converted so far — order list needs table name + latest loan info, order detail needs a
+nested loanDetails object, and a 3-source support-data fetch feeds the edit modal's dropdowns.
+Remaining: Dashboard, Inventory, Staff, Settings, Profile.
+
+**Three reads converted, all verified against the real backend route file first**
+(`restaurant-app/backend/src/routes/orders.js`):
+1. `fetchOrdersWithItems(statuses, {from,to})` (was `ordersAPI.getAll({status,from,to,
+   include_items:'true'})`, GET /api/orders) — backs fetchActiveOrders/fetchPaidOrders/
+   fetchCancelledOrders. Real route: `SELECT o.*, t.table_number, t.name AS table_name, u.name AS
+   waitress_name, c.name AS collected_by_name, COALESCE(ic.cnt,0) AS item_count` plus a `LEFT JOIN
+   LATERAL` picking the latest `loans` row per order (`loan_status`/`loan_paid_at`/`loan_due_date`/
+   `loan_customer_name`/`loan_customer_phone`/`loan_amount`/`loan_notes`). Grepped the whole file for
+   every way an order row's fields get read and dropped `table_number`/`waitress_name`/
+   `collected_by_name`/`item_count` as dead weight (zero references off an order row — table/
+   waitress display always goes through `getTableNumber`/`getWaitressName`, which look up
+   `allTables`/`allWaitresses` from fetchSupportData, not the order row; item counts are always
+   computed client-side from the `items` array). `table_name` (t.name) IS replicated —
+   `paymentOrder.tableName`/`cancelTarget.tableName` both read it directly. The `loan_*` flat
+   columns ARE replicated too — `order.loanStatus`/`loanCustomerName`/`loanCustomerPhone`/
+   `loanDueDate`/`loanAmount`/`loanNotes` are all read directly off list rows. SQLite has no
+   `LATERAL` join — replicated the "latest loan per order" pick with a `ROW_NUMBER() OVER
+   (PARTITION BY order_id ORDER BY created_at DESC)` window filtered to `rn=1`, same semantics as
+   the Postgres LATERAL's own `ORDER BY created_at DESC LIMIT 1`. The route's optional filters this
+   screen's three call sites actually send (`status` always, `from`/`to` only for Paid) are
+   replicated; ones it never sends (`order_type`, `table_id`, `paid_by`, `waitress_id`, the
+   waitress-role self-scoping branch which only applies to role `waitress`, never `admin`) are not.
+   `include_items=true`'s own batch items query (`order_items LEFT JOIN menu_items`) is replicated
+   as a second query keyed on the fetched order ids.
+2. `fetchOrderDetail(orderId)` (was `ordersAPI.getById(id)`, GET /api/orders/:id) — used by both the
+   "refresh full details when the detail modal opens" effect and the `openOrderId` deep-link effect.
+   Same dropped joins as above (table_number/waitress_name/collected_by_name), same kept `table_name`.
+   The route's own `loanDetails` nested object (a separate `loans` lookup) IS replicated as its own
+   nested object, since the detail modal reads `selectedOrder.loanDetails?.xxx` with a fallback to
+   the flat `loanXxx` fields the list fetch already provides — matching the real response shape.
+3. `fetchSupportData()` (was `tablesAPI.getAll()` + `usersAPI.getAll()` + `menuAPI.getItems()`, GET
+   /api/tables, /api/users, /api/menu/items) — feeds the edit modal's table/waitress dropdowns and
+   the add-items menu search. `tables.js`'s own `waitress_name`/`order_total` join dropped (grepped
+   clean — only `table.id`/`name`/`tableNumber` ever read), same precedent as TablesScreen.jsx's own
+   `fetchTables`. `users.js`'s route already excludes `password_hash` via an explicit column list
+   and applies no role filter — replicated as a plain `SELECT *` (local `users` table has no
+   credential columns synced anyway). `menu.js`'s `category_name` join kept only for its `ORDER BY
+   c.sort_order, m.sort_order, m.name` (grepped clean — zero `categoryName` references), same
+   precedent as MenuScreen.jsx's own `fetchItems`.
+
+**Boolean-column check: already correct, no fix needed.** `order_items.is_free`/`item_ready` are
+both already listed in `case.js`'s `BOOL_FIELDS` (`isFree`/`itemReady`) — verified directly.
+Neither is actually read anywhere in this screen (grepped clean), so this was a non-issue in
+practice, but the coercion is correct either way. `orders`/`loans`/`restaurant_tables` have no
+boolean columns at all (checked `powersync/schema.js`).
+
+**Write path completely untouched** — `handleStatusChange`/`handleDelete`/`handleCancelOrder`/
+`saveEditedOrder`/`processPayment` still call `ordersAPI.updateStatus`/`delete`/`cancel`/`update`/
+`pay` over REST exactly as before (verified by direct comparison against the pre-edit file — only
+each read call site was touched). The `openOrderId`/`clearOpenOrderId` deep-link prop mechanism
+itself (AdminShell.jsx's `goTo()` parsing) is untouched — only the data fetch it triggers
+(`fetchOrderDetail`) was converted. `menuAPI`/`tablesAPI`/`usersAPI` imports dropped entirely (each
+had exactly one call site, inside `fetchSupportData`, now gone, grepped clean); `ordersAPI` kept
+for its five remaining writes.
+
+Esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next
+check: open Orders from the sidebar, confirm active/paid/cancelled tabs all load with the same
+data/counts as before; open an order's detail modal and confirm table name, items, totals, and (for
+a loan-paid order) the loan borrower section all render correctly; use the Tables screen's "View
+Full Order" button to confirm the `?open=<id>` deep link still auto-opens the right order and
+doesn't reopen on a later re-render; switch the Paid tab's date range and confirm it actually
+refilters; open the Edit Order modal and confirm the table/waitress dropdowns and the add-items
+menu search all populate; run each write path (status advance, edit+save, cancel, delete, and the
+Collect Payment modal incl. split/discount/loan) and confirm all five still work exactly as before
+(untouched REST paths) — this is the biggest screen converted so far, so give it the most thorough
+pass of the four.
+
+## Task #31, third screen done (2026-07-28): Menu screen converted to local PowerSync reads
+
+`pos-app/src/pages/admin/screens/MenuScreen.jsx` is the third of the 9 Admin screens converted
+(after Tables, Loans) — same pattern, same standing rules (writes untouched, camelizeRows on
+every local result, no restaurant_id filter needed). Remaining: Dashboard, Inventory, Orders,
+Staff, Settings, Profile.
+
+**Four reads converted, all verified against the real backend route files first**
+(`restaurant-app/backend/src/routes/menu.js`, `warehouse.js`), each pulled into its own small
+`fetchX()` helper so writes' own post-save refetches (reads, not writes) reuse the same converted
+query instead of hitting REST a second time:
+1. `fetchCategories()` (was `menuAPI.getCategories()`) — plain `SELECT * FROM categories ORDER BY
+   sort_order, name`, matching the real route exactly (no filter params ever passed by this
+   screen).
+2. `fetchItems()` (was `menuAPI.getItems()`) — `menu_items` LEFT JOIN `categories`, matching the
+   real route's own join. The joined `category_name` column is deliberately NOT selected (grepped
+   the whole file for `categoryName`/`category_name` — zero data references, this screen looks up
+   the category object itself via `categories.find(...)` instead); the join is kept only for its
+   `ORDER BY c.sort_order`, same precedent as TablesScreen.jsx's `fetchMenuForAddFood`.
+3. `fetchItemIngredients(itemId)` (was `menuAPI.getItemIngredients(id)`) — `menu_item_ingredients`
+   JOIN `warehouse_items` for ingredient name/unit, matching the real route's own join; its
+   `JOIN menu_items m` (there purely for that route's own restaurant-ownership check) is dropped
+   since no restaurant_id filter is needed locally either way. Used both when opening the edit-item
+   modal and to refresh the list after the unchanged REST add/remove-ingredient writes.
+4. `fetchWarehouseItems()` (was `warehouseAPI.getAll()`, powering the ingredient-search picker) —
+   the real route is NOT a plain select: it LEFT JOINs `suppliers` for `supplier_name` and does a
+   per-row N+1 fetch of `stock_batches` (quantity_remaining > 0), attached as `row.batches`.
+   Grepped this whole file and confirmed only `wi.id`/`wi.name`/`wi.unit` are ever read off each
+   row — never `supplierName`/`batches` — so neither the supplier join nor the batches sub-fetch
+   was replicated; both are dead weight for this screen specifically. `warehouseAPI` import
+   dropped entirely (this was its only call site, grepped clean).
+
+**`is_available`/`BOOL_FIELDS` check: already correct, no fix needed.** `isAvailable` was already
+present in `case.js`'s `BOOL_FIELDS` set before this session — verified directly, not assumed —
+so the availability toggle's `item.isAvailable !== false`/`!== false` strict-equality logic gets a
+real boolean from every local read, same as it did from REST.
+
+**Write path completely untouched** — every one of `handleSaveCategory`/`handleDeleteCategory`/
+`handleSaveItem`/`handleDeleteItem`/`handleAddIngredient`/`handleRemoveIngredient`/
+`addStationPreset`/`removeStationPreset`/`moveCategory`/`toggleAvailability` still calls its REST
+write via `menuAPI` exactly as before (verified by direct comparison against the pre-edit file —
+only each write's own post-save *refetch* call was swapped for the new local helper, the write
+call itself was never touched). Photo/logo upload's disabled-control precedent is also untouched —
+this conversion never touched that code path.
+
+Esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next
+check: open Menu from the sidebar, confirm categories/items load with the same counts/order as
+before and the 5s silent poll doesn't flicker; open an item's edit modal and confirm the
+ingredient list and the ingredient-search picker (warehouse items) both populate correctly; add/
+remove an ingredient and confirm the list refreshes without a page reload; toggle an item's
+availability and confirm the badge/icon flip instantly (the concrete `BOOL_FIELDS` check to
+verify); add/edit/delete a category and an item, confirm both persist and the list re-sorts
+correctly; add and delete a custom kitchen station via the item modal's quick-pick. See
+SESSIONS.md's 2026-07-28 entry for the full per-read reasoning.
+
+## Task #31, second screen done (2026-07-28): Loans screen converted to local PowerSync reads
+
+`pos-app/src/pages/admin/screens/LoansScreen.jsx` is the second of the 9 Admin screens converted
+(after Tables) — same pattern, same standing rules (writes untouched, camelizeRows on every local
+result, no restaurant_id filter needed). Remaining: Dashboard, Menu, Inventory, Orders, Staff,
+Settings, Profile.
+
+**Two reads converted, both verified against the real route files first, not guessed**
+(`restaurant-app/backend/src/routes/loans.js`, `orders.js`): `fetchLoans()` (was `loansAPI.
+getAll({from,to})`, GET /api/loans) — now a local `SELECT l.* + o.daily_number + t.name AS
+table_name FROM loans LEFT JOIN orders LEFT JOIN restaurant_tables`, matching the real route's
+own join. Deliberately dropped that route's `order_type`/`order_customer_name` columns (grepped
+the whole file for `orderType`/`order_type`/`orderCustomerName` — zero matches, dead weight for
+this screen) and its optional `status` query param (this screen never sends one — status filtering
+is entirely client-side in the `filtered` useMemo, matching the real call site). `daily_number`/
+`table_name` ARE kept since the list cards read `loan.dailyNumber`/`loan.tableName`. Date-range
+filtering (`period.from`/`period.to`) replicated as `DATE(l.created_at) >= ? AND DATE(l.created_at)
+<= ?`, matching the backend's `DATE(l.created_at) >= $n::date` casts. Second read:
+`LoanDetailsModal`'s order-items fetch (was `ordersAPI.getById(loan.orderId)`, GET /api/orders/:id)
+— grepped the whole file for every `order.`/`order?.` usage and found exactly one,
+`order?.items || order?.orderItems` (the itemized breakdown/subtotal) — so rather than replicate
+the full order row (table_number/waitress_name/collected_by_name/loanDetails joins this screen
+never reads), only the real route's items sub-query was ported: `order_items` LEFT JOIN
+`menu_items` for name/unit, same fallback pattern (`COALESCE(...,'Unknown item'/'piece')`) as
+TablesScreen.jsx's own `fetchTableOrder`. `ordersAPI` import dropped entirely (its one call site
+is gone, grepped clean). No computed-subquery or two-source-merge case here unlike Tables — both
+reads were plain joins, faithfully replicable in full.
+
+**Write path completely untouched** — `handleMarkPaid` still calls `loansAPI.markPaid` (`PATCH
+/api/loans/:id/pay`) over REST exactly as before, verified by direct comparison against the
+pre-edit file (that code block was never touched by any edit this session).
+
+**No boolean columns involved** — checked `case.js`'s `BOOL_FIELDS` list and the `loans` table in
+`powersync/schema.js`; the `loans` table has no boolean columns at all, so no coercion gotcha here
+(unlike screens touching `is_active`/`is_available`-style fields).
+
+Esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next
+check: open Loans from the sidebar, confirm the list/stats load with real data and the 10s poll
+doesn't flicker; switch date-range presets/custom range and confirm the list actually refilters;
+open a loan's details modal and confirm the linked order's itemized breakdown + subtotal render
+correctly (and that a loan with no `orderId` still shows "No order linked" instead of erroring);
+collect a payment (any method) and confirm it still works exactly as before (untouched REST path).
+See SESSIONS.md's 2026-07-28 entry for the full per-read reasoning.
+
+## Task #31, first screen done (2026-07-28): Tables screen converted to local PowerSync reads
+
+`pos-app/src/pages/admin/screens/TablesScreen.jsx` is the first of the 9 Admin screens to have its
+REST reads swapped for local PowerSync reads — this sets the conversion pattern for the remaining 8
+(Dashboard, Menu, Inventory, Orders, Loans, Staff, Settings, Profile still to go). **Writes are
+completely untouched** — every one of `handleSave`/`handleDelete`/`handleSaveReservation`/
+`handleSeatGuests`/`handleCancelReservation`/`handleMarkFree`/`handleApplyStatus`/
+`handleAddSection`/`handleDeleteSection`/`handleRenameSection`/`handleAddFoodToOrder` still calls
+its REST write via `tablesAPI`/`ordersAPI` exactly as before, verified by direct comparison against
+the pre-edit file (none of those code blocks were touched by any edit this session).
+
+**Five reads converted, all faithful to the real backend route's own SQL** (verified against
+`restaurant-app/backend/src/routes/tables.js`, `orders.js`, `menu.js` before writing any query, not
+guessed): `fetchTables()` (now a local `SELECT rt.* + a scalar order_total subquery over
+orders/order_items`, matching `GET /api/tables`'s own computed column — deliberately dropped that
+route's `waitress_name` join since grep confirmed nothing in this screen reads a per-table
+`waitressName`/`waitress_name`); `fetchSections()` (two local `SELECT`s — `table_sections` +
+`DISTINCT restaurant_tables.section` — feeding the exact same client-side `Set`-merge/optimistic-
+shield logic the screen already had, matching `GET /api/tables/sections`'s own two-source union);
+`fetchTableOrder(tableId)` (local `orders` + `users` join for the active order, `ORDER BY
+created_at DESC LIMIT 1` instead of fetching an array and indexing `[0]`, plus a local `order_items`
++ `menu_items` join for item name/unit — matches `GET /api/orders?table_id=&status=` then `GET
+/api/orders/:id`, dropping only the `table_number`/`paid_by`/`loanDetails` parts nothing in this
+screen reads); the duplicate inline order-id lookup inside the "View Full Order" button's `onClick`
+(same conversion, just the `id` column); and `fetchMenuForAddFood()` (local `categories` +
+`menu_items` joined only for matching `ORDER BY`, confirmed via `menu.js` that neither REST call
+this screen makes passes any filtering query param). Every local result is run through
+`camelizeRow`/`camelizeRows` (`pos-app/src/lib/case.js`) before use, so component code needed zero
+changes. No local query needs an explicit `restaurant_id` filter — confirmed (not assumed) via
+`restaurant-app/backend/src/routes/auth.js`'s `GET /api/auth/powersync-token`, which mints the
+PowerSync JWT with a `restaurant_id` custom claim specifically so the Sync Streams config can scope
+every table server-side via `auth.parameter('restaurant_id')` before a row ever reaches the local
+SQLite file. `menuAPI` import dropped (unused after conversion, grepped clean);
+`tablesAPI`/`ordersAPI` both kept for their remaining write calls.
+
+Esbuild-verified clean. **Not yet tested on the real machine — this is the very first local-read
+conversion in the whole build, so it also doubles as the first real test of whether PowerSync
+actually has synced, queryable data for these 5 tables in practice, not just "sync config deployed
+successfully."** Next check: open Tables, confirm the grid/section chips/detail-sheet/View-Full-
+Order sheet/Add-Food sheet all show the same data they did over REST; if anything renders empty
+where REST would have shown real rows, treat that as a PowerSync sync-state issue first (per the
+task #21 completion note below) before suspecting these queries. See SESSIONS.md's 2026-07-28 entry
+for the full per-read reasoning.
+
+Last updated: 2026-07-27 (task #21 now fully COMPLETE — PowerSync Cloud Sync Streams deployed by
+the user for the 9 extended tables. Hit and fixed a real gap along the way: the Sync Streams
+validator rejected all 9 with "permission denied"/"table could not be found in the source
+schema" — root cause confirmed via `information_schema.role_table_grants`: adding a table to the
+`powersync` publication is necessary but not sufficient, `powersync_role` also needs an explicit
+`GRANT SELECT` on each table, which the original task #21 work never did (only `orders`/`users`
+had it, from Phase 0 setup). Fixed via `GRANT SELECT ON warehouse_items, suppliers, stock_batches,
+stock_movements, supplier_deliveries, delivery_items, loans, shifts, staff_payments TO
+powersync_role;` — confirmed via the same information_schema query that all 9 now have it.
+Streams validated and deployed successfully after that. **Task #31 (converting Admin screens'
+REST reads to local PowerSync queries) can now proceed for real** — nothing else is blocking it.
+Next session: confirm the pos-app's local SQLite is actually receiving rows for these 9 tables
+(e.g. via a quick `powersync:getAll` count check) before starting the screen-by-screen
+conversion, since "deployed successfully" confirms the config is valid, not yet that data has
+actually landed locally. Before that: User compared the Admin panel's real-world loading
 speed against the old Electron app and correctly called out that it feels the same — because it
 currently IS the same. Honest finding, not previously stated this plainly: **all 9 ported Admin
 screens still read entirely over REST** (client.js → IPC → Render), zero of them use local

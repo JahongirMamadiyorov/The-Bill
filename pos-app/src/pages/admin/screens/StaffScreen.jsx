@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
 import { money } from '../../../lib/adminFormat.js';
 import { usersAPI, shiftsAPI, staffPaymentsAPI, menuAPI } from '../../../api/client.js';
+import { camelizeRow, camelizeRows } from '../../../lib/case.js';
 import Dropdown from '../../../components/Dropdown.jsx';
 import DatePicker from '../../../components/DatePicker.jsx';
 import PhoneInput, { formatPhoneDisplay } from '../../../components/PhoneInput.jsx';
@@ -79,6 +80,101 @@ import {
 // AdminMenuScreen/AdminOrdersScreen/AdminLoansScreen naming convention from
 // earlier screens (avoids any confusion with a hypothetical unrelated
 // cashier-side staff screen, though none currently exists).
+//
+// ── 2026-07-28: reads converted to local PowerSync, sixth screen after
+// Tables/Loans/Menu/Orders/Inventory (task #31) — see those screens' own
+// header comments for the general pattern (psGetAll/psGet + camelizeRow/
+// camelizeRows, no restaurant_id filter needed since local SQLite is already
+// scoped to one restaurant). Writes are completely untouched: every
+// usersAPI/shiftsAPI/staffPaymentsAPI/menuAPI MUTATING call (create/update/
+// delete staff, update credentials, clock in/out, mark absent, manual shift
+// create/edit, record/delete a payment, add/delete a custom station) still
+// goes over REST exactly as before, verified by direct comparison against
+// the pre-edit file — only each read's own call site was touched.
+//
+// Three reads converted, all verified against the real backend route files
+// first (restaurant-app/backend/src/routes/users.js, shifts.js,
+// staff-payments.js):
+// 1. fetchUsers() — was usersAPI.getAll() (GET /api/users). Real route:
+//    `SELECT id, name, email, phone, role, salary, salary_type, shift_start,
+//    shift_end, is_active, kitchen_station, commission_rate, created_at FROM
+//    users WHERE restaurant_id=$1 ORDER BY created_at DESC` — an explicit
+//    column list (already excludes password_hash) with no joins and no
+//    business logic. The local `users` table (powersync/schema.js) already
+//    has every one of those columns (plus `updated_at`, never read by this
+//    screen — harmless extra) — a direct 1:1 port, nothing to drop.
+// 2. fetchShifts({from,to}) — was shiftsAPI.getAll({from,to}) (GET
+//    /api/shifts), shared by fetchPeriodShifts (Attendance tab) and
+//    fetchPayrollData (Payroll tab), same "one converted helper, every call
+//    site" precedent as every prior screen. Real route selects `s.*` plus a
+//    `LEFT JOIN users u ON s.user_id=u.id` (u.name/u.role) and two computed
+//    columns (hours_worked, earnings). Grepped this whole file for every way
+//    a shift row's fields get read and found zero references to a shift
+//    row's own `name`/`role` (this screen always looks up the staff member
+//    via `staff.find(s => s.id === ...)` off the separately-fetched `staff`
+//    array instead) — the join is dead weight, same precedent as every prior
+//    screen's dropped joins. `earnings` is dead weight too — grepped clean,
+//    its only "earnings" match anywhere in this file is an unrelated code
+//    comment, never a rendered/read field. `hours_worked` IS replicated
+//    faithfully (read throughout — rec.hoursWorked, computePayroll,  the
+//    payroll details modal's attendance table) — Postgres's
+//    `EXTRACT(EPOCH FROM ...)/3600` becomes SQLite's `(julianday(a) -
+//    julianday(b)) * 24` (both operate on ISO timestamp strings). This
+//    screen never passes a `user_id` filter (it's an admin-only screen
+//    viewing every staff member, never self-scoped), so that branch and the
+//    `waitress`-role self-scope branch are both correctly left out.
+//    `COALESCE(shift_date, clock_in::date)` becomes `COALESCE(shift_date,
+//    substr(clock_in,1,10))` (both produce a 'YYYY-MM-DD' string, comparable
+//    lexicographically the same way). SQLite sorts NULL as the smallest
+//    value, so a plain `DESC` ordering already places NULLs last on its own
+//    — no explicit `IS NULL` trick needed here (unlike Inventory's ASC
+//    `NULLS LAST` case, which needed one). `shifts` is a fully synced table.
+// 3. fetchLatestPayments()/fetchStaffPayments({from,to}) — were
+//    staffPaymentsAPI.getLatest() (GET /api/staff-payments/latest) and
+//    staffPaymentsAPI.getAll({from,to}) (GET /api/staff-payments).
+//    getLatest's real route is `DISTINCT ON (user_id) ... ORDER BY user_id,
+//    payment_date DESC, created_at DESC` — Postgres-only "latest row per
+//    group" syntax, replicated with a `ROW_NUMBER() OVER (PARTITION BY
+//    user_id ORDER BY payment_date DESC, created_at DESC)` window filtered
+//    to rn=1, the same technique OrdersScreen.jsx used for "latest loan per
+//    order". getAll's real route LEFT JOINs `users` for `staff_name` —
+//    grepped this whole file for `staffName`/`staff_name` read off a payment
+//    row and found none (payment rows are always read via amount/
+//    paymentDate/paymentMethod/note/userId) — dead weight, not replicated.
+//    Neither call site here ever passes a `user_id` filter either (only
+//    `from`/`to`), so that optional filter isn't replicated. `staff_payments`
+//    is a fully synced table.
+//
+// LEFT ON REST, deliberately: shiftsAPI.getStaffStatus() (GET
+// /shifts/admin/staff-status), backing fetchTodayStatus — the "live staff
+// status" screen the task brief specifically called out as a likely
+// REST-only case, confirmed by reading the real route. Unlike the plain
+// filtered reads above, this one is genuine server-side business logic: a
+// `DISTINCT ON (user_id)` subquery picks each user's single most relevant
+// shift row for TODAY using a priority CASE (active/clocked-in shift beats a
+// completed one, which beats an absence record), then the outer query maps
+// that onto a derived three-way status the raw row never had on its own
+// ('present'/'late' from the real DB status when clocked in, 'absent' when
+// an explicit absence record exists with no clock-in, or a synthetic 'off'
+// when there's no record at all for today). This is real business logic —
+// not a faithful SQL-only read — so per the standing rule it stays on REST
+// rather than being approximated in SQLite.
+//
+// Also found and deliberately left on REST, out of scope for this task:
+// menuAPI.getStations() (GET /api/menu/stations, backing
+// fetchCustomStations) is a plain `SELECT name FROM custom_stations WHERE
+// restaurant_id=$1 ORDER BY created_at` with no joins or business logic —
+// it would convert cleanly the same way fetchUsers did, and `custom_stations`
+// is itself a fully synced table. Not converted here because the task brief
+// explicitly scoped this conversion to the users/shifts/staff_payments
+// tables only — flagged as a legitimate candidate for a future pass, not
+// silently skipped.
+//
+// Boolean-column check: verified directly against powersync/schema.js, not
+// assumed. `users.is_active` is already in case.js's BOOL_FIELDS
+// (`isActive`) — needed since this screen does strict `m.isActive === false`
+// comparisons throughout (staff cards, handleToggleStatus). `shifts` and
+// `staff_payments` have no boolean columns at all — nothing else to verify.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -262,10 +358,17 @@ const AdminStaffScreen = () => {
   // DATA FETCHING
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // Local PowerSync read, replacing REST `usersAPI.getAll()` — see this file's header comment for
+  // the full reasoning against the real GET /api/users route.
+  const fetchUsers = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(`SELECT * FROM users ORDER BY created_at DESC`);
+    return camelizeRows(rows);
+  }, []);
+
   const fetchStaff = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const data = await usersAPI.getAll();
+      const data = await fetchUsers();
       setStaff(Array.isArray(data) ? data : []);
     } catch (_) {
       if (!silent) showError(t('common.error'));
@@ -273,7 +376,7 @@ const AdminStaffScreen = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [fetchUsers]);
 
   const fetchTodayStatus = useCallback(async () => {
     try {
@@ -291,17 +394,43 @@ const AdminStaffScreen = () => {
     } catch (_) {}
   }, []);
 
+  // Local PowerSync read, replacing REST `shiftsAPI.getAll({from,to})` — see this file's header
+  // comment for the full reasoning against the real GET /api/shifts route (dropped `u.name`/
+  // `u.role`/`earnings` as dead weight, replicated `hours_worked` faithfully). Shared by
+  // fetchPeriodShifts below and fetchPayrollData further down.
+  const fetchShifts = useCallback(async ({ from, to } = {}) => {
+    let sql = `
+      SELECT s.*,
+        CASE
+          WHEN s.clock_in IS NOT NULL AND s.clock_out IS NOT NULL
+            THEN ROUND((julianday(s.clock_out) - julianday(s.clock_in)) * 24, 2)
+          WHEN s.clock_in IS NOT NULL AND s.clock_out IS NULL
+            THEN ROUND((julianday('now') - julianday(s.clock_in)) * 24, 2)
+          ELSE 0
+        END AS hours_worked
+      FROM shifts s
+    `;
+    const conditions = [];
+    const params = [];
+    if (from) { conditions.push(`COALESCE(s.shift_date, substr(s.clock_in,1,10)) >= ?`); params.push(from); }
+    if (to)   { conditions.push(`COALESCE(s.shift_date, substr(s.clock_in,1,10)) <= ?`); params.push(to); }
+    if (conditions.length) sql += ` WHERE ` + conditions.join(' AND ');
+    sql += ` ORDER BY COALESCE(s.shift_date, substr(s.clock_in,1,10)) DESC, s.created_at DESC`;
+    const rows = await window.electronAPI.psGetAll(sql, params);
+    return camelizeRows(rows);
+  }, []);
+
   const fetchPeriodShifts = useCallback(async () => {
     try {
       setAttLoading(true);
-      const shifts = await shiftsAPI.getAll({ from: attDate, to: attDate });
+      const shifts = await fetchShifts({ from: attDate, to: attDate });
       setPeriodShifts(Array.isArray(shifts) ? shifts : []);
     } catch (_) {
       setPeriodShifts([]);
     } finally {
       setAttLoading(false);
     }
-  }, [attDate]);
+  }, [attDate, fetchShifts]);
 
   // Initial load
   const fetchCustomStations = useCallback(async () => {
@@ -341,6 +470,34 @@ const AdminStaffScreen = () => {
     if (activeTab === 'attendance') fetchPeriodShifts();
   }, [activeTab, attDate, fetchPeriodShifts]);
 
+  // Local PowerSync read, replacing REST `staffPaymentsAPI.getLatest()` — see this file's header
+  // comment for the full reasoning against the real GET /api/staff-payments/latest route (the
+  // Postgres-only `DISTINCT ON (user_id)` replicated via a ROW_NUMBER() window, same technique
+  // OrdersScreen.jsx used for "latest loan per order").
+  const fetchLatestPayments = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(`
+      SELECT user_id, payment_date, amount, note FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY payment_date DESC, created_at DESC) AS rn
+        FROM staff_payments
+      ) WHERE rn = 1
+    `);
+    return camelizeRows(rows);
+  }, []);
+
+  // Local PowerSync read, replacing REST `staffPaymentsAPI.getAll({from,to})` — see this file's
+  // header comment for why the real route's `staff_name` join was dropped as dead weight.
+  const fetchStaffPayments = useCallback(async ({ from, to } = {}) => {
+    let sql = `SELECT * FROM staff_payments`;
+    const conditions = [];
+    const params = [];
+    if (from) { conditions.push(`payment_date >= ?`); params.push(from); }
+    if (to)   { conditions.push(`payment_date <= ?`); params.push(to); }
+    if (conditions.length) sql += ` WHERE ` + conditions.join(' AND ');
+    sql += ` ORDER BY payment_date DESC, created_at DESC`;
+    const rows = await window.electronAPI.psGetAll(sql, params);
+    return camelizeRows(rows);
+  }, []);
+
   // Payroll tab data
   const fetchPayrollData = useCallback(async () => {
     try {
@@ -357,7 +514,7 @@ const AdminStaffScreen = () => {
       setPayrollDateTo(to);
 
       // First load latest payments to find earliest unpaid date
-      const latestRes = await staffPaymentsAPI.getLatest();
+      const latestRes = await fetchLatestPayments();
       const latestArr = Array.isArray(latestRes) ? latestRes : [];
       setLatestPayments(latestArr);
 
@@ -377,13 +534,13 @@ const AdminStaffScreen = () => {
       });
 
       const [shiftsRes, paymentsRes] = await Promise.allSettled([
-        shiftsAPI.getAll({ from: earliestFrom, to }),
-        staffPaymentsAPI.getAll({ from: earliestFrom, to }),
+        fetchShifts({ from: earliestFrom, to }),
+        fetchStaffPayments({ from: earliestFrom, to }),
       ]);
       setPayrollShifts(shiftsRes.status === 'fulfilled' && Array.isArray(shiftsRes.value) ? shiftsRes.value : []);
       setPaymentHistory(paymentsRes.status === 'fulfilled' && Array.isArray(paymentsRes.value) ? paymentsRes.value : []);
     } catch (_) {} finally { setPayrollLoading(false); }
-  }, [payrollPeriod, payrollDateFrom, payrollDateTo]);
+  }, [payrollPeriod, payrollDateFrom, payrollDateTo, fetchShifts, fetchLatestPayments, fetchStaffPayments]);
 
   useEffect(() => {
     if (activeTab === 'payroll') fetchPayrollData();

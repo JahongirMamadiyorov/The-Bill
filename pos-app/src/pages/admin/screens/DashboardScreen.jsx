@@ -3,16 +3,11 @@ import { useTranslation } from '../../../context/LanguageContext.jsx';
 import { money } from '../../../lib/adminFormat.js';
 import {
   reportsAPI,
-  ordersAPI,
-  warehouseAPI,
   shiftsAPI,
-  tablesAPI,
-  loansAPI,
   notificationsAPI,
-  staffPaymentsAPI,
   accountingAPI,
-  procurementAPI,
 } from '../../../api/client.js';
+import { camelizeRow, camelizeRows } from '../../../lib/case.js';
 import {
   LayoutDashboard,
   DollarSign,
@@ -47,9 +42,183 @@ import {
 // calls onto its internal nav-key state. No other logic touched.
 //
 // Printing not involved anywhere on this screen — nothing excluded here.
+//
+// ── 2026-07-28: reads converted to local PowerSync, ninth/last screen of
+// task #31 (after Tables/Loans/Menu/Orders/Inventory/Staff) — see
+// OrdersScreen.jsx's own header comment for the general pattern
+// (psGetAll/psGet + camelizeRow/camelizeRows, no restaurant_id filter needed
+// since the local DB is already scoped to one restaurant). `user` was added
+// to this screen's props (AdminShell.jsx already passes it to every screen,
+// same as ProfileScreen.jsx — no AdminShell change needed) since the
+// notifications read needs the current user's id. Writes are completely
+// untouched: `notificationsAPI.markRead`/`markAllRead` still call REST
+// exactly as before.
+//
+// This screen fires FIFTEEN parallel reads every 15s poll — each evaluated
+// independently against the real backend route file
+// (restaurant-app/backend/src/routes/reports.js, tables.js, warehouse.js,
+// shifts.js, loans.js, notifications.js, accounting.js, staff-payments.js,
+// procurement.js), never assumed:
+//
+// CONVERTED to local reads (ten), each a plain select or a faithful
+// single-query aggregate with zero app-side post-processing beyond what this
+// screen already did client-side:
+// 1. `tablesAPI.getAll()` → local `SELECT * FROM restaurant_tables ORDER BY
+//    table_number`. The real route's own `waitress_name` join AND its
+//    computed `order_total` subquery are BOTH dead weight here — grepped
+//    this whole file and found zero reads of `table.waitressName`/
+//    `table.orderTotal` (this screen only reads `.id`/`.status`/
+//    `.tableNumber` for the occupancy grid/counts) — neither replicated.
+// 2. `warehouseAPI.getLowStock()` → local `SELECT id, name, unit,
+//    quantity_in_stock, min_stock_level, cost_per_unit FROM warehouse_items
+//    WHERE quantity_in_stock <= min_stock_level ORDER BY quantity_in_stock
+//    ASC`, a direct 1:1 port of the real route (no joins to begin with).
+// 3. `warehouseAPI.getAll()` → local `SELECT * FROM warehouse_items ORDER BY
+//    name`. The real route's `supplier_name` join AND its per-row N+1
+//    `stock_batches` sub-fetch are both dead weight — this screen only reads
+//    `.quantityInStock`/`.quantity`/`.costPerUnit` off each row for the
+//    warehouse total-value calc, same dead-weight verdict Menu/Inventory
+//    already reached for this exact route, re-confirmed by grep here too.
+// 4. `warehouseAPI.getMovements({from,to})` → local query joining
+//    `warehouse_items` (kept — see below) filtered by
+//    `date(sm.created_at) BETWEEN date(?) AND date(?)`, matching the real
+//    route's own `sm.created_at::date >= from AND <= to`. Unlike Inventory's
+//    own `fetchMovements` (which never applies this filter, since Inventory's
+//    call site always passes `{}`), THIS call site always passes today's
+//    range, so the date filter had to be replicated, not dropped. The real
+//    route's `recorded_by` (users) join is dead weight (grepped clean) — NOT
+//    replicated. The `wi.cost_per_unit` join IS kept — this screen reads
+//    `.costPerUnit` off each movement row, and a direct read of the real
+//    route confirms it actually selects the warehouse item's CURRENT
+//    `cost_per_unit`, not the movement's own point-in-time
+//    `stock_movements.cost_per_unit` column (which exists and is used
+//    elsewhere, e.g. receive/consume) — a pre-existing backend quirk, not
+//    something to "fix" here; replicated faithfully as-is.
+// 5. `procurementAPI.getDeliveriesDebt()` (+ its own client-side fallback,
+//    `procurementAPI.getDeliveries()`, called only if the first returns 0) →
+//    both reused verbatim from InventoryScreen.jsx's already-verified
+//    `fetchDeliveriesDebt`/`fetchDeliveries` local queries (plain SUM/COUNT
+//    aggregate; plain `supplier_deliveries` select with its `item_count`
+//    join dropped as dead weight — see that file's own header comment for
+//    the full reasoning, unchanged here).
+// 6. `staffPaymentsAPI.getAll({from,to})` → reused verbatim from
+//    StaffScreen.jsx's already-verified `fetchStaffPayments` local query
+//    (its `staff_name` join dropped as dead weight — this screen only reads
+//    `.amount` off each payment row for the month-to-date total).
+// 7. `loansAPI.getStats()` → local aggregate,
+//    `SUM(CASE WHEN status='active' THEN 1/amount ELSE 0 END)`-style
+//    (SQLite doesn't reliably support Postgres's `FILTER (WHERE ...)`
+//    syntax across all builds, so `CASE WHEN` is used instead — same result,
+//    portable), matching the real route's own
+//    `COUNT(*)/SUM(amount) FILTER (WHERE status=...)` counts exactly. A
+//    single aggregate query, zero joins, zero app-side post-processing —
+//    faithfully replicable in full.
+// 8. `notificationsAPI.getAll()` → local `SELECT * FROM notifications WHERE
+//    user_id = ? ORDER BY created_at DESC LIMIT 50`, matching the real
+//    route exactly (it already scopes to `req.user.id`, no restaurant_id
+//    filter needed locally per the standing rule). Needs the current user's
+//    id — the one new prop this screen needed (`user`, see above).
+// 9. `reportsAPI.getBestSellers({from,to})` → local
+//    `GROUP BY m.name, c.name ORDER BY total_sold DESC LIMIT 20` aggregate
+//    (order_items JOIN menu_items JOIN orders, LEFT JOIN categories kept
+//    ONLY for the real route's own `GROUP BY ... c.name` grouping key, not
+//    displayed — same "join kept only for grouping/ordering fidelity"
+//    precedent Menu/Orders already established). This is a top-N query
+//    (ORDER BY DESC LIMIT), not a period-comparison or ranked-with-business-
+//    logic query — no percentage/share calculation happens server-side
+//    (this screen already computes `percentage` client-side from the
+//    returned array, unchanged); SQLite supports GROUP BY/ORDER BY/LIMIT
+//    identically to Postgres, and nothing happens after the SQL query on the
+//    backend (`res.json(result.rows)` directly) — same precedent as
+//    Inventory's `LIMIT 500` movements query and Staff's `ROW_NUMBER()`
+//    latest-per-group query, both already converted. Kept the real route's
+//    `LIMIT 20` (this screen only displays the top 5, but the un-shown rows
+//    6-20 affect the `maxSales` bar-percentage calculation, so all 20 must
+//    be fetched, not just 5).
+// 10. `ordersAPI.getAll({from,to})` (the "fetch ALL orders today, filter
+//     client-side" call feeding `activeOrders`) → local
+//     `SELECT status, order_type FROM orders WHERE created_at >= ? AND
+//     created_at <= ?`. The real route's own massive join set
+//     (restaurant_tables/users×2/item-count subquery/loans LATERAL) is
+//     entirely dead weight here — grepped this whole file and confirmed only
+//     `.status` and `.orderType`/`.type` are ever read off an order row in
+//     this screen (the active-order breakdown counts and the raw count
+//     fallback) — nothing else. `orders`/`order_items`/`menu_items`/
+//     `categories`/`restaurant_tables`/`warehouse_items`/`suppliers`/
+//     `stock_batches`/`stock_movements`/`supplier_deliveries`/`loans`/
+//     `staff_payments`/`notifications` are all fully synced tables.
+//
+// LEFT ON REST, deliberately (four), each verified as real business logic or
+// a genuine sync gap, not assumed:
+// - `reportsAPI.getAdminDailySummary()` (dashboardData, the PRIMARY data
+//   source for most KPIs) — genuine multi-step server-side computation well
+//   beyond a plain SUM/COUNT: per-waitress staff-performance rows (JOIN
+//   shifts+orders, GROUPed per user), a financialFlow object assembled from
+//   THREE separate aggregate queries plus an outflowBreakdown structure, an
+//   hourly `dailySalesTrend` chart (`date_trunc('hour', paid_at)` grouping
+//   over the last 24h), and goods-sold grouped by item+category. Stays on
+//   REST exactly as before.
+// - `shiftsAPI.getStaffStatus()` — same "live staff status" real business
+//   logic already established and left on REST for StaffScreen.jsx (a
+//   `DISTINCT ON (user_id)` priority-CASE pick mapped onto a derived
+//   present/late/absent/off status the raw row never has). Unchanged here.
+// - `shiftsAPI.getPayroll({from,to})` (month-to-date payroll, feeding
+//   `payrollOwed`) — genuine multi-step business logic: a `CASE` branching
+//   on `salary_type` (monthly/hourly/daily/weekly, each a different formula)
+//   PLUS a correlated subquery computing waitress commission from paid
+//   dine-in orders in the period. This is "multi-step aggregation beyond a
+//   single plain SUM/COUNT/AVG" per the standing rule — stays on REST.
+// - `accountingAPI.getCashFlow({from,to})` — genuine sync gap, not a
+//   business-logic call: `cash_flow` is NOT one of the tables in
+//   `pos-app/powersync/schema.js` at all (verified directly, not assumed —
+//   it was never added to the `powersync` publication), so there is no local
+//   table to query regardless of how simple the route's own SQL is. Also
+//   discovered in passing (not fixed, out of scope for a reads-only
+//   conversion): the real route completely ignores the `{from,to}` query
+//   params this screen passes — `cash_in`/`cash_out` are always scoped to
+//   `CURRENT_DATE` server-side and `entries` is always `LIMIT 100` with no
+//   date filter at all.
+//
+// NOT converted, deliberately left exactly as-is (one): `reportsAPI.
+// getDashboard()` (`simpleDash`, described in this file's own pre-existing
+// comment as a "reliable revenue/orders fallback"). Verified its own route —
+// three simple aggregates (today's paid-order COUNT/SUM via Postgres FILTER,
+// table free/occupied counts, a 30-day best-sellers top-5) — technically
+// each one is individually about as simple as the ones converted above.
+// Left on REST anyway for two concrete reasons, not just "it's a fallback so
+// skip it": (1) every field this screen actually reads from it
+// (`todayRevenue`/`todayOrders`/`activeOrders`) is only ever used behind a
+// `||` fallback AFTER `dashboardData` (admin-daily-summary, itself staying on
+// REST per above) — if the backend/network is unreachable, BOTH the primary
+// and this fallback are REST calls that fail together, so converting only
+// the fallback buys no real resilience or speed; (2) faithfully replicating
+// it would require a SEPARATE `paid_at`-scoped query distinct from the
+// `created_at`-scoped local query built for item 10 above (today's sales are
+// counted by payment date, not creation date) — real added complexity for a
+// value that's structurally redundant with data this screen gets elsewhere
+// (its table counts already come from item 1's tableStats client-side
+// derivation; its best-sellers subset duplicates item 9 above). Documented
+// here explicitly rather than silently left unconverted.
+//
+// Boolean-column check: `notifications.is_read` (→ `isRead`) is already in
+// case.js's `BOOL_FIELDS` — verified directly, needed since this screen's
+// unread-count logic (`n.isRead`) depends on a real boolean, not a 0/1
+// integer. `restaurant_tables`/`warehouse_items`/`stock_movements`/
+// `supplier_deliveries`/`staff_payments`/`loans`/`order_items` (status/
+// order_type only selected) have no boolean columns touched by this screen's
+// queries.
+//
+// `tablesAPI`/`warehouseAPI`/`ordersAPI`/`loansAPI`/`staffPaymentsAPI`/
+// `procurementAPI` imports dropped entirely — each had exactly one call site
+// here, now converted, grepped clean. `reportsAPI` (getAdminDailySummary/
+// getDashboard/getBestSellers — first two kept, third dropped),
+// `shiftsAPI` (getStaffStatus/getPayroll, both kept), `notificationsAPI`
+// (markRead/markAllRead writes kept, getAll read dropped), and
+// `accountingAPI` (getCashFlow kept) are all still imported for their
+// remaining REST call sites.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function DashboardScreen({ navigate }) {
+export default function DashboardScreen({ navigate, user }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -92,6 +261,165 @@ export default function DashboardScreen({ navigate }) {
     return { from: monthStart, to: todayStr };
   };
 
+  // ── Local PowerSync reads, replacing REST calls — see this file's own
+  // header comment (2026-07-28 conversion note) for the full per-read
+  // reasoning against the real backend route files. Each wrapped in its own
+  // try/catch (logs then rethrows) so a failure surfaces as a 'rejected'
+  // Promise.allSettled entry, same as a failed REST call did before.
+
+  // Was `tablesAPI.getAll()` — waitress_name join + order_total subquery both dead weight here.
+  const fetchLocalTables = useCallback(async () => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`SELECT * FROM restaurant_tables ORDER BY table_number`);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local tables:', err); throw err; }
+  }, []);
+
+  // Was `warehouseAPI.getLowStock()` — direct 1:1 port, no joins in the real route.
+  const fetchLocalLowStock = useCallback(async () => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT id, name, unit, quantity_in_stock, min_stock_level, cost_per_unit
+        FROM warehouse_items
+        WHERE quantity_in_stock <= min_stock_level
+        ORDER BY quantity_in_stock ASC
+      `);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local low stock:', err); throw err; }
+  }, []);
+
+  // Was `warehouseAPI.getAll()` — supplier join + batches N+1 sub-fetch both dead weight here.
+  const fetchLocalWarehouseItems = useCallback(async () => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`SELECT * FROM warehouse_items ORDER BY name`);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local warehouse items:', err); throw err; }
+  }, []);
+
+  // Was `warehouseAPI.getMovements({from,to})` — unlike Inventory's own fetchMovements (which
+  // never filters by date), this screen's call site always passes today's range, so the real
+  // route's `sm.created_at::date >= from AND <= to` filter had to be replicated, not dropped.
+  // `wi.cost_per_unit` join kept (faithful to the real route, which reads the item's CURRENT
+  // cost, not the movement's own point-in-time `sm.cost_per_unit`); `recorded_by` join dropped
+  // as dead weight (grepped clean).
+  const fetchLocalMovements = useCallback(async (from, to) => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT sm.id, sm.type, sm.quantity, sm.reason, sm.created_at,
+               wi.id AS item_id, wi.name AS item_name, wi.unit, wi.cost_per_unit
+        FROM stock_movements sm
+        JOIN warehouse_items wi ON sm.item_id = wi.id
+        WHERE date(sm.created_at) >= date(?) AND date(sm.created_at) <= date(?)
+        ORDER BY sm.created_at DESC
+        LIMIT 500
+      `, [from, to]);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local warehouse movements:', err); throw err; }
+  }, []);
+
+  // Was `procurementAPI.getDeliveriesDebt()` — reused verbatim from InventoryScreen.jsx's
+  // already-verified local aggregate (plain SUM/COUNT, no joins).
+  const fetchLocalDeliveriesDebt = useCallback(async () => {
+    try {
+      const row = await window.electronAPI.psGet(`
+        SELECT COALESCE(SUM(total), 0) AS total_debt, COUNT(*) AS count
+        FROM supplier_deliveries
+        WHERE payment_status != 'paid' AND status IN ('Delivered', 'Partial')
+      `);
+      return row ? camelizeRow(row) : { totalDebt: 0, count: 0 };
+    } catch (err) { console.error('Failed to fetch local deliveries debt:', err); throw err; }
+  }, []);
+
+  // Was `procurementAPI.getDeliveries()` (the debt-fallback path) — reused verbatim from
+  // InventoryScreen.jsx's already-verified local query (item_count join dropped as dead weight).
+  const fetchLocalDeliveries = useCallback(async () => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`SELECT * FROM supplier_deliveries ORDER BY timestamp DESC, created_at DESC`);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local deliveries:', err); throw err; }
+  }, []);
+
+  // Was `staffPaymentsAPI.getAll({from,to})` — reused verbatim from StaffScreen.jsx's
+  // already-verified local query (staff_name join dropped as dead weight).
+  const fetchLocalStaffPayments = useCallback(async (from, to) => {
+    try {
+      let sql = `SELECT * FROM staff_payments`;
+      const conditions = [];
+      const params = [];
+      if (from) { conditions.push(`payment_date >= ?`); params.push(from); }
+      if (to)   { conditions.push(`payment_date <= ?`); params.push(to); }
+      if (conditions.length) sql += ` WHERE ` + conditions.join(' AND ');
+      sql += ` ORDER BY payment_date DESC, created_at DESC`;
+      const rows = await window.electronAPI.psGetAll(sql, params);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local staff payments:', err); throw err; }
+  }, []);
+
+  // Was `loansAPI.getStats()` — `CASE WHEN` used instead of Postgres's `FILTER (WHERE ...)`
+  // for portability across SQLite builds; same active/paid/overdue counts+totals, one query,
+  // no joins, no app-side post-processing.
+  const fetchLocalLoanStats = useCallback(async () => {
+    try {
+      const row = await window.electronAPI.psGet(`
+        SELECT
+          SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_count,
+          COALESCE(SUM(CASE WHEN status='active' THEN amount ELSE 0 END), 0) AS active_total,
+          SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) AS paid_count,
+          COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END), 0) AS paid_total,
+          SUM(CASE WHEN status='active' AND due_date < date('now') THEN 1 ELSE 0 END) AS overdue_count,
+          COALESCE(SUM(CASE WHEN status='active' AND due_date < date('now') THEN amount ELSE 0 END), 0) AS overdue_total
+        FROM loans
+      `);
+      return row ? camelizeRow(row) : null;
+    } catch (err) { console.error('Failed to fetch local loan stats:', err); throw err; }
+  }, []);
+
+  // Was `notificationsAPI.getAll()` — matches the real route's own `WHERE user_id=$1 ... LIMIT
+  // 50` exactly (it already scopes to the logged-in user, no restaurant_id filter needed
+  // locally per the standing rule). Needs the current user's id, hence the new `user` prop.
+  const fetchLocalNotifications = useCallback(async () => {
+    try {
+      if (!user?.id) return [];
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
+      `, [user.id]);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local notifications:', err); throw err; }
+  }, [user?.id]);
+
+  // Was `reportsAPI.getBestSellers({from,to})` — GROUP BY/SUM/ORDER BY DESC/LIMIT 20, a
+  // faithful top-N aggregate with zero app-side post-processing on the backend (categories
+  // join kept only for the real route's own grouping key, not displayed).
+  const fetchLocalBestSellers = useCallback(async (from, to) => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT m.name AS name, SUM(oi.quantity) AS total_sold,
+               ROUND(SUM(oi.quantity * oi.unit_price), 2) AS total_revenue
+        FROM order_items oi
+        JOIN menu_items m ON oi.menu_item_id = m.id
+        LEFT JOIN categories c ON m.category_id = c.id
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.status = 'paid' AND date(o.paid_at) >= date(?) AND date(o.paid_at) <= date(?)
+        GROUP BY m.name, c.name
+        ORDER BY total_sold DESC
+        LIMIT 20
+      `, [from, to]);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local best sellers:', err); throw err; }
+  }, []);
+
+  // Was `ordersAPI.getAll({from,to})` (feeds `activeOrders`) — only `.status`/`.orderType` are
+  // ever read off an order row on this screen (grepped clean), so the real route's massive join
+  // set (tables/users×2/item-count/loans LATERAL) is entirely dead weight — not replicated.
+  const fetchLocalOrdersToday = useCallback(async (from, to) => {
+    try {
+      const rows = await window.electronAPI.psGetAll(`
+        SELECT status, order_type FROM orders WHERE created_at >= ? AND created_at <= ?
+      `, [from, to]);
+      return camelizeRows(rows);
+    } catch (err) { console.error('Failed to fetch local orders:', err); throw err; }
+  }, []);
+
   // Fetch all dashboard data
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -99,21 +427,21 @@ export default function DashboardScreen({ navigate }) {
       const { from: monthFrom, to: monthTo } = getMonthRange();
 
       const results = await Promise.allSettled([
-        reportsAPI.getAdminDailySummary(),            // 0
-        tablesAPI.getAll(),                            // 1
-        warehouseAPI.getLowStock(),                    // 2
-        ordersAPI.getAll({ from, to }),                // 3 — fetch ALL orders today, filter client-side
-        shiftsAPI.getStaffStatus(),                    // 4
-        reportsAPI.getBestSellers({ from, to }),       // 5
-        shiftsAPI.getPayroll({ from: monthFrom, to: monthTo }),       // 6 — month-to-date payroll
-        staffPaymentsAPI.getAll({ from: monthFrom, to: monthTo }),    // 7 — month-to-date payments
-        loansAPI.getStats(),                           // 8
-        notificationsAPI.getAll(),                     // 9
-        accountingAPI.getCashFlow({ from, to }),       // 10
-        warehouseAPI.getAll(),                         // 11
-        warehouseAPI.getMovements({ from, to }),       // 12
-        reportsAPI.getDashboard(),                     // 13 — reliable revenue/orders fallback
-        procurementAPI.getDeliveriesDebt(),            // 14 — unpaid supplier debt from DB
+        reportsAPI.getAdminDailySummary(),            // 0 — stays REST, real business logic (see header comment)
+        fetchLocalTables(),                            // 1 — was tablesAPI.getAll()
+        fetchLocalLowStock(),                          // 2 — was warehouseAPI.getLowStock()
+        fetchLocalOrdersToday(from, to),                // 3 — was ordersAPI.getAll({from,to}) — fetch ALL orders today, filter client-side
+        shiftsAPI.getStaffStatus(),                    // 4 — stays REST, real business logic (see header comment)
+        fetchLocalBestSellers(from, to),                // 5 — was reportsAPI.getBestSellers({from,to})
+        shiftsAPI.getPayroll({ from: monthFrom, to: monthTo }),       // 6 — stays REST, real business logic (see header comment) — month-to-date payroll
+        fetchLocalStaffPayments(monthFrom, monthTo),    // 7 — was staffPaymentsAPI.getAll({from,to}) — month-to-date payments
+        fetchLocalLoanStats(),                          // 8 — was loansAPI.getStats()
+        fetchLocalNotifications(),                      // 9 — was notificationsAPI.getAll()
+        accountingAPI.getCashFlow({ from, to }),       // 10 — stays REST, cash_flow table not in local PowerSync schema (see header comment)
+        fetchLocalWarehouseItems(),                     // 11 — was warehouseAPI.getAll()
+        fetchLocalMovements(from, to),                   // 12 — was warehouseAPI.getMovements({from,to})
+        reportsAPI.getDashboard(),                     // 13 — stays REST, redundant fallback-only (see header comment) — reliable revenue/orders fallback
+        fetchLocalDeliveriesDebt(),                     // 14 — was procurementAPI.getDeliveriesDebt() — unpaid supplier debt from DB
       ]);
 
       // Handle summary (admin-daily-summary)
@@ -137,7 +465,7 @@ export default function DashboardScreen({ navigate }) {
         // Fallback: compute from full deliveries list (handles case where debt endpoint
         // returned 0 because data hadn't been synced yet from mobile app)
         try {
-          const delivs = await procurementAPI.getDeliveries();
+          const delivs = await fetchLocalDeliveries(); // was procurementAPI.getDeliveries()
           const arr = Array.isArray(delivs) ? delivs : [];
           debtResolved = arr
             .filter(d => {
@@ -229,7 +557,12 @@ export default function DashboardScreen({ navigate }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+    // fetchLocalNotifications is the only one of the new local-read helpers that closes over a
+    // prop (`user`) rather than being a stable module-level reference like the REST calls it
+    // replaced — listed explicitly so this callback doesn't capture a stale user id.
+  }, [fetchLocalTables, fetchLocalLowStock, fetchLocalOrdersToday, fetchLocalBestSellers,
+      fetchLocalStaffPayments, fetchLocalLoanStats, fetchLocalNotifications,
+      fetchLocalWarehouseItems, fetchLocalMovements, fetchLocalDeliveriesDebt, fetchLocalDeliveries]);
 
   // Initial fetch
   useEffect(() => {

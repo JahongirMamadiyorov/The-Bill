@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
 import { useApi, money } from '../../../hooks/useApi.js';
-import { menuAPI, warehouseAPI } from '../../../api/client.js';
+import { menuAPI } from '../../../api/client.js';
 import { invalidateAll } from '../../../utils/apiCache.js';
+import { camelizeRows } from '../../../lib/case.js';
 import ConfirmDialog from '../../../components/ConfirmDialog.jsx';
 import {
   Plus, Edit2, Trash2, X, Search, Tag,
@@ -58,6 +59,62 @@ import {
 // control. Everything else about the item photo UI (existing-photo preview,
 // the "×" remove-photo button, which only clears the local `imageUrl` field
 // and needs no upload API) is unchanged and fully functional.
+//
+// ── 2026-07-28: reads converted to local PowerSync, fifth screen after
+// Tables/Loans (task #31) — see TablesScreen.jsx's own header comment for the
+// general pattern (psGetAll/psGet + camelizeRow/camelizeRows, no
+// restaurant_id filter needed since the local DB is already scoped to one
+// restaurant). Writes are completely untouched: every category/item
+// create/update/delete, ingredient add/remove, and station add/delete still
+// calls its REST write via `menuAPI` exactly as before — PowerSync's write
+// queue is never used in this project.
+//
+// Four reads converted, all verified faithful against the real backend route
+// file first (restaurant-app/backend/src/routes/menu.js), each pulled out
+// into its own small `fetchX()` helper so writes' own post-save refetches
+// (which are reads, not writes) go through the same converted function
+// instead of a second, parallel REST call:
+// 1. `fetchCategories()` — was `menuAPI.getCategories()` (GET
+//    /api/menu/categories). Real route: `SELECT * FROM categories WHERE
+//    restaurant_id=$1 ORDER BY sort_order, name` — this screen's call site
+//    never passes any filter param, nothing else to replicate. `categories`
+//    is a fully synced table.
+// 2. `fetchItems()` — was `menuAPI.getItems()` (GET /api/menu/items). Real
+//    route: `SELECT m.*, c.name as category_name FROM menu_items m LEFT JOIN
+//    categories c ON m.category_id=c.id WHERE m.restaurant_id=$1 ORDER BY
+//    c.sort_order, m.sort_order, m.name` — no `category_id`/`available_only`
+//    query params passed here either. The joined `category_name` column is
+//    deliberately NOT selected — grepped this whole file for
+//    `categoryName`/`category_name` and found zero data references (the one
+//    hit, `t("admin.menu.categoryName")`, is an i18n key, not this column);
+//    this screen looks up the category object itself via
+//    `categories.find(c => c.id === item.categoryId)` instead. The join is
+//    kept ONLY for its `ORDER BY c.sort_order`, same precedent as
+//    TablesScreen.jsx's `fetchMenuForAddFood`. `menu_items`/`categories` are
+//    both fully synced tables.
+// 3. `fetchItemIngredients(itemId)` — was `menuAPI.getItemIngredients(id)`
+//    (GET /api/menu/items/:id/warehouse_items), used both when opening the
+//    edit-item modal and to refresh the list after the (unchanged) REST
+//    add/remove-ingredient writes. Real route: `SELECT mii.menu_item_id,
+//    mii.ingredient_id, mii.quantity_used AS quantity, i.name AS
+//    ingredient_name, i.unit FROM menu_item_ingredients mii JOIN
+//    warehouse_items i ON mii.ingredient_id=i.id JOIN menu_items m ON
+//    mii.menu_item_id=m.id WHERE mii.menu_item_id=$1 AND m.restaurant_id=$2`
+//    — the `menu_items m` join exists purely for that route's own
+//    restaurant-ownership check, not for any column this screen reads, so
+//    it's dropped (no restaurant_id filter needed locally either way).
+//    `menu_item_ingredients`/`warehouse_items` are both fully synced tables.
+// 4. `fetchWarehouseItems()` — was `warehouseAPI.getAll()` (GET
+//    /api/warehouse), used to populate the ingredient-search picker. The
+//    real route (restaurant-app/backend/src/routes/warehouse.js) is NOT a
+//    plain select — it LEFT JOINs `suppliers` for `supplier_name`, then does
+//    a per-row N+1 query fetching `stock_batches` (quantity_remaining > 0)
+//    and attaches it as `row.batches`. Grepped this whole file and this
+//    screen only ever reads `wi.id`/`wi.name`/`wi.unit` off each row — never
+//    `supplierName` or `batches` — so neither the supplier join nor the
+//    batches sub-fetch is replicated; both are dead weight for this screen
+//    specifically. `warehouseAPI` import dropped entirely (this was its only
+//    call site, grepped clean). `warehouse_items` is a fully synced table.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Resolve image URLs ──────────────────────────────────────────────────────
@@ -138,12 +195,63 @@ export default function AdminMenuScreen() {
   });
 
   // ── Custom kitchen stations (persisted in backend DB — shared with app) ─────
-  const [customStations, setCustomStations] = useState([]); // loaded from backend
+  // Local PowerSync read, replacing REST `menuAPI.getStations()` (GET
+  // /api/menu/stations). Faithful port of that route's own plain SELECT:
+  // `SELECT name FROM custom_stations WHERE restaurant_id=$1 ORDER BY
+  // created_at`. `custom_stations` is a fully synced table — no
+  // restaurant_id filter needed (local DB already scoped to this
+  // restaurant). REST returned a plain array of name strings
+  // (`result.rows.map(r => r.name)`), replicated the same way here so
+  // `customStations` state keeps its existing shape.
+  const [customStations, setCustomStations] = useState([]); // loaded from local PowerSync
   const fetchStations = useCallback(async () => {
     try {
-      const data = await menuAPI.getStations();
-      setCustomStations(Array.isArray(data) ? data : []);
+      const rows = await window.electronAPI.psGetAll(
+        `SELECT name FROM custom_stations ORDER BY created_at`
+      );
+      setCustomStations(Array.isArray(rows) ? rows.map(r => r.name) : []);
     } catch { /* silently ignore */ }
+  }, []);
+
+  // ── Local PowerSync read helpers (see this file's header comment for the
+  // full per-read reasoning against the real backend route) — each is a
+  // small, reusable function so both the initial load AND every write's
+  // own post-save refetch (a read, not a write) go through the same
+  // converted query instead of a second, parallel REST call. ─────────────
+  const fetchCategories = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(
+      `SELECT * FROM categories ORDER BY sort_order, name`
+    );
+    return camelizeRows(rows);
+  }, []);
+
+  const fetchItems = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(`
+      SELECT m.*
+      FROM menu_items m
+      LEFT JOIN categories c ON m.category_id = c.id
+      ORDER BY c.sort_order, m.sort_order, m.name
+    `);
+    return camelizeRows(rows);
+  }, []);
+
+  const fetchItemIngredients = useCallback(async (itemId) => {
+    const rows = await window.electronAPI.psGetAll(`
+      SELECT mii.menu_item_id, mii.ingredient_id,
+             mii.quantity_used AS quantity,
+             i.name AS ingredient_name, i.unit
+      FROM menu_item_ingredients mii
+      JOIN warehouse_items i ON mii.ingredient_id = i.id
+      WHERE mii.menu_item_id = ?
+    `, [itemId]);
+    return camelizeRows(rows);
+  }, []);
+
+  const fetchWarehouseItems = useCallback(async () => {
+    const rows = await window.electronAPI.psGetAll(
+      `SELECT * FROM warehouse_items ORDER BY name`
+    );
+    return camelizeRows(rows);
   }, []);
 
   // Merge: built-in presets + DB custom stations (items-derived duplicates filtered)
@@ -217,12 +325,12 @@ export default function AdminMenuScreen() {
     if (silent && reorderingRef.current) return;
     try {
       const [cats, itms] = await Promise.all([
-        menuAPI.getCategories(),
-        menuAPI.getItems(),
+        fetchCategories(),
+        fetchItems(),
       ]);
-      setCategories(Array.isArray(cats) ? cats : []);
-      setItems(Array.isArray(itms) ? itms : []);
-      if (!silent && Array.isArray(cats) && cats.length > 0) {
+      setCategories(cats);
+      setItems(itms);
+      if (!silent && cats.length > 0) {
         setSelectedCat(null); // start on "All"
       }
     } catch (err) {
@@ -230,7 +338,7 @@ export default function AdminMenuScreen() {
     } finally {
       if (!silent) setPageLoading(false);
     }
-  }, []);
+  }, [fetchCategories, fetchItems]);
 
   useEffect(() => {
     fetchData(false);
@@ -283,8 +391,7 @@ export default function AdminMenuScreen() {
       } else {
         await call(menuAPI.updateCategory, editId, catForm);
       }
-      const cats = await menuAPI.getCategories();
-      setCategories(Array.isArray(cats) ? cats : []);
+      setCategories(await fetchCategories());
       invalidateAll('menu:');
       setModal(null); setEditId(null);
     } catch (err) { console.error(err); }
@@ -296,8 +403,7 @@ export default function AdminMenuScreen() {
     setSaving(true);
     try {
       await call(menuAPI.deleteCategory, deleteId);
-      const cats = await menuAPI.getCategories();
-      setCategories(Array.isArray(cats) ? cats : []);
+      setCategories(await fetchCategories());
       invalidateAll('menu:');
       setSelectedCat(null);
       setDeleteId(null); setDeleteType(null);
@@ -308,8 +414,8 @@ export default function AdminMenuScreen() {
   // ── Item modal ─────────────────────────────────────────────────────────────
   const openItemModal = useCallback(async (item = null) => {
     try {
-      const warehouse = await warehouseAPI.getAll();
-      setWarehouseItems(Array.isArray(warehouse) ? warehouse : []);
+      const warehouse = await fetchWarehouseItems();
+      setWarehouseItems(warehouse);
     } catch { setWarehouseItems([]); }
 
     if (item) {
@@ -325,9 +431,8 @@ export default function AdminMenuScreen() {
       });
       setNewIngredient({ warehouseItemId: '', quantityPerDish: '' });
       try {
-        const ing = await menuAPI.getItemIngredients(item.id);
-        // Interceptor unwraps r.data + camelizes, so ing is already the array
-        setIngredients(Array.isArray(ing) ? ing : []);
+        const ing = await fetchItemIngredients(item.id);
+        setIngredients(ing);
       } catch { setIngredients([]); }
       setModal('edit-item');
     } else {
@@ -343,7 +448,7 @@ export default function AdminMenuScreen() {
       setNewIngredient({ warehouseItemId: '', quantityPerDish: '' });
       setModal('add-item');
     }
-  }, [selectedCat, categories]);
+  }, [selectedCat, categories, fetchWarehouseItems, fetchItemIngredients]);
 
   const handleSaveItem = async () => {
     if (!itemForm.name.trim() || !itemForm.price || !itemForm.categoryId) return;
@@ -375,8 +480,7 @@ export default function AdminMenuScreen() {
       } else {
         await call(menuAPI.updateItem, editId, payload);
       }
-      const itms = await menuAPI.getItems();
-      setItems(Array.isArray(itms) ? itms : []);
+      setItems(await fetchItems());
       invalidateAll('menu:');
       setModal(null); setEditId(null);
     } catch (err) { console.error(err); }
@@ -471,9 +575,7 @@ export default function AdminMenuScreen() {
         ingredientId: newIngredient.warehouseItemId,
         quantity:     parseFloat(newIngredient.quantityPerDish),
       });
-      const ing = await menuAPI.getItemIngredients(editId);
-      // Interceptor unwraps + camelizes: ing is already the array
-      setIngredients(Array.isArray(ing) ? ing : []);
+      setIngredients(await fetchItemIngredients(editId));
       setNewIngredient({ warehouseItemId: '', quantityPerDish: '' });
     } catch (err) { console.error(err); }
   };
@@ -481,8 +583,7 @@ export default function AdminMenuScreen() {
   const handleRemoveIngredient = async (ingId) => {
     try {
       await call(menuAPI.removeItemIngredient, editId, ingId);
-      const ing = await menuAPI.getItemIngredients(editId);
-      setIngredients(Array.isArray(ing) ? ing : []);
+      setIngredients(await fetchItemIngredients(editId));
     } catch (err) { console.error(err); }
   };
 

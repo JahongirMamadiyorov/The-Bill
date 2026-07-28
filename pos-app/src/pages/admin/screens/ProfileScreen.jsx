@@ -3,6 +3,7 @@ import { useTranslation } from '../../../context/LanguageContext.jsx';
 import { usersAPI } from '../../../api/client.js';
 import ConfirmDialog from '../../../components/ConfirmDialog.jsx';
 import PhoneInput, { formatPhoneDisplay } from '../../../components/PhoneInput.jsx';
+import { camelizeRow } from '../../../lib/case.js';
 import {
   User, Mail, Phone, Shield, Save, X, LogOut,
   Lock, Edit2, Eye, EyeOff, Clock, Calendar,
@@ -87,6 +88,49 @@ import {
 // convention from earlier screens, and to avoid any confusion with the
 // unrelated cashier-side pos-app/src/pages/pos/ProfileScreen.jsx (different
 // folder, no actual filename collision).
+//
+// ── 2026-07-28: read converted to local PowerSync, ninth/last screen of
+// task #31 (after Tables/Loans/Menu/Orders/Inventory/Staff/Dashboard) — see
+// OrdersScreen.jsx's own header comment for the general pattern
+// (psGetAll/psGet + camelizeRow/camelizeRows, no restaurant_id filter needed
+// since the local DB is already scoped to one restaurant). Checked the
+// cashier-side `pos-app/src/pages/pos/ProfileScreen.jsx` first for
+// precedent (per task #19's network-vs-offline handling) — it reads shifts/
+// orders via the REST-only `apiGet` IPC and never calls `usersAPI.getMe()`
+// at all (it just uses its own `user` prop directly), so there was no
+// existing local-read pattern there to reuse for this specific call; this
+// conversion is a fresh one.
+//
+// The mount-time refresh (`usersAPI.getMe()`, GET /api/users/me) was
+// verified against the real route first, not assumed: `SELECT id, name,
+// email, phone, role, salary, salary_type, shift_start, shift_end,
+// is_active, kitchen_station, commission_rate, created_at FROM users
+// WHERE id=$1` — a single-row lookup by the current user's own id (from the
+// JWT), explicit column list (already excludes `password_hash`), no joins,
+// no aggregation. Every one of those columns exists on the local `users`
+// table (`pos-app/powersync/schema.js`) — a direct 1:1 port, converted to
+// `SELECT id, name, email, phone, role, salary, salary_type, shift_start,
+// shift_end, is_active, kitchen_station, commission_rate, created_at FROM
+// users WHERE id = ?` using `user?.id` (the same id `profile` was already
+// seeded from). Same "silently fall back to cached data" try/catch shape as
+// the original REST call — a missing/failed local row just leaves the
+// `user`-prop-seeded `profile` state as-is, identical fallback behavior to
+// before.
+//
+// Boolean-column check: `users.is_active` (→ `isActive`) is already in
+// case.js's `BOOL_FIELDS` — verified directly. Not actually rendered
+// anywhere on this screen (only name/phone/email/role/createdAt/lastLogin
+// are displayed), so this is a non-issue in practice, but the coercion is
+// correct either way, consistent with every other screen's boolean check.
+// `users.last_login` does not exist as a column at all, in Postgres or
+// locally — the real REST route never selected it either, so
+// `profile.lastLogin || profile.last_login || new Date()` already fell
+// through to `new Date()` before this conversion; unchanged behavior, not a
+// bug introduced here.
+//
+// Every write on this screen (`usersAPI.update`/`updateCredentials`) is
+// completely untouched — still REST, unchanged. `usersAPI` import is kept
+// for those two remaining writes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Toast Component ──────────────────────────────────────────────────────────
@@ -106,15 +150,23 @@ export default function AdminProfileScreen({ user, onLogout }) {
   // ── Local profile state, seeded from the `user` prop (see header comment #1) ──
   const [profile, setProfile] = useState(user || null);
 
-  // ── Fetch fresh profile from backend on mount ────────────────────────────
+  // ── Fetch fresh profile from local PowerSync on mount ────────────────────
+  // Was `usersAPI.getMe()` (REST) — see this file's own header comment
+  // (2026-07-28 conversion note) for the full reasoning. Same "silently fall
+  // back to cached data" behavior as before on any failure.
   useEffect(() => {
     (async () => {
       try {
-        const fresh = await usersAPI.getMe();
-        if (fresh && fresh.id) setProfile(prev => ({ ...prev, ...fresh }));
+        if (!user?.id) return;
+        const fresh = await window.electronAPI.psGet(`
+          SELECT id, name, email, phone, role, salary, salary_type, shift_start, shift_end,
+                 is_active, kitchen_station, commission_rate, created_at
+          FROM users WHERE id = ?
+        `, [user.id]);
+        if (fresh && fresh.id) setProfile(prev => ({ ...prev, ...camelizeRow(fresh) }));
       } catch (_) { /* silently fall back to cached data */ }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // ── State ────────────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);

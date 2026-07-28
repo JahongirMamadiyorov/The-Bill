@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
 import { useApi, money, fmtDate } from '../../../hooks/useApi.js';
-import { ordersAPI, menuAPI, tablesAPI, usersAPI } from '../../../api/client.js';
+import { ordersAPI } from '../../../api/client.js';
 import Dropdown from '../../../components/Dropdown.jsx';
 import DatePicker from '../../../components/DatePicker.jsx';
 import PhoneInput, { formatPhoneDisplay } from '../../../components/PhoneInput.jsx';
+import { camelizeRow, camelizeRows } from '../../../lib/case.js';
 import { ClipboardList, Check, X, AlertTriangle, Trash2, RefreshCw, Calendar, DollarSign, Grid3X3, User, CreditCard, Ban, Edit3, Plus, Minus, FileText } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,8 +36,12 @@ import { ClipboardList, Check, X, AlertTriangle, Trash2, RefreshCw, Calendar, Do
 // 2. Imports adjusted for pos-app's file layout (screens/ is one level deeper
 //    than website's pages/admin/) — ordersAPI/menuAPI/tablesAPI/usersAPI/
 //    useApi/money/fmtDate/Dropdown/DatePicker/PhoneInput were already ported
-//    and verified for Dashboard/Tables/Menu/Inventory, reused here unchanged.
-//    `accountingAPI` (source only imports it for
+//    and verified for Dashboard/Tables/Menu/Inventory, reused here unchanged
+//    at the time of this initial port (2026-07-27). `menuAPI`/`tablesAPI`/
+//    `usersAPI` were later dropped entirely by the 2026-07-28 local-
+//    PowerSync conversion below, once their one remaining call site
+//    (`fetchSupportData`) was converted — see that conversion's own note
+//    further down for why. `accountingAPI` (source only imports it for
 //    `getRestaurantSettings()`, used solely by the removed print flow — see
 //    #4 below) is dropped, it has no other call site in this file.
 //
@@ -84,6 +89,107 @@ import { ClipboardList, Check, X, AlertTriangle, Trash2, RefreshCw, Calendar, Do
 //    `DollarSign`, `Grid3X3`, `User`, `CreditCard`, `Ban`, `Edit3`, `Plus`,
 //    `Minus`, `FileText`) confirmed present in the installed `lucide-react`
 //    version by listing its `dist/esm/icons/` folder directly.
+//
+// ── 2026-07-28: reads converted to local PowerSync, fourth screen after
+// Tables/Loans/Menu (task #31) — see TablesScreen.jsx's own header comment
+// for the general pattern (psGetAll/psGet + camelizeRow/camelizeRows, no
+// restaurant_id filter needed since the local DB is already scoped to one
+// restaurant). This is the biggest/richest screen converted so far — every
+// read verified against the real backend route file first
+// (restaurant-app/backend/src/routes/orders.js), never assumed. Writes are
+// completely untouched: `ordersAPI.updateStatus`/`delete`/`cancel`/`update`/
+// `pay` (handleStatusChange, handleDelete, handleCancelOrder,
+// saveEditedOrder, processPayment) all still call REST exactly as before —
+// PowerSync's write queue is never used in this project. The `openOrderId`/
+// `clearOpenOrderId` deep-link mechanism itself (adaptation #1 above) is also
+// untouched — only the data FETCH it triggers was converted, same as the
+// modal-refresh effect below it.
+//
+// Two reads converted, both non-trivial joins, plus one 3-source support
+// read:
+// 1. `fetchOrdersWithItems(statuses, {from,to})` — was
+//    `ordersAPI.getAll({status, from, to, include_items:'true'})` (GET
+//    /api/orders), backing fetchActiveOrders/fetchPaidOrders/
+//    fetchCancelledOrders. The real route selects `o.*` plus
+//    `t.table_number`/`t.name AS table_name` (restaurant_tables),
+//    `u.name AS waitress_name` (users, via waitress_id), `c.name AS
+//    collected_by_name` (users, via paid_by), `COALESCE(ic.cnt,0) AS
+//    item_count` (a grouped order_items subquery), and — via `LEFT JOIN
+//    LATERAL` — the latest `loans` row per order aliased to `loan_status`/
+//    `loan_paid_at`/`loan_due_date`/`loan_customer_name`/
+//    `loan_customer_phone`/`loan_amount`/`loan_notes`. Grepped this whole
+//    file for every way an order row's fields get read (as opposed to the
+//    unrelated `allTables`/`allWaitresses` lookups `getTableNumber`/
+//    `getWaitressName` use) and found zero references to `table_number`,
+//    `waitressName`/`waitress_name`, `collectedByName`/`collected_by_name`,
+//    or `itemCount`/`item_count` off an order row — item counts are always
+//    computed client-side from the `items` array instead. All four are
+//    dropped as dead weight. `table_name` (t.name) IS replicated —
+//    `paymentOrder.tableName`/`cancelTarget.tableName` both read it directly
+//    off an order row. The `loan_*` flat columns ARE replicated too —
+//    `order.loanStatus`/`loanCustomerName`/`loanCustomerPhone`/
+//    `loanDueDate`/`loanAmount`/`loanNotes` are all read directly (Paid
+//    Orders tab's loan badge, the detail modal's loan-borrower section).
+//    SQLite has no `LATERAL` join; the "pick the latest loan row per order"
+//    semantics are replicated with a `ROW_NUMBER() OVER (PARTITION BY
+//    order_id ORDER BY created_at DESC)` window filtered to `rn=1` — same
+//    result as the Postgres LATERAL's own `ORDER BY created_at DESC LIMIT 1`.
+//    The route's optional filters this screen's three call sites actually
+//    send (`status` always, `from`/`to` only for the Paid tab) are
+//    replicated; the ones it never sends (`order_type`, `table_id`,
+//    `paid_by`, `waitress_id`, and the waitress-role self-scoping branch,
+//    which only applies to the `waitress` role, never `admin`) are not.
+//    `include_items=true`'s own second batch query (`order_items LEFT JOIN
+//    menu_items` for name/unit fallback) is replicated as a second query
+//    keyed on the fetched order ids, same pattern as every prior screen's
+//    item lookups. `orders`/`restaurant_tables`/`order_items`/`menu_items`/
+//    `loans` are all fully synced tables.
+// 2. `fetchOrderDetail(orderId)` — was `ordersAPI.getById(id)` (GET
+//    /api/orders/:id), used both by the "refresh full details when the
+//    detail modal opens" effect and the `openOrderId` deep-link effect. The
+//    real route's own extra joins (`table_number`/`waitress_name`/
+//    `collected_by_name`) are dropped for the same grepped-clean reasons as
+//    above; `table_name` is kept for the same reason too. The route's own
+//    `loanDetails` nested object (a separate `loans` lookup — customer_name/
+//    customer_phone/due_date/amount/status/paid_at/notes — attached as
+//    `{...order, items, loanDetails}`) IS replicated as its own nested
+//    object, since the detail modal reads `selectedOrder.loanDetails?.xxx`
+//    with a fallback to the flat `loanXxx` fields the list fetch above
+//    already provides — matching the real response shape exactly, not just
+//    the fields.
+// 3. `fetchSupportData()` — was `tablesAPI.getAll()` + `usersAPI.getAll()` +
+//    `menuAPI.getItems()` (GET /api/tables, /api/users, /api/menu/items),
+//    feeding the edit-modal's table/waitress dropdowns and the add-items
+//    menu search. `tables.js`'s own route joins `users` for `waitress_name`
+//    and a computed `order_total` subquery — grepped this file for
+//    `table.waitressName`/`table.orderTotal` and found zero references (only
+//    `table.id`/`table.name`/`table.tableNumber` are ever read), so neither
+//    is replicated — same precedent as TablesScreen.jsx's own `fetchTables`
+//    dropping the identical dead-weight join. `users.js`'s route already
+//    excludes `password_hash` via an explicit column list and applies no
+//    role filter (matching this screen's parameterless `usersAPI.getAll()`
+//    call) — replicated as a plain `SELECT *` (the local `users` table has
+//    no credential columns synced anyway, per powersync/schema.js).
+//    `menu.js`'s `GET /items` LEFT JOINs `categories` only for
+//    `category_name` (grepped clean — zero `categoryName`/`category_name`
+//    references) and its own `ORDER BY c.sort_order, m.sort_order, m.name` —
+//    the join is kept ONLY for that ordering, same precedent as
+//    MenuScreen.jsx's own `fetchItems`. No `category_id`/`available_only`
+//    filter needed either — this screen's call site never passes either
+//    param. `restaurant_tables`/`users`/`menu_items`/`categories` are all
+//    fully synced tables.
+//
+// Boolean-column check: `order_items.is_free`/`item_ready` are both already
+// listed in case.js's `BOOL_FIELDS` (`isFree`/`itemReady`) — verified
+// directly, not assumed. Neither is actually read anywhere in this screen
+// (grepped clean), so this is a non-issue in practice, but the coercion is
+// correct either way. The `orders`/`loans`/`restaurant_tables` tables
+// themselves have no boolean columns at all (checked powersync/schema.js) —
+// nothing else to verify.
+//
+// `menuAPI`/`tablesAPI`/`usersAPI` imports dropped entirely — each had
+// exactly one call site (inside `fetchSupportData`), now gone, grepped
+// clean. `ordersAPI` is kept for its five remaining writes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const statusColors = {
@@ -154,11 +260,39 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     setModalOpenKey(k => k + 1);
   }, []);
 
+  // Local PowerSync read, replacing REST `ordersAPI.getById(id)` — see this
+  // file's own header comment (item 2 of the 2026-07-28 conversion note) for
+  // the full join-by-join reasoning against the real GET /api/orders/:id
+  // route.
+  const fetchOrderDetail = useCallback(async (orderId) => {
+    const orderRow = await window.electronAPI.psGet(`
+      SELECT o.*, t.name AS table_name
+      FROM orders o
+      LEFT JOIN restaurant_tables t ON o.table_id = t.id
+      WHERE o.id = ?
+    `, [orderId]);
+    if (!orderRow) return null;
+    const itemRows = await window.electronAPI.psGetAll(`
+      SELECT oi.*, COALESCE(m.name, 'Unknown item') AS name, COALESCE(m.unit, 'piece') AS unit
+      FROM order_items oi
+      LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+      WHERE oi.order_id = ?
+    `, [orderId]);
+    const loanRow = await window.electronAPI.psGet(`
+      SELECT customer_name, customer_phone, due_date, amount, status, paid_at, notes
+      FROM loans WHERE order_id = ? ORDER BY created_at DESC LIMIT 1
+    `, [orderId]);
+    const full = camelizeRow(orderRow);
+    full.items = camelizeRows(itemRows);
+    full.loanDetails = loanRow ? camelizeRow(loanRow) : null;
+    return full;
+  }, []);
+
   // Always fetch fresh full order details (including latest loan status) when modal opens
   useEffect(() => {
     if (!selectedOrder?.id) return;
-    ordersAPI.getById(selectedOrder.id)
-      .then(full => setSelectedOrder(prev => prev?.id === full.id ? { ...prev, ...full } : prev))
+    fetchOrderDetail(selectedOrder.id)
+      .then(full => { if (full) setSelectedOrder(prev => prev?.id === full.id ? { ...prev, ...full } : prev); })
       .catch(() => {});
   }, [selectedOrder?.id, modalOpenKey]); // eslint-disable-line
 
@@ -167,7 +301,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
   // own header comment, adaptation #1, for the full reasoning).
   useEffect(() => {
     if (!openOrderId) return;
-    ordersAPI.getById(openOrderId)
+    fetchOrderDetail(openOrderId)
       .then(full => {
         if (full?.id) openOrderModal(full);
       })
@@ -260,13 +394,59 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     // 'custom' — don't change dates, user picks manually
   }, []);
 
+  // Local PowerSync read, replacing REST `ordersAPI.getAll({status, from, to,
+  // include_items:'true'})` — see this file's own header comment (item 1 of
+  // the 2026-07-28 conversion note) for the full join-by-join reasoning
+  // against the real GET /api/orders route. Shared by
+  // fetchActiveOrders/fetchPaidOrders/fetchCancelledOrders below so each just
+  // supplies its own status list + optional date range.
+  const fetchOrdersWithItems = useCallback(async (statuses, { from, to } = {}) => {
+    let sql = `
+      SELECT o.*,
+             t.name AS table_name,
+             l.status         AS loan_status,
+             l.paid_at        AS loan_paid_at,
+             l.due_date       AS loan_due_date,
+             l.customer_name  AS loan_customer_name,
+             l.customer_phone AS loan_customer_phone,
+             l.amount         AS loan_amount,
+             l.notes          AS loan_notes
+      FROM orders o
+      LEFT JOIN restaurant_tables t ON o.table_id = t.id
+      LEFT JOIN (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY created_at DESC) AS rn
+        FROM loans
+      ) l ON l.order_id = o.id AND l.rn = 1
+      WHERE o.status IN (${statuses.map(() => '?').join(',')})
+    `;
+    const params = [...statuses];
+    if (from) { sql += ` AND DATE(o.created_at) >= ?`; params.push(from); }
+    if (to)   { sql += ` AND DATE(o.created_at) <= ?`; params.push(to); }
+    sql += ` ORDER BY o.created_at DESC`;
+
+    const rows = camelizeRows(await window.electronAPI.psGetAll(sql, params));
+    if (rows.length > 0) {
+      const ids = rows.map(o => o.id);
+      const itemRows = camelizeRows(await window.electronAPI.psGetAll(`
+        SELECT oi.*, COALESCE(m.name, 'Unknown item') AS name, COALESCE(m.unit, 'piece') AS unit
+        FROM order_items oi
+        LEFT JOIN menu_items m ON oi.menu_item_id = m.id
+        WHERE oi.order_id IN (${ids.map(() => '?').join(',')})
+      `, ids));
+      const itemMap = {};
+      for (const it of itemRows) {
+        (itemMap[it.orderId] || (itemMap[it.orderId] = [])).push(it);
+      }
+      for (const o of rows) o.items = itemMap[o.id] || [];
+    }
+    return rows;
+  }, []);
+
   const fetchActiveOrders = useCallback(async () => {
     try {
-      const active = await ordersAPI.getAll({
-        status: 'pending,sent_to_kitchen,preparing,ready,served,bill_requested',
-        include_items: 'true',
-      });
-      const rows = Array.isArray(active) ? active : [];
+      const rows = await fetchOrdersWithItems(
+        ['pending', 'sent_to_kitchen', 'preparing', 'ready', 'served', 'bill_requested']
+      );
       setActiveOrders(prev => {
         const prevJson = JSON.stringify(prev);
         const nextJson = JSON.stringify(rows);
@@ -275,17 +455,11 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     } catch (err) {
       console.error('Failed to fetch active orders:', err);
     }
-  }, []);
+  }, [fetchOrdersWithItems]);
 
   const fetchPaidOrders = useCallback(async () => {
     try {
-      const paid = await ordersAPI.getAll({
-        status: 'paid',
-        from: dateFrom,
-        to: dateTo,
-        include_items: 'true',
-      });
-      const rows = Array.isArray(paid) ? paid : [];
+      const rows = await fetchOrdersWithItems(['paid'], { from: dateFrom, to: dateTo });
       setPaidOrders(prev => {
         const prevJson = JSON.stringify(prev);
         const nextJson = JSON.stringify(rows);
@@ -294,15 +468,11 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     } catch (err) {
       console.error('Failed to fetch paid orders:', err);
     }
-  }, [dateFrom, dateTo]);
+  }, [fetchOrdersWithItems, dateFrom, dateTo]);
 
   const fetchCancelledOrders = useCallback(async () => {
     try {
-      const cancelled = await ordersAPI.getAll({
-        status: 'cancelled',
-        include_items: 'true',
-      });
-      const rows = Array.isArray(cancelled) ? cancelled : [];
+      const rows = await fetchOrdersWithItems(['cancelled']);
       setCancelledOrders(prev => {
         const prevJson = JSON.stringify(prev);
         const nextJson = JSON.stringify(rows);
@@ -311,18 +481,28 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     } catch (err) {
       console.error('Failed to fetch cancelled orders:', err);
     }
-  }, []);
+  }, [fetchOrdersWithItems]);
 
+  // Local PowerSync read, replacing REST `tablesAPI.getAll()` +
+  // `usersAPI.getAll()` + `menuAPI.getItems()` — see this file's own header
+  // comment (item 3 of the 2026-07-28 conversion note) for the full
+  // reasoning against the real GET /api/tables, /api/users, /api/menu/items
+  // routes.
   const fetchSupportData = useCallback(async () => {
     try {
-      const [tables, waitresses, menuItems] = await Promise.all([
-        tablesAPI.getAll(),
-        usersAPI.getAll(),
-        menuAPI.getItems(),
+      const [tableRows, userRows, itemRows] = await Promise.all([
+        window.electronAPI.psGetAll(`SELECT * FROM restaurant_tables ORDER BY table_number`),
+        window.electronAPI.psGetAll(`SELECT * FROM users ORDER BY created_at DESC`),
+        window.electronAPI.psGetAll(`
+          SELECT m.*
+          FROM menu_items m
+          LEFT JOIN categories c ON m.category_id = c.id
+          ORDER BY c.sort_order, m.sort_order, m.name
+        `),
       ]);
-      setAllTables(Array.isArray(tables) ? tables : []);
-      setAllWaitresses(Array.isArray(waitresses) ? waitresses : []);
-      setAllMenuItems(Array.isArray(menuItems) ? menuItems : []);
+      setAllTables(camelizeRows(tableRows));
+      setAllWaitresses(camelizeRows(userRows));
+      setAllMenuItems(camelizeRows(itemRows));
     } catch (err) {
       console.error('Failed to fetch support data:', err);
     }
