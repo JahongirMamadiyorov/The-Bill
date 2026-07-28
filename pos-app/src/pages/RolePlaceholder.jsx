@@ -43,7 +43,7 @@ export default function RolePlaceholder({ title, onLogout }) {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
       <h1>{title}</h1>
       <p style={{ color: '#777' }}>This screen is not built yet — Phase 0 foundation only.</p>
 

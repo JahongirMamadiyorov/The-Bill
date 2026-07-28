@@ -26,10 +26,12 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
+    "@tailwindcss/vite": "^4.2.2",
     "@vitejs/plugin-react": "^4.3.0",
     "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^26.0.0",
+    "tailwindcss": "^4.2.2",
     "vite": "^6.0.0"
   },
   "build": {

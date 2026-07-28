@@ -10,6 +10,10 @@ import { camelizeRows } from '../../lib/case.js';
 import { T, card, pill, statusPill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
 import { TableIcon } from './icons.jsx';
 import PaymentModal from './PaymentModal.jsx';
+import AmountPickerModal from './AmountPickerModal.jsx';
+import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
+import { localPhotoSrc } from '../../lib/localPhoto.js';
+import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Menu screen — order building. Design handoff screen 1 (+ floor-plan picker
@@ -46,28 +50,10 @@ const catIcon = (name = '') => {
   return UtensilsCrossed;
 };
 
-// ── Weighed items (kg/l/g/ml) — type-an-amount instead of stepper ─────────────
-const isWeighedItem = (item) => {
-  const u = String(item?.unit || 'piece').toLowerCase();
-  return u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
-};
-const unitSuffix = (item) => {
-  const u = String(item?.unit || 'piece').toLowerCase();
-  return u === 'piece' ? '' : u;
-};
-const formatQty = (item, qty) => {
-  if (isWeighedItem(item)) {
-    const n = Number(qty || 0);
-    const trimmed = Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '');
-    return `${trimmed} ${unitSuffix(item)}`;
-  }
-  return `×${qty}`;
-};
-
 const CART_KEY = 'pos.cart.v1';
 const ACTIVE_STATUSES = "('pending','sent_to_kitchen','preparing','ready','served','bill_requested')";
 
-export default function MenuScreen({ user, settings, search }) {
+export default function MenuScreen({ user, settings, search, lang }) {
   // ── Data ──────────────────────────────────────────────────────────────────
   const [categories, setCategories] = useState([]);
   const [items,      setItems]      = useState([]);
@@ -117,7 +103,7 @@ export default function MenuScreen({ user, settings, search }) {
       await loadCore();
       await loadActiveOrders();
     } catch {
-      showToast('Failed to load menu data', false);
+      showToast(t('Failed to load menu data', lang), false);
     } finally { setLoading(false); }
   };
   const loadCore = async () => {
@@ -185,6 +171,11 @@ export default function MenuScreen({ user, settings, search }) {
   const itemsById = useMemo(() => Object.fromEntries(items.map(i => [i.id, i])), [items]);
 
   const cartEntries = useMemo(() => Object.values(cart), [cart]);
+  // Anything worth a "Back" button clearing — used for both the normal
+  // new-order flow (cart/table/customer fields started, cashier wants to
+  // bail) and add-to-existing-order mode (existingOrder set).
+  const hasOrderInProgress = cartEntries.length > 0 || !!selTable || !!existingOrder ||
+    !!custName || !!custPhone || !!custAddr || orderType !== 'dine_in';
   const cartByCat = useMemo(() => {
     const groups = {};
     for (const e of cartEntries) {
@@ -224,13 +215,19 @@ export default function MenuScreen({ user, settings, search }) {
   // ── Cart actions ──────────────────────────────────────────────────────────
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
-  const openAmountPicker = (item) => {
-    const current   = cart[item.id]?.qty || '';
+  // `mode: 'add'` (tapping ADD/+ on a weighed item) starts blank and, on
+  // confirm, is SUMMED with whatever qty is already in the cart — a cashier
+  // adding "1.33 more" to an existing 0.5 must end up at 1.83, not have the
+  // 0.5 silently overwritten. `mode: 'set'` (the minus stepper, a correction)
+  // keeps the old prefilled/replace behavior.
+  const openAmountPicker = (item, mode = 'set') => {
+    const current   = cart[item.id]?.qty || 0;
     const unitPrice = Number(item.price || 0);
+    const draftBase = mode === 'add' ? '' : (current ? String(current) : '');
     setAmountPicker({
-      item,
-      draft:      current ? String(current) : '',
-      priceDraft: current ? String(Math.round(Number(current) * unitPrice)) : '',
+      item, mode, existingQty: current,
+      draft: draftBase,
+      priceDraft: draftBase ? String(Math.round(Number(draftBase) * unitPrice)) : '',
     });
   };
   const onAmountQtyChange = (v) => {
@@ -249,6 +246,13 @@ export default function MenuScreen({ user, settings, search }) {
     const raw  = String(amountPicker.draft || '').replace(',', '.').trim();
     const amt  = parseFloat(raw);
     const item = amountPicker.item;
+    if (amountPicker.mode === 'add') {
+      if (!isFinite(amt) || amt <= 0) { setAmountPicker(null); return; } // no-op, don't touch what's already there
+      const newQty = Math.round((amountPicker.existingQty + amt) * 1000) / 1000;
+      setCart(prev => ({ ...prev, [item.id]: { item, qty: newQty } }));
+      setAmountPicker(null);
+      return;
+    }
     if (!isFinite(amt) || amt <= 0) {
       setCart(prev => { const n = { ...prev }; delete n[item.id]; return n; });
       setAmountPicker(null);
@@ -260,13 +264,13 @@ export default function MenuScreen({ user, settings, search }) {
   };
 
   const addItem = (item) => {
-    if (isWeighedItem(item)) { openAmountPicker(item); return; }
+    if (isWeighedItem(item)) { openAmountPicker(item, 'add'); return; }
     setCart(p => ({ ...p, [item.id]: { item, qty: (p[item.id]?.qty || 0) + 1 } }));
   };
   const decItem = (id) => {
     const entry = cart[id];
     if (!entry) return;
-    if (isWeighedItem(entry.item)) { openAmountPicker(entry.item); return; }
+    if (isWeighedItem(entry.item)) { openAmountPicker(entry.item, 'set'); return; }
     setCart(p => {
       if (!p[id]) return p;
       if (p[id].qty <= 1) { const n = { ...p }; delete n[id]; return n; }
@@ -291,7 +295,7 @@ export default function MenuScreen({ user, settings, search }) {
 
   const validateOrder = () => {
     if (orderType === 'dine_in' && !selTable) {
-      setError('Please select a table for this dine-in order');
+      setError(t('Please select a table for this dine-in order', lang));
       setShowTablePicker(true);
       return false;
     }
@@ -310,15 +314,15 @@ export default function MenuScreen({ user, settings, search }) {
         const res = await window.electronAPI.ordersAddItems(existingOrder.id, {
           items: cartEntries.map(e => ({ menu_item_id: e.item.id, quantity: e.qty })),
         });
-        if (!res.ok) { setError(res.error || 'Failed to add items to the order'); return; }
-        showToast(`Added to Order #${existingOrder.dailyNumber || existingOrder.id.slice(-4)}`);
+        if (!res.ok) { setError(res.error || t('Failed to add items to the order', lang)); return; }
+        showToast(tt(lang, 'Added to Order #{n}', '#{n}-buyurtmaga qo’shildi', { n: existingOrder.dailyNumber || existingOrder.id.slice(-4) }));
         clearOrder();
         return;
       }
       if (!validateOrder()) return;
       const res = await window.electronAPI.ordersCreate(buildOrderPayload());
-      if (!res.ok) { setError(res.error || 'Failed to send order'); return; }
-      showToast('Order sent to kitchen');
+      if (!res.ok) { setError(res.error || t('Failed to send order', lang)); return; }
+      showToast(t('Order sent to kitchen', lang));
       clearOrder();
     } finally { setSubmitting(false); }
   };
@@ -348,7 +352,7 @@ export default function MenuScreen({ user, settings, search }) {
   );
 
   const tableLabel = selTable
-    ? (selTable.name || `Table ${selTable.tableNumber}`)
+    ? (selTable.name || tableFallbackLabel(selTable.tableNumber, lang))
     : null;
 
   return (
@@ -375,26 +379,26 @@ export default function MenuScreen({ user, settings, search }) {
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <div>
-                <span style={{ fontSize: 16, fontWeight: 800 }}>Choose a table</span>
-                <span style={{ fontSize: 12, color: T.muted, marginLeft: 10 }}>tap a table to assign it</span>
+                <span style={{ fontSize: 16, fontWeight: 800 }}>{t('Choose a table', lang)}</span>
+                <span style={{ fontSize: 12, color: T.muted, marginLeft: 10 }}>{t('tap a table to assign it', lang)}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 {[['Available', T.green], ['Occupied', T.coral], ['Reserved', T.amber], ['Needs Bill', T.blue]].map(([lbl, clr]) => (
                   <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: T.muted }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: clr }} />{lbl}
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: clr }} />{t(lbl, lang)}
                   </span>
                 ))}
                 <button onClick={() => setShowTablePicker(false)} style={{
                   border: 'none', background: T.surface, boxShadow: T.cardShadow, borderRadius: T.rBtn,
                   padding: '8px 14px', fontSize: 12.5, fontWeight: 700, color: T.muted, cursor: 'pointer', fontFamily: T.font,
                 }}>
-                  Back to menu
+                  {t('Back to menu', lang)}
                 </button>
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))', gap: 14 }}>
               {tables.map(tb => {
-                const sp = statusPill(tb.status || 'free');
+                const sp = statusPill(tb.status || 'free', lang);
                 const isSel = selTable?.id === tb.id;
                 return (
                   <button key={tb.id} onClick={() => {
@@ -408,12 +412,12 @@ export default function MenuScreen({ user, settings, search }) {
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <span style={{ fontSize: 14.5, fontWeight: 800, color: T.ink }}>
-                        {tb.name || `Table ${tb.tableNumber}`}
+                        {tb.name || tableFallbackLabel(tb.tableNumber, lang)}
                       </span>
                       <span style={pill(sp)}>{sp.label}</span>
                     </div>
                     <div style={{ fontSize: 11.5, color: T.muted }}>
-                      {tb.capacity ? `${tb.capacity} seats` : ' '}
+                      {tb.capacity ? tt(lang, '{n} seats', "{n} o'rin", { n: tb.capacity }) : ' '}
                     </div>
                   </button>
                 );
@@ -444,7 +448,7 @@ export default function MenuScreen({ user, settings, search }) {
               <div ref={catRef} style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
                 {/* "All" card */}
                 <CategoryCard
-                  label="All" Icon={UtensilsCrossed}
+                  label={t('All', lang)} Icon={UtensilsCrossed}
                   active={!selectedCat}
                   onClick={() => setSelectedCat(null)}
                 />
@@ -460,7 +464,7 @@ export default function MenuScreen({ user, settings, search }) {
 
             {/* ── Product grid ── */}
             <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 12 }}>Menu</div>
+              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 12 }}>{t('Menu', lang)}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16 }}>
                 {filteredItems.map(item => {
                   const inCart = cart[item.id]?.qty;
@@ -474,7 +478,7 @@ export default function MenuScreen({ user, settings, search }) {
                         display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
                       }}>
                         {item.imageUrl
-                          ? <img src={item.imageUrl} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ? <img src={localPhotoSrc(item.imageUrl)} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           : <ImageOff size={26} color={T.faint} strokeWidth={1.5} />}
                         {inCart ? (
                           <span style={{
@@ -507,7 +511,7 @@ export default function MenuScreen({ user, settings, search }) {
                           onMouseEnter={e => e.currentTarget.style.background = T.greenDark}
                           onMouseLeave={e => e.currentTarget.style.background = T.green}
                         >
-                          <Plus size={14} strokeWidth={2.5} /> ADD
+                          <Plus size={14} strokeWidth={2.5} /> {t('ADD', lang)}
                         </button>
                       ) : (
                         <div style={{
@@ -524,7 +528,7 @@ export default function MenuScreen({ user, settings, search }) {
                 })}
               </div>
               {filteredItems.length === 0 && (
-                <div style={{ padding: 60, textAlign: 'center', color: T.muted, fontSize: 14 }}>No items found</div>
+                <div style={{ padding: 60, textAlign: 'center', color: T.muted, fontSize: 14 }}>{t('No items found', lang)}</div>
               )}
             </div>
           </>
@@ -536,14 +540,30 @@ export default function MenuScreen({ user, settings, search }) {
         ...card, borderRadius: T.rCardLg, width: T.rightPanelW, flexShrink: 0,
         display: 'flex', flexDirection: 'column', padding: 18, overflow: 'hidden',
       }}>
-        <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 12 }}>Order Details</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 17, fontWeight: 800 }}>{t('Order Details', lang)}</div>
+          {hasOrderInProgress && (
+            <button onClick={clearOrder} style={{
+              display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+              background: T.surface, color: T.coral, borderRadius: T.rPill,
+              border: `1.75px solid ${T.coral}`, padding: '8px 16px',
+              fontSize: 13.5, fontWeight: 800, fontFamily: T.font, transition: 'background .15s, color .15s',
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.coral; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.color = T.coral; }}
+            >
+              <ChevronLeft size={17} strokeWidth={3} />
+              {t('Back', lang)}
+            </button>
+          )}
+        </div>
 
         {/* Staff / date block */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 800 }}>{user.name || 'Cashier'}</div>
+            <div style={{ fontSize: 13.5, fontWeight: 800 }}>{user.name || t('Cashier', lang)}</div>
             <div style={{ fontSize: 10.5, color: T.muted }}>
-              {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}
+              {new Date().toLocaleDateString(lang === 'UZ' ? 'uz-UZ' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}
               {' · '}
               {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </div>
@@ -579,7 +599,7 @@ export default function MenuScreen({ user, settings, search }) {
                 border: 'none', fontSize: 12, fontWeight: 800, transition: 'background .15s, color .15s',
                 background: active ? T.green : T.chipBg, color: active ? '#fff' : T.muted,
               }}>
-                {label}
+                {t(label, lang)}
               </button>
             );
           })}
@@ -601,11 +621,11 @@ export default function MenuScreen({ user, settings, search }) {
               }}>
                 <TableIcon size={15} strokeWidth={1.8} />
               </span>
-              <div style={uppercaseLabel}>Table</div>
+              <div style={uppercaseLabel}>{t('Table', lang)}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <span style={{ fontSize: 13, fontWeight: 800, color: tableLabel ? T.ink : T.coral }}>
-                {tableLabel || 'Select…'}
+                {tableLabel || t('Select…', lang)}
               </span>
               <ChevronRight size={15} strokeWidth={2} color={T.faint} />
             </div>
@@ -621,8 +641,8 @@ export default function MenuScreen({ user, settings, search }) {
             color: T.greenDark, borderRadius: T.rBtn, padding: '9px 12px', marginBottom: 12,
             fontSize: 12, fontWeight: 800,
           }}>
-            <Plus size={14} strokeWidth={2.5} />
-            Adding to Order #{existingOrder.dailyNumber || existingOrder.id.slice(-4)}
+            <Plus size={14} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+            <span>{tt(lang, 'Adding to Order #{n}', '#{n}-buyurtmaga qo’shilmoqda', { n: existingOrder.dailyNumber || existingOrder.id.slice(-4) })}</span>
           </div>
         )}
 
@@ -630,9 +650,9 @@ export default function MenuScreen({ user, settings, search }) {
             Takeout intentionally has no fields here at all anymore. */}
         {orderType === 'delivery' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-            <IconField Icon={User}   value={custName}  onChange={setCustName}  placeholder="Customer name…" />
-            <IconField Icon={Phone}  value={custPhone} onChange={setCustPhone} placeholder="Phone number…" />
-            <IconField Icon={MapPin} value={custAddr}  onChange={setCustAddr}  placeholder="Delivery address…" />
+            <IconField Icon={User}   value={custName}  onChange={setCustName}  placeholder={t('Customer name…', lang)} />
+            <IconField Icon={Phone}  value={custPhone} onChange={setCustPhone} placeholder={t('Phone number…', lang)} />
+            <IconField Icon={MapPin} value={custAddr}  onChange={setCustAddr}  placeholder={t('Delivery address…', lang)} />
           </div>
         )}
 
@@ -643,7 +663,7 @@ export default function MenuScreen({ user, settings, search }) {
           {existingOrder && existingItems.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ ...uppercaseLabel, color: T.muted, marginBottom: 6 }}>
-                Already In This Order
+                {t('Already In This Order', lang)}
               </div>
               {existingItems.map((e, i) => (
                 <div key={`existing-${e.menuItemId}-${i}`} style={{
@@ -659,7 +679,7 @@ export default function MenuScreen({ user, settings, search }) {
                 </div>
               ))}
               <div style={{ ...uppercaseLabel, color: T.green, marginBottom: 6, marginTop: 12 }}>
-                Adding Now
+                {t('Adding Now', lang)}
               </div>
             </div>
           )}
@@ -670,9 +690,9 @@ export default function MenuScreen({ user, settings, search }) {
             }}>
               <ShoppingBag size={34} strokeWidth={1.5} />
               <div style={{ fontSize: 13.5, fontWeight: 700, color: T.muted }}>
-                {existingOrder ? 'No new items yet' : 'Cart is empty'}
+                {existingOrder ? t('No new items yet', lang) : t('Cart is empty', lang)}
               </div>
-              <div style={{ fontSize: 11.5 }}>Add items from the menu</div>
+              <div style={{ fontSize: 11.5 }}>{t('Add items from the menu', lang)}</div>
             </div>
           ) : (
             Object.entries(cartByCat).map(([cat, entries]) => (
@@ -690,7 +710,7 @@ export default function MenuScreen({ user, settings, search }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                       <StepBtn onClick={() => decItem(e.item.id)}><Minus size={12} strokeWidth={2.5} /></StepBtn>
                       <StepBtn primary onClick={() => addItem(e.item)}><Plus size={12} strokeWidth={2.5} /></StepBtn>
-                      <button onClick={() => delItem(e.item.id)} title="Remove" style={{
+                      <button onClick={() => delItem(e.item.id)} title={t('Remove', lang)} style={{
                         width: 24, height: 24, borderRadius: 8, border: 'none', background: T.coralBg,
                         color: T.coral, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
@@ -714,23 +734,23 @@ export default function MenuScreen({ user, settings, search }) {
         <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 10, marginBottom: 12 }}>
           {existingOrder ? (
             <>
-              <TotalRow label="Already In Order" value={money(existingSubtotal)} />
-              <TotalRow label="Adding Now" value={money(subtotal)} />
-              {settings.taxEnabled && <TotalRow label={`Tax (${settings.taxRate}%)`} value={money(combinedTax)} />}
+              <TotalRow label={t('Already In Order', lang)} value={money(existingSubtotal)} />
+              <TotalRow label={t('Adding Now', lang)} value={money(subtotal)} />
+              {settings.taxEnabled && <TotalRow label={tt(lang, 'Tax ({n}%)', 'Soliq ({n}%)', { n: settings.taxRate })} value={money(combinedTax)} />}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 800 }}>New Order Total</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>{t('New Order Total', lang)}</span>
                 <span style={{ fontSize: 19, fontWeight: 800 }}>{money(combinedTotal)}</span>
               </div>
             </>
           ) : (
             <>
-              <TotalRow label="Sub Total" value={money(subtotal)} />
-              {settings.taxEnabled && <TotalRow label={`Tax (${settings.taxRate}%)`} value={money(taxAmt)} />}
+              <TotalRow label={t('Sub Total', lang)} value={money(subtotal)} />
+              {settings.taxEnabled && <TotalRow label={tt(lang, 'Tax ({n}%)', 'Soliq ({n}%)', { n: settings.taxRate })} value={money(taxAmt)} />}
               {settings.serviceChargeEnabled && svcAmt > 0 && (
-                <TotalRow label={`Service Charge (${settings.serviceChargeRate}%)`} value={money(svcAmt)} note="not charged" />
+                <TotalRow label={tt(lang, 'Service Charge ({n}%)', 'Xizmat haqi ({n}%)', { n: settings.serviceChargeRate })} value={money(svcAmt)} note={t('not charged', lang)} />
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 800 }}>Total</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>{t('Total', lang)}</span>
                 <span style={{ fontSize: 19, fontWeight: 800 }}>{money(total)}</span>
               </div>
             </>
@@ -748,12 +768,12 @@ export default function MenuScreen({ user, settings, search }) {
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <button onClick={() => showToast('Receipt printing comes with the History step', false)} style={{
+          <button onClick={() => showToast(t('Receipt printing comes with the History step', lang), false)} style={{
             flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
             background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
-            <Printer size={15} strokeWidth={1.8} /> Print
+            <Printer size={15} strokeWidth={1.8} /> {t('Print', lang)}
           </button>
           <button onClick={handleFire} disabled={submitting || !cartEntries.length} style={{
             flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: 'none',
@@ -763,7 +783,7 @@ export default function MenuScreen({ user, settings, search }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
             {submitting ? <Loader2 size={15} style={{ animation: 'posspin 1s linear infinite' }} /> : <Flame size={15} strokeWidth={1.8} />}
-            {existingOrder ? 'Add to Order' : 'Fire'}
+            {existingOrder ? t('Add to Order', lang) : t('Fire', lang)}
           </button>
         </div>
         {/* Charge (pay now) is Menu-only for brand-new orders. When adding to
@@ -779,76 +799,22 @@ export default function MenuScreen({ user, settings, search }) {
             onMouseEnter={e => { if (cartEntries.length) e.currentTarget.style.background = T.greenDark; }}
             onMouseLeave={e => e.currentTarget.style.background = T.green}
           >
-            Charge {money(total)}
+            {tt(lang, 'Charge {amount}', "Hisob-kitob {amount}", { amount: money(total) })}
           </button>
         )}
       </div>
 
       {/* ══ Amount picker modal (weighed items) ══ */}
-      {amountPicker && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, background: T.backdrop, zIndex: 70,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
-          }}
-          onClick={() => setAmountPicker(null)}
-        >
-          <div
-            style={{ ...card, borderRadius: T.rCardLg, width: '100%', maxWidth: 360, overflow: 'hidden', boxShadow: T.modalShadow }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ background: T.greenTint, padding: '16px 20px 14px' }}>
-              <div style={{ ...uppercaseLabel, color: T.greenDark }}>Enter amount</div>
-              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2 }}>{amountPicker.item.name}</div>
-              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>
-                {money(amountPicker.item.price)} per {unitSuffix(amountPicker.item)}
-              </div>
-            </div>
-            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={uppercaseLabel}>Amount ({unitSuffix(amountPicker.item)})</span>
-                <input
-                  autoFocus value={amountPicker.draft}
-                  onChange={e => onAmountQtyChange(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && confirmAmountPicker()}
-                  inputMode="decimal" placeholder="0"
-                  style={{
-                    border: `1.5px solid ${T.line}`, borderRadius: T.rBtn, padding: '11px 12px',
-                    fontSize: 16, fontWeight: 800, fontFamily: T.font, color: T.ink, outline: 'none',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={uppercaseLabel}>Or price ({symbol})</span>
-                <input
-                  value={amountPicker.priceDraft}
-                  onChange={e => onAmountPriceChange(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && confirmAmountPicker()}
-                  inputMode="numeric" placeholder="0"
-                  style={{
-                    border: `1.5px solid ${T.line}`, borderRadius: T.rBtn, padding: '11px 12px',
-                    fontSize: 16, fontWeight: 800, fontFamily: T.font, color: T.ink, outline: 'none',
-                  }}
-                />
-              </label>
-              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <button onClick={() => setAmountPicker(null)} style={{
-                  flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
-                  background: T.surface, color: T.muted, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
-                }}>
-                  Cancel
-                </button>
-                <button onClick={confirmAmountPicker} style={{
-                  flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: 'none',
-                  background: T.green, color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
-                }}>
-                  Confirm
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <AmountPickerModal
+        picker={amountPicker}
+        symbol={symbol}
+        money={money}
+        lang={lang}
+        onQtyChange={onAmountQtyChange}
+        onPriceChange={onAmountPriceChange}
+        onConfirm={confirmAmountPicker}
+        onClose={() => setAmountPicker(null)}
+      />
 
       {/* ══ Process Payment modal ══ */}
       {showPayment && (
@@ -858,11 +824,12 @@ export default function MenuScreen({ user, settings, search }) {
           taxAmt={taxAmt}
           total={total}
           settings={settings}
+          lang={lang}
           formatQty={formatQty}
           onQtyChange={(item, delta) => (delta > 0 ? addItem(item) : decItem(item.id))}
           onClose={() => setShowPayment(false)}
           onSubmit={submitCharge}
-          onDone={() => { setShowPayment(false); clearOrder(); showToast('Payment complete'); }}
+          onDone={() => { setShowPayment(false); clearOrder(); showToast(t('Payment complete', lang)); }}
         />
       )}
     </div>

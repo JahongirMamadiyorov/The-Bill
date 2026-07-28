@@ -1,3 +1,20 @@
+/* Plus Jakarta Sans, self-hosted (see tokens.js T.font) — this one file is a
+   variable font covering the full weight range needed (400-800), confirmed
+   by its HVAR/MVAR/STAT tables, so a single local file replaces what used to
+   be five separate Google Fonts CDN requests. Bundled via Vite's asset
+   pipeline (relative `base: './'`, see vite.config.js) so this resolves
+   correctly both in `vite dev` and inside the packaged Electron app loaded
+   over file://. Removes the Google Fonts network dependency entirely —
+   faster first paint, and the real font now shows even fully offline
+   instead of falling back to a system font. */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./assets/fonts/PlusJakartaSans-Variable.woff2') format('woff2');
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

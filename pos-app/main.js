@@ -19,8 +19,9 @@ if (!_electron || typeof _electron !== 'object' || !_electron.app) {
   process.exit(1);
 }
 
-const { app, BrowserWindow, ipcMain, Menu } = _electron;
+const { app, BrowserWindow, ipcMain, Menu, protocol } = _electron;
 const path   = require('path');
+const fs     = require('fs');
 const https  = require('https');
 const http   = require('http');
 const Store  = require('electron-store');
@@ -37,6 +38,22 @@ const IS_DEV        = process.env.NODE_ENV === 'development';
 const DEV_SERVER_URL = 'http://localhost:5173';
 const PRELOAD        = path.join(__dirname, 'preload.js');
 const ICON_PATH      = path.join(__dirname, 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+
+// ── Local photo cache — custom `app-photo://` scheme ───────────────────────────
+// Menu-item photos live on the Render backend (`/uploads/menu/<filename>`, see
+// restaurant-app/backend/src/routes/menu.js) — every screen load used to
+// re-fetch them over the internet (mitigated but not eliminated by the 7-day
+// Cache-Control header added server-side). This registers a custom scheme so
+// the renderer can request `app-photo://<filename>` instead of the real URL;
+// the handler below (registered in app.whenReady()) serves it from a local
+// disk cache, downloading once on first request. Upload filenames are
+// `${Date.now()}-${random}${ext}` (see menu.js) — globally unique and never
+// reused, so a cached file can NEVER go stale; there is no invalidation logic
+// needed, only "have we already fetched this filename or not."
+// Must be called before app is ready — Electron requirement, not a style choice.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app-photo', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+]);
 
 // ── Electron Store (encrypted local storage for the session token) ────────────
 const store = new Store({
@@ -63,6 +80,7 @@ function createWindow() {
     // no taskbar/alt-tab) can be turned on per-terminal later via a settings toggle —
     // starting windowed+frameless so back-office PCs can still resize/move it.
     frame: false,
+    resizable: true,
     autoHideMenuBar: true,
     icon: ICON_PATH,
     webPreferences: {
@@ -78,6 +96,14 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
   }
+
+  // frame:false means there's no OS-drawn title bar to drag or minimize/
+  // maximize/close from — src/TitleBar.jsx renders custom buttons for all
+  // three and relies on this event to keep its maximize/restore icon in
+  // sync with the real window state (e.g. after a double-click on the bar,
+  // or a Windows snap gesture, not just a button click).
+  mainWindow.on('maximize',   () => mainWindow?.webContents.send('window:maximized-changed', true));
+  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false));
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -112,6 +138,35 @@ async function connectPowerSync() {
   }
 }
 
+// ── Photo cache: fetch-once-then-serve-from-disk ───────────────────────────────
+const PHOTO_CACHE_DIR = path.join(app.getPath('userData'), 'photo-cache');
+const photoDownloads  = new Map(); // filename -> in-flight Promise<Buffer>, avoids duplicate downloads
+
+function mimeForExt(ext) {
+  switch (ext.toLowerCase()) {
+    case '.jpg': case '.jpeg': return 'image/jpeg';
+    case '.png':  return 'image/png';
+    case '.webp': return 'image/webp';
+    case '.gif':  return 'image/gif';
+    case '.heic': return 'image/heic';
+    default:      return 'application/octet-stream';
+  }
+}
+
+// Plain binary GET — the existing request() helper above assumes a JSON body,
+// which doesn't fit a raw image download.
+function fetchBinary(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error(`Photo fetch failed (${res.statusCode})`)); return; }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
 app.whenReady().then(async () => {
   createWindow();
   // If a session was already saved from a previous run, start syncing immediately —
@@ -119,6 +174,48 @@ app.whenReady().then(async () => {
   if (store.get('session')) {
     connectPowerSync();
   }
+
+  // `app-photo://<encoded-filename>` — the renderer never sees the real backend
+  // URL for a cached photo. Filename is taken from the URL's host component
+  // (custom schemes put everything before the next `/` there); rejects
+  // anything that looks like a path-traversal attempt since it's user-supplied
+  // data flowing back from a URL, however unlikely that is here.
+  protocol.handle('app-photo', async (request) => {
+    let filename;
+    try { filename = decodeURIComponent(new URL(request.url).hostname); }
+    catch { return new Response('Bad photo URL', { status: 400 }); }
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return new Response('Invalid filename', { status: 400 });
+    }
+
+    const localPath = path.join(PHOTO_CACHE_DIR, filename);
+    try {
+      if (fs.existsSync(localPath)) {
+        const buf = await fs.promises.readFile(localPath);
+        return new Response(buf, { headers: { 'Content-Type': mimeForExt(path.extname(filename)) } });
+      }
+
+      // Not cached yet — download once, save, then serve. Coalesced so a menu
+      // grid rendering the same photo in multiple places (or a fast double
+      // render) can't trigger two simultaneous downloads of the same file.
+      let pending = photoDownloads.get(filename);
+      if (!pending) {
+        pending = fetchBinary(`${BACKEND_BASE}/uploads/menu/${filename}`)
+          .then(async (buf) => {
+            await fs.promises.mkdir(PHOTO_CACHE_DIR, { recursive: true });
+            await fs.promises.writeFile(localPath, buf);
+            return buf;
+          })
+          .finally(() => photoDownloads.delete(filename));
+        photoDownloads.set(filename, pending);
+      }
+      const buf = await pending;
+      return new Response(buf, { headers: { 'Content-Type': mimeForExt(path.extname(filename)) } });
+    } catch (err) {
+      console.warn('[photo-cache] failed for', filename, '-', err.message);
+      return new Response('Not found', { status: 404 });
+    }
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -130,7 +227,14 @@ app.on('activate', () => {
 });
 
 // ── HTTP helper (main process talks to the backend, not the renderer) ─────────
-function request(method, path_, body, authToken) {
+// `timeoutMs` guards against a hung/slow backend: without it, a stalled
+// Render response (cold start, dropped connection, dead route) left every
+// caller — History/Receivables/Profile's Shift Info, all of which go through
+// api:get below — spinning forever with no error and no way to fall back to
+// the stale-data badge those screens already have. 15s default is generous
+// enough for a real slow response but still bounded; the health check below
+// uses a much shorter one since it's just a reachability probe.
+function request(method, path_, body, authToken, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const url     = new URL(BACKEND_BASE + path_);
     const isHttps = url.protocol === 'https:';
@@ -147,6 +251,7 @@ function request(method, path_, body, authToken) {
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...(payload   ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
       },
+      timeout: timeoutMs,
     }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });
@@ -156,6 +261,12 @@ function request(method, path_, body, authToken) {
       });
     });
 
+    // Node's `timeout` socket option doesn't abort the request by itself —
+    // it just emits 'timeout'; destroying with an Error turns that into a
+    // normal 'error' event below, so callers get one clean rejection either way.
+    req.on('timeout', () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs / 1000}s — is the backend reachable?`));
+    });
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -167,13 +278,27 @@ function request(method, path_, body, authToken) {
 // boundary pattern as electron-app/printer.js already uses.
 
 ipcMain.handle('auth:login', async (_event, { identifier, password }) => {
-  const res = await request('POST', '/api/auth/login', { identifier, password });
-  if (res.status !== 200) {
-    return { ok: false, error: res.body?.error || `Login failed (${res.status})`, code: res.body?.code };
+  // Previously unguarded: if request() rejected (network drop, TLS handshake
+  // failure, DNS issue, etc.) that exception propagated straight out of an
+  // ipcMain.handle() callback, which Electron surfaces to the renderer as a
+  // raw "Error invoking remote method 'auth:login': Error: ..." — an ugly
+  // devtools-only error with no on-screen message, easy to mistake for the
+  // whole app being broken instead of "the network hiccuped, try again."
+  // Every other handler in this file (submitOrderWrite, api:get, the Admin
+  // write passthrough) already wraps its request() call in try/catch for
+  // exactly this reason — this one was the one gap. Now returns the same
+  // { ok: false, error } shape Login.jsx already knows how to show.
+  try {
+    const res = await request('POST', '/api/auth/login', { identifier, password });
+    if (res.status !== 200) {
+      return { ok: false, error: res.body?.error || `Login failed (${res.status})`, code: res.body?.code };
+    }
+    store.set('session', { token: res.body.token, user: res.body.user, restaurant: res.body.restaurant || null });
+    connectPowerSync(); // don't await — let sync start in the background
+    return { ok: true, user: res.body.user, restaurant: res.body.restaurant || null };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Network error — is the backend reachable?' };
   }
-  store.set('session', { token: res.body.token, user: res.body.user, restaurant: res.body.restaurant || null });
-  connectPowerSync(); // don't await — let sync start in the background
-  return { ok: true, user: res.body.user, restaurant: res.body.restaurant || null };
 });
 
 ipcMain.handle('auth:get-session', () => {
@@ -189,6 +314,19 @@ ipcMain.handle('auth:logout', async () => {
 });
 
 ipcMain.handle('get-version', () => app.getVersion());
+
+// ── IPC: Window controls ────────────────────────────────────────────────────────
+// frame:false (see createWindow) removes the OS-drawn title bar entirely — no
+// minimize/maximize/close buttons and no draggable region — so src/TitleBar.jsx
+// draws its own and calls these instead of anything native.
+ipcMain.handle('window:minimize', () => { mainWindow?.minimize(); });
+ipcMain.handle('window:maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.handle('window:close', () => { mainWindow?.close(); });
+ipcMain.handle('window:isMaximized', () => !!mainWindow?.isMaximized());
 
 // ── IPC: Order writes (Phase 1 — Cashier) ──────────────────────────────────────
 // Reads (menu, tables, active orders) come from the local PowerSync database —
@@ -282,11 +420,68 @@ ipcMain.handle('api:get', async (_event, path_) => {
   try {
     const res = await request('GET', path_, null, token);
     if (res.status < 200 || res.status >= 300) {
-      return { ok: false, error: res.body?.error || `Request failed (${res.status})` };
+      // `status` included so callers (Admin's client.js) can special-case 401
+      // into an auto-logout, matching the website's axios interceptor —
+      // the message alone isn't a reliable way to detect "session expired".
+      return { ok: false, error: res.body?.error || `Request failed (${res.status})`, status: res.status };
     }
     return { ok: true, data: res.body };
   } catch (err) {
     return { ok: false, error: err.message || 'Network error — is the backend reachable?' };
+  }
+});
+
+// ── IPC: Generic authenticated write passthrough (Admin panel) ─────────────────
+// The comment above on api:get says writes should get their own dedicated
+// handler (submitOrderWrite), not a generic passthrough — that rule is about
+// the CASHIER's order/payment writes specifically, where a single funnel
+// matters because Option B (offline queuing for Fire/Charge) needs one choke
+// point to hook into later. The Admin panel is a different situation: it's a
+// faithful port of the website's admin pages (same ~20 API groups, dozens of
+// create/update/delete endpoints — staff, menu, inventory, settings, etc.),
+// none of which have the same offline-queuing requirement, and writing a
+// dedicated IPC handler for every single one would be pure repetition. This
+// passthrough is deliberately scoped to Admin's needs only — it does not
+// replace or get called instead of submitOrderWrite() for anything
+// order/payment-related, which still goes through its own path unchanged.
+function makeWriteHandler(method) {
+  return async (_event, { path: path_, data } = {}) => {
+    const token = store.get('session')?.token;
+    if (!token) return { ok: false, error: 'Not logged in' };
+    if (typeof path_ !== 'string' || !path_.startsWith('/api/')) {
+      return { ok: false, error: 'Invalid API path' };
+    }
+    try {
+      const res = await request(method, path_, data ?? {}, token);
+      if (res.status < 200 || res.status >= 300) {
+        return { ok: false, error: res.body?.error || `Request failed (${res.status})`, status: res.status };
+      }
+      return { ok: true, data: res.body };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Network error — is the backend reachable?' };
+    }
+  };
+}
+ipcMain.handle('api:post',   makeWriteHandler('POST'));
+ipcMain.handle('api:put',    makeWriteHandler('PUT'));
+ipcMain.handle('api:patch',  makeWriteHandler('PATCH'));
+ipcMain.handle('api:delete', makeWriteHandler('DELETE'));
+
+// ── IPC: Backend reachability probe ─────────────────────────────────────────────
+// Separate from api:get on purpose: `/health` (server.js) needs no auth token and
+// no `/api/` prefix, and this is checked constantly by the topbar's sync badge so
+// it uses a short timeout (a slow-but-alive backend shouldn't make the badge sit
+// "checking" for 15s). The topbar badge previously only reflected psStatus()
+// (PowerSync's own sync stream) — that meant it could say "Online" while the
+// Express backend History/Receivables/Profile actually depend on was unreachable,
+// which is exactly the mismatch reported against a live screenshot: History
+// showed its own "Offline" stale badge while the topbar still said Online.
+ipcMain.handle('backend:health', async () => {
+  try {
+    const res = await request('GET', '/health', null, null, 6000);
+    return { ok: res.status >= 200 && res.status < 300 };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Unreachable' };
   }
 });
 

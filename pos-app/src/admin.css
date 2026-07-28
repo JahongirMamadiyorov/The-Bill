@@ -1,0 +1,62 @@
+/* Admin-panel-only Tailwind import — deliberately skips Preflight (Tailwind's
+   base/reset layer). The full `@import "tailwindcss";` shorthand pulls in
+   Preflight too, which resets default styling on bare html elements
+   (button, input, headings, line-height, etc.) globally, across the whole
+   bundle — not scoped to just the components that use Tailwind classes. The
+   cashier POS screens (MenuScreen, OrdersScreen, etc.) are 100% inline-style
+   based and were tuned/approved against normal browser defaults; risking any
+   subtle global reset bleeding into them for the sake of the Admin panel
+   isn't worth it. Importing only theme.css + utilities.css keeps every
+   Tailwind utility class (bg-blue-600, flex, grid, spacing scale, etc.)
+   available for the ported Admin pages, with zero effect outside them. */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+/* Scoped stand-in for the handful of Preflight resets Admin actually needs.
+   Without full Preflight (skipped above on purpose — see the comment at the
+   top of this file), native browser chrome on bare <button>/<input>/<select>/
+   <textarea> elements (border, background, font, padding) never gets zeroed
+   out, so it shows through underneath Tailwind's utility classes — e.g. the
+   Dashboard's Quick Action pills getting an unwanted bold native button
+   border around them (reported 2026-07-27). Every `website/src/pages/admin/
+   *.jsx` page assumes this reset happened (it relies on the website's own
+   full Preflight import), so without it here, ported pages don't actually
+   match the website visually — this isn't a design change, it's restoring
+   the visual baseline the ported markup was built against.
+
+   Written with :where() specifically so it carries ZERO specificity beyond
+   the plain element selector itself (:where(...) never adds to specificity)
+   — exactly how Tailwind's own Preflight is structured, so any utility class
+   (bg-blue-50, border, rounded-lg, etc.) still wins regardless of source
+   order. Scoped under :where(.admin-panel) (see AdminShell.jsx's root div)
+   so this has zero effect outside the Admin panel — the cashier POS screens
+   never see it. */
+:where(.admin-panel) button,
+:where(.admin-panel) input,
+:where(.admin-panel) select,
+:where(.admin-panel) textarea {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-transform: none;
+}
+:where(.admin-panel) button,
+:where(.admin-panel) select {
+  text-transform: none;
+  cursor: pointer;
+}
+:where(.admin-panel) button:disabled {
+  cursor: not-allowed;
+}
+:where(.admin-panel) fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+:where(.admin-panel) legend {
+  padding: 0;
+}

@@ -60,7 +60,7 @@ export default function Login({ onLoggedIn }) {
 
 const styles = {
   page: {
-    height: '100vh',
+    height: '100%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

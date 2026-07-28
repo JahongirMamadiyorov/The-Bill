@@ -5,6 +5,8 @@
 // imports from here — do NOT hardcode colors/radii/shadows in the screens.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { t } from '../../lib/i18n.js';
+
 export const T = {
   // ── Colors ──────────────────────────────────────────────────────────────────
   pageBg:    '#EAF6EF',   // mint page background
@@ -54,28 +56,31 @@ export const T = {
 // green = available/served/completed/paid/current · coral = occupied/overdue/refunded
 // amber = reserved/preparing/due-soon/active-loan · blue = needs-bill/ready-to-serve
 // gray = cancelled/paid-archived
-export function statusPill(status) {
+// `lang` ('UZ'/'EN', from PosShell's toggle) is optional — omitting it just
+// returns the English label, so any call site not yet passing lang still works.
+export function statusPill(status, lang) {
   const s = String(status || '').toLowerCase().replace(/\s+/g, '_');
   const GREEN = { color: T.greenDark, bg: T.greenTint };
   const CORAL = { color: T.coral,     bg: T.coralBg };
   const AMBER = { color: T.amber,     bg: T.amberBg };
   const BLUE  = { color: T.blue,      bg: T.blueBg };
   const GRAY  = { color: T.gray,      bg: T.grayBg };
+  const label = t(cap(s), lang);
   switch (s) {
     case 'free': case 'available': case 'served': case 'completed':
     case 'paid': case 'current': case 'present': case 'active_shift':
-      return { ...GREEN, label: cap(s) };
+      return { ...GREEN, label };
     case 'occupied': case 'overdue': case 'refunded': case 'late':
-      return { ...CORAL, label: cap(s) };
+      return { ...CORAL, label };
     case 'reserved': case 'preparing': case 'due_soon': case 'active':
     case 'pending': case 'sent_to_kitchen': case 'cleaning':
-      return { ...AMBER, label: cap(s) };
+      return { ...AMBER, label };
     case 'bill_requested': case 'needs_bill': case 'ready': case 'ready_to_serve':
-      return { ...BLUE, label: cap(s) };
+      return { ...BLUE, label };
     case 'cancelled': case 'off': case 'absent':
-      return { ...GRAY, label: cap(s) };
+      return { ...GRAY, label };
     default:
-      return { ...GRAY, label: cap(s) };
+      return { ...GRAY, label };
   }
 }
 

@@ -3,8 +3,1310 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-Last updated: 2026-07-27 (design-parity round 2 fixes + new "add items to an existing order
-from Menu" feature — CONFIRMED WORKING on the real machine after an app restart.)
+Last updated: 2026-07-27, end of session (User compared the Admin panel's real-world loading
+speed against the old Electron app and correctly called out that it feels the same — because it
+currently IS the same. Honest finding, not previously stated this plainly: **all 9 ported Admin
+screens still read entirely over REST** (client.js → IPC → Render), zero of them use local
+PowerSync. The promised 2-3x speed win requires two more things neither of which is done yet: (1)
+the user finishing the PowerSync Cloud Sync Streams dashboard config for task #21's 9 newly-
+published tables, (2) then converting each screen's REST reads to local PowerSync queries where
+the backing table is actually synced — that conversion work was never started, it was out of
+scope for the "port verbatim first" phase. **User explicitly deferred this to next session** — see
+new task #31. Start there next time, beginning with Tables (its data — restaurant_tables/orders —
+is already fully synced today, so it can convert without waiting on the dashboard step). Earlier
+this same session: real-machine testing of the Admin panel began, and found and fixed
+a real backend bug: menu photo URLs saved as `http://` instead of `https://` behind Render's proxy,
+silently blocked by the Admin panel's CSP. See "Fixed: menu photos blocked by CSP" below — this is
+a genuine backend fix (committed, needs the user to `git push`), not just an Admin-panel-only
+change, and also affects the already-shipped cashier POS's photo cache. Before that: Admin: Profile
+screen built (task #30) — ninth and LAST real Admin
+screen (~320 lines, the smallest of all 9): the logged-in admin's own profile info, an edit-profile
+modal, and a change-password modal over `usersAPI.getMe()`/`update()`/`updateCredentials()`. This
+completes the full 9-screen Admin panel screen-porting effort (tasks #20-30) — see "Admin panel
+build complete — summary" below for the honest full-scope picture of what's done vs. still
+outstanding before this is shippable. No AuthContext in pos-app, so `authUser`/`updateUser` became
+a local `profile` state seeded from the `user` prop and refreshed via `usersAPI.getMe()` on mount,
+same as every other screen's "use the already-passed-down user prop" adaptation — one flagged,
+deliberate limitation: the sidebar's own name/avatar won't reflect an edit made here until next
+login, since there's no callback wired back up through App.jsx for it (judged out of scope for a
+cosmetic staleness gap on the last screen). The Sign Out button was rewired to call the same
+`onLogout` the sidebar's own Sign Out button already uses (a new prop AdminShell.jsx now passes to
+every screen) instead of the source's raw `localStorage`+`window.location.href`, which has no
+Electron equivalent. Printing, `window.prompt/confirm/alert`, and avatar/photo upload all grepped
+clean — confirmed, not assumed. No new shared deps. See "Admin: Profile screen" below for full
+detail.
+Before that: Admin: Restaurant Settings screen built (task #29) — tenth real Admin
+screen (~440 lines, the smallest so far): a 4-tab settings form (Restaurant Info, Financial,
+Receipt Template, Kitchen Order Template) over a single `settingsAPI.get()`/`update()` round-trip,
+no polling — built against REST throughout per the earlier PowerSync-scoping research (task #21)
+that recommended keeping this screen on REST even though its 3 backing tables are all in the sync
+scope now. The whole "Printers" tab (receipt/kitchen printer name/IP/port fields, kitchen-station
+assignment, the 5-step connect-a-printer guide, add-printer forms) was excluded entirely — removed
+as dead code, not stubbed, since it's genuine printer hardware config, the specific thing the
+standing rule calls out for a restaurant-settings screen. A real data-preservation fix was needed
+because of that: `receiptPrinters`/`kitchenPrinters` are still loaded and round-tripped unchanged
+on every save so an unrelated edit (e.g. currency symbol) can't silently wipe out printer config set
+via the website. Receipt/Kitchen "template" toggles (what shows on a printed receipt/kitchen
+ticket) were deliberately kept — pure settings data with no print-execution code attached, distinct
+from the printer-hardware exclusion. Logo upload hit the known `settingsAPI.uploadLogo` stub,
+handled with the Menu screen's disabled-control precedent. `window.prompt/confirm/alert` grepped
+clean. No new shared deps. See "Admin: Restaurant Settings screen" below for full detail.
+Before that: Admin: Staff screen built (task #28) — ninth real Admin screen (~2155
+source lines): Staff/Attendance/Payroll tabs — staff CRUD incl. login-credentials editor and
+kitchen-station quick-pick, a live clock-in/out status view (calls REST `shiftsAPI.
+getStaffStatus()` exactly like the website, per the standing note that its "today's most relevant
+shift" logic is real server-side business logic, not reimplemented client-side or read from local
+PowerSync even though `shifts`/`staff_payments` are in the `powersync` publication now), and
+salary-type-aware payroll (hourly/daily/weekly/monthly) with debt carry-over, a record-payment
+modal, and a payroll details modal. No new shared deps beyond the already-existing `ConfirmDialog`
+— `usersAPI`/`shiftsAPI`/`staffPaymentsAPI`/`menuAPI`/`money`/`Dropdown`/`DatePicker`/`PhoneInput`
+were already ported and verified for earlier screens; `permissionsAPI` (imported but never called
+in the source) dropped entirely. Printing grepped clean — zero matches. Real `window.confirm()` bug
+found and fixed (second Electron-native-dialog bug in this build, after Inventory's `window.
+prompt()`): one bare `confirm(...)` guarding the delete-payment button in the payroll details
+modal, replaced with the shared styled `ConfirmDialog`. Four unused lucide icons dropped (`Shield`/
+`LogOut`/`LogIn`/`UserX`). See "Admin: Staff screen" below for full detail.
+Before that: Admin: Loans screen built (task #27) — eighth real Admin screen (~939
+source lines, the smallest so far): customer loans list with stats/search/status-filter and a
+date-range calendar picker, a loan details modal (pulls the linked order's items via
+`ordersAPI.getById`), and a collect-payment modal (cash/card/QR). No new shared deps — `loansAPI`/
+`ordersAPI`/`money`/`useTranslation` were already ported and verified for earlier screens; this
+screen doesn't use `Dropdown`/`DatePicker`/`PhoneInput`/`ConfirmDialog` at all (has its own inline
+calendar picker) and never calls `navigate`. Printing and `window.prompt/confirm/alert` both
+grepped clean — zero matches, nothing to exclude or fix. Two real findings that correct the task
+brief's assumptions, both re-verified against the actual source, not re-guessed: there is no
+"remind overdue" flow anywhere in this screen — `client.js`'s `loansAPI.notifyOverdue()` exists but
+has zero call sites in `AdminLoans.jsx`, nothing was ported for it; `loansAPI.getStats()` is
+confirmed genuinely unused too — this screen computes total/active/overdue/outstanding client-side
+from the raw `loansAPI.getAll()` array instead. See "Admin: Loans screen" below for full detail.
+Before that: Admin: Orders screen built (task #26) — seventh real Admin screen
+(~2145 source lines): active/paid/cancelled order tabs, order detail modal, status-flow buttons,
+edit-in-modal (incl. the shared weighed-item amount picker), cancellation, and the Collect Payment
+modal (cash/card/QR/loan, discount, split-bill). No new shared deps — everything it calls
+(`ordersAPI`/`menuAPI`/`tablesAPI`/`usersAPI`, `useApi`/`money`/`fmtDate`, `Dropdown`/`DatePicker`/
+`PhoneInput`) was already ported and verified for earlier screens. Solved the real `?open=<id>`
+deep-link gap Tables (task #23) left behind: `AdminShell.jsx`'s `goTo` now parses a trailing
+`open=<id>` query param into `openOrderId` state, handed to the active screen as a prop pair
+(`openOrderId`/`clearOpenOrderId`) alongside `navigate` — OrdersScreen consumes it in a `useEffect`
+(fetch + open the detail modal, then clear it) the same way the website consumed
+`useLocation().search`. Printing excluded per the standing rule — grepped the source for
+"print"/"Print" and found a real, non-trivial set this time (`usePrinter()` hook, `printReceipt`
+call, `handlePrintCheque()`, the `restSettings`/`accountingAPI.getRestaurantSettings()` effect that
+only fed it, the `fmtOrderNum()` helper, and the "Print Receipt" button in the Collect Payment
+modal) — all removed as dead code, not stubbed. No `window.prompt`/`confirm`/`alert` found — grepped
+clean, nothing to fix (unlike Inventory's `window.prompt()` bug). One real, deliberate functional
+deviation, not a pure design tweak: the header's "+ New Order" button called
+`navigate('/admin/new-order')` in the source, a full standalone page whose `AdminNewOrder.jsx`
+branch was never ported into pos-app (Tables' port, task #23, only ported the `isModal` branch,
+since Tables is the only caller and always uses it) — redirected the button to `navigate('/admin/
+tables')` instead, the actual place a new order gets created in this build. See "Admin: Orders
+screen" below for full detail. Before that: Admin: Inventory screen built (task #25) — sixth real
+Admin screen, and
+the largest one so far (~2170 source lines). Two new shared deps ported: `Dropdown.jsx` (unchanged)
+and `DatePicker.jsx` (import-path adjusted). One real runtime-compatibility fix (not a design
+change): the source's two `window.prompt()` calls replaced with a small local modal, since
+Electron's renderer doesn't implement `window.prompt()` at all — see "Admin: Inventory screen"
+below. Before that: Admin: Menu screen built (task #24) — fifth real Admin screen. New
+shared dep ported: `ConfirmDialog.jsx`. Real, deliberate deviation from pure verbatim: the item-
+photo upload control is shown disabled with an explanatory tooltip instead of wired to the known
+`menuAPI.uploadImage` stub, which would throw on first real use — see "Admin: Menu screen" below.
+Before that: Admin: Tables + New Order screens built (task #23) — second real Admin screen after
+Dashboard. Found and fixed a real pre-existing bug in the website's AdminNewOrder.jsx along the
+way: its modal mode never rendered the amount-picker for weighed/kg-l items at all — see
+"Admin: Tables + New Order screens" below. Before that: Admin panel build started — foundation
+only so far (task #20): generic write IPC, ported website i18n + API client + LanguageContext, new
+AdminShell/AdminPanel with Preflight-free Tailwind, lazy-loaded `/admin` route. Standing rule for
+all Admin work: no design/functional changes from the website, speed-only improvements allowed,
+printing excluded until told otherwise. Before that: design-parity round 2 fixes + new "add items
+to an existing order from Menu" feature —
+CONFIRMED WORKING. Fixed and deployed a 403 bug blocking Edit → Done on Orders/Tables — CONFIRMED
+WORKING. Fixed weighed items in Orders'/Tables' edit modes twice over (not understood at all,
+then ADD/+ asking for the wrong thing — see entries below). Did a free speed pass: DB indexes +
+image cache headers applied, dev-vs-packaged-build and a Render keep-alive pinger handed back to
+the user — see below. Follow-up round on the same theme: self-hosted the font, added a local
+photo disk-cache, and a stale-data badge for History/Receivables — see "Offline/robustness pass"
+below. Then: full UZ translation of the whole cashier panel + fixed the UZ/EN toggle, which
+previously changed state but translated nothing — see "Full Uzbek translation" below.)
+
+## Admin panel build complete — summary (2026-07-27, same day)
+
+All 9 sidebar screens of the pos-app Admin panel port are now built: Dashboard (#22), Tables +
+New Order (#23), Menu (#24), Inventory (#25), Orders (#26), Loans (#27), Staff (#28), Restaurant
+Settings (#29), and Profile (#30, this session). This is a real milestone — every screen the
+website's Admin sidebar has, pos-app's Admin sidebar now has too, each ported verbatim from the
+corresponding website page under the standing "no design/functional changes, speed-only
+improvements allowed" rule. **It is functionally complete end-to-end, not "shippable" yet** —
+here's the honest full-scope picture of what's still outstanding, pulled from the actual task
+entries below, not re-guessed:
+
+(a) **Nothing has been tested on a real machine for ANY of the 9 screens.** Every single task
+entry below ends with its own "Not yet tested on the real machine — next check: ..." list. This is
+the single most important next step before this can be considered shippable — esbuild passing only
+confirms the JS/JSX is syntactically valid and every import resolves, not that any screen actually
+renders correctly, that any REST call succeeds against the live backend, or that any write persists
+correctly. A full pass through all 9 screens on the real Electron app, following each task's own
+"next check" list, needs to happen before anything else.
+
+(b) **The PowerSync Cloud Sync Streams dashboard config for Inventory/Loans/Staff's 9 extended
+tables (task #21) is still a pending manual step for the user.** `warehouse_items`, `suppliers`,
+`stock_batches`, `stock_movements`, `supplier_deliveries`, `delivery_items`, `loans`, `shifts`,
+`staff_payments` were all added to the `powersync` publication and to `pos-app/powersync/schema.js`
+this build session, but the actual Sync Streams query config (one stream per table, scoped to
+`restaurant_id`) has to be added by hand in the PowerSync Cloud dashboard's "the-bill-pos" project —
+no API access to that dashboard exists from this sandbox. See task #21's own STATUS.md section
+above for the exact column lists to use per table. Every screen that reads these 9 tables (Inventory,
+Loans, Staff) is built against REST regardless, by design, so this doesn't block using them today —
+it only blocks ever moving those reads to local PowerSync for speed later.
+
+(c) **Printing/print-related functionality was deliberately excluded from all 9 screens, per the
+standing rule for this whole build phase, and is explicitly the next major phase once the user says
+to start it.** Where the source actually had working print code, it was removed as dead code, not
+stubbed (Orders' `usePrinter()`/`printReceipt`/`handlePrintCheque()`/"Print Receipt" button;
+Settings' entire "Printers" tab — printer IP/port fields, the connect-a-printer guide, add-printer
+forms). Where a screen had none, that was confirmed by grep, not assumed (Dashboard, Tables, Menu,
+Inventory, Loans, Staff, Profile). This build phase's whole architecture (PowerSync + REST writes)
+was never meant to include real printer-hardware wiring — that's a distinct, larger piece of work
+(local ESC-POS socket printing, per RULES.md §4) waiting on an explicit go-ahead.
+
+(d) **A handful of small known gaps carried across screens, none of them new to this task:**
+  - **Photo/logo upload isn't wired to real IPC yet** (Menu's item photo, Settings' restaurant
+    logo) — `menuAPI.uploadImage`/`settingsAPI.uploadLogo` both throw "not yet supported" by design
+    (pos-app's IPC layer is JSON-only, no multipart/FormData path exists). Both screens show a
+    disabled control with an explanatory tooltip instead of a broken upload button. Real multipart
+    IPC support would need to be built before either upload actually works from pos-app.
+  - **The website's own `AdminNewOrder.jsx` has a real pre-existing bug** (found porting Tables,
+    task #23): its modal-mode branch never rendered the amount-picker for weighed/kg-l items at
+    all, so a cashier can never actually add a weighed item (e.g. "Jiz" rice) from the website's
+    Admin → Tables → New Order flow today. Fixed in the port (`NewOrderModal.jsx`), but **not yet
+    back-ported to the live website** — the same one-block JSX fix needs to land in
+    `website/src/pages/admin/AdminNewOrder.jsx` for the website itself to stop having this bug.
+  - **"+ New Order" in the Orders screen redirects to Tables, not a standalone new-order page.**
+    The website's Orders page calls `navigate('/admin/new-order')`, a full standalone route whose
+    page was never ported into pos-app (only the modal-mode branch Tables already uses was ported,
+    task #23) — pos-app's Orders screen redirects that button to Tables instead (task #26), the
+    actual place a new order gets created in this build, rather than landing on a blank
+    placeholder screen.
+
+## Fixed: menu photos blocked by CSP — real backend bug, not an Admin-panel-only issue (2026-07-27)
+
+First real-machine testing of the Admin panel (Tables screen) surfaced two console errors:
+1. Repeated `Failed to fetch tables: ... Client network socket disconnected before secure TLS
+   connection was established` — this is the ALREADY-DOCUMENTED, ALREADY-ACCEPTED Render free-tier
+   spin-down issue from earlier today (see the "RESOLVED" open-questions entry near the bottom of
+   this file) — not a new bug, expected to keep happening since the user chose to leave Render on
+   Free for now.
+2. `Refused to load the image 'http://the-bill-backend-pego.onrender.com/uploads/menu/....jpg'
+   because it violates the following Content Security Policy directive: "img-src 'self' data:
+   app-photo: https://the-bill-backend-pego.onrender.com".` — **this one is a real, previously-
+   unknown bug**, root-caused by reading the actual backend code, not guessed:
+   `restaurant-app/backend/src/routes/menu.js`'s upload endpoint builds the photo's `fullUrl` as
+   `` `${req.protocol}://${req.get('host')}${relativePath}` ``. Render terminates TLS at its own
+   edge and forwards to this Node process over plain HTTP internally (passing the real scheme via
+   an `X-Forwarded-Proto` header) — Express ignores that header unless `app.set('trust proxy', 1)`
+   is set, which it never was. So `req.protocol` has been reporting `'http'` for every upload,
+   meaning every stored `image_url` in the database is `http://...` instead of `https://...`.
+   pos-app's Admin panel CSP deliberately only allows `https://` for this origin (`img-src ...
+   https://the-bill-backend-pego.onrender.com`) — so every menu item photo with a bad stored URL
+   gets silently blocked by the browser instead of just failing to load. This would also affect
+   the website's own `<img>` tags via ordinary browser mixed-content blocking (not independently
+   confirmed live, but the same bad data underlies both).
+
+**Fixed on both ends:**
+- `restaurant-app/backend/src/server.js` — added `app.set('trust proxy', 1)` right after `express()`
+  init, with a comment explaining why. Fixes every NEW upload going forward. Committed locally
+  (`c24a2ca`) to the backend's own nested repo — **no GitHub push credentials in this sandbox, same
+  as every prior backend fix this project — needs `git push origin main` from
+  `restaurant-app/backend/` on the user's machine, then Render auto-deploys from there.**
+- Existing rows already saved with the bad `http://` URL are NOT retroactively fixed by the above
+  (it only affects future uploads) — handled client-side instead, immediately, no backend deploy
+  or data migration needed: `pos-app/src/pages/admin/screens/MenuScreen.jsx`'s `resolveImgUrl()`
+  now also upgrades `http://the-bill-backend-pego.onrender.com` → `https://` (same host/path, just
+  the scheme) before rendering. **Also fixed the identical latent bug in the already-shipped
+  cashier POS**: `pos-app/src/lib/localPhoto.js`'s `localPhotoSrc()` only ever recognized the
+  `https://` prefix when deciding whether to route a photo through the local disk cache — any
+  bad `http://` stored URL would have silently fallen through unchanged and hit the exact same CSP
+  block there too. Now checks both prefixes before extracting the filename; the `app-photo://`
+  scheme it returns carries no protocol at all, so this has zero effect on the caching behavior
+  either way, just fixes which URLs get recognized as "ours."
+
+All three touched files verified: `node --check` for `server.js`, Linux `esbuild` for
+`MenuScreen.jsx`/`localPhoto.js`. **Not yet re-tested on the real machine** — next check: once the
+backend fix is pushed and deployed, confirm existing menu photos with bad URLs now render in both
+the Admin Menu screen and the cashier's Menu screen (the client-side fix should make this work
+immediately, even before the push/deploy); re-upload a fresh photo afterward and confirm its new
+`image_url` is `https://` from the start.
+
+## Admin: Profile screen (2026-07-27, same day) — task #30
+
+Ninth and LAST real Admin screen, and the smallest of all 9 — ported verbatim from `website/src/
+pages/admin/AdminProfile.jsx` (~320 lines) into `pos-app/src/pages/admin/screens/ProfileScreen.jsx`
+(~320 lines), exported as `AdminProfileScreen`: the logged-in admin's own profile info card (name/
+phone/email/role/member-since/last-login), a Security card with a change-password action, a Sign
+Out button, an edit-profile modal, and a change-password modal — all over `usersAPI.getMe()`/
+`update()`/`updateCredentials()`, no polling.
+
+**No AuthContext in pos-app — the one real structural adaptation, same class of fix as every other
+screen that needed the current user.** The website reads/writes the logged-in user via `useAuth()`
+(`authUser`/`updateUser`, backed by its own `AuthContext.jsx` + `localStorage`); pos-app has no such
+context, just a plain `user` prop handed down from `App.jsx`'s session state through
+`AdminPanel.jsx`/`AdminShell.jsx`. Replaced `authUser` with a local `profile` state seeded from the
+`user` prop and refreshed from `usersAPI.getMe()` on mount, exactly matching the source's own
+"fetch fresh, fall back to cached on failure" behavior; `updateUser(patch)` calls became
+`setProfile(prev => ({ ...prev, ...patch }))`.
+
+**Known, deliberately-flagged limitation, not a silent bug.** Editing your name/phone updates this
+screen's own display immediately (identical to the website), but `AdminShell.jsx`'s sidebar header
+(avatar initials + name) reads a `user` prop snapshot taken once when the Admin panel mounted, with
+no callback wired back up to refresh it — so the sidebar itself won't reflect the edit until the
+next login. The website doesn't have this gap since its `AuthContext` is one shared source of truth
+for both the profile page and its own layout. Re-threading a live-update callback through
+`App.jsx` → `AdminPanel.jsx` → `AdminShell.jsx` was judged out of scope for a cosmetic staleness gap
+on a rarely-changed field, on the very last screen of this build — flagged clearly in the file's own
+header comment for a future session to pick up if the project owner wants the sidebar to update
+live.
+
+**Sign Out button routed through the existing centralized logout, not re-implemented as a second
+code path.** The source's Sign Out button does its own `localStorage.removeItem('token'/'user')` +
+`window.location.href = '/login'` — a raw browser redirect that has no equivalent in Electron (no
+such URL to navigate to outside `App.jsx`'s own router, and pos-app's real logout also has to call
+`window.electronAPI.logout()` first). `AdminShell.jsx`'s sidebar already has its own "Sign Out"
+button wired to exactly that real flow via an `onLogout` prop from `AdminPanel.jsx`'s
+`handleLogout` — extended `AdminShell.jsx` to also pass `onLogout` down to whichever screen is
+active (alongside the existing `navigate`/`openOrderId`/`clearOpenOrderId`), so this screen's
+identical Sign Out button/confirm-dialog now calls that same function. Every other screen ignores
+the extra prop harmlessly, same precedent as `navigate` itself being passed to screens that never
+call it.
+
+**All three standing build-wide concerns grepped clean — verified against the real file, not taken
+on the task brief's own "likely none" prediction.**
+- **Printing:** zero matches for "print"/"Print" anywhere in the source — nothing to exclude.
+- **`window.prompt`/`window.confirm`/`window.alert`:** zero matches for all three (plus bare
+  `confirm(`/`alert(`/`prompt(`) — the source's only confirm-style interaction (Sign Out) already
+  goes through its own `ConfirmDialog` component, the same pattern this build standardized on after
+  Inventory's/Staff's real bugs — nothing needed fixing here.
+- **Avatar/photo upload:** re-confirmed none exists, rather than trusting the earlier MEMORY.md
+  note verbatim. The header avatar is a pure initials chip (`getInitials`), no file input, no
+  upload API call anywhere in the file — the `menuAPI.uploadImage`/`settingsAPI.uploadLogo`
+  disabled-control precedent doesn't apply here because there's genuinely nothing to stub.
+
+**No new shared dependencies.** `usersAPI` (client.js — `getMe`/`update`/`updateCredentials`) and
+`ConfirmDialog`/`PhoneInput` (+ its named `formatPhoneDisplay` export) were all already ported and
+verified for earlier screens — every method this screen calls matches exactly. All 16 lucide icons
+this screen imports (`User`, `Mail`, `Phone`, `Shield`, `Save`, `X`, `LogOut`, `Lock`, `Edit2`,
+`Eye`, `EyeOff`, `Clock`, `Calendar`, `ChevronRight`, `Check`, `AlertCircle`) confirmed present in
+the installed `lucide-react` version by listing its `dist/esm/icons/` folder directly, not assumed.
+All 28 unique `t()` keys this screen calls diffed key-by-key against both `en.json`/`uz.json` by
+script — zero missing in either language, all already present from earlier work (`admin.profile.*`/
+`common.*`/`alerts.failed*`/`placeholders.yourName`), nothing new added.
+
+**Files:** `pos-app/src/pages/admin/screens/ProfileScreen.jsx` (new, ~320 lines),
+`pos-app/src/pages/admin/AdminShell.jsx` (`onLogout` now also passed to the active screen, header
+comment updated), `pos-app/src/pages/admin/AdminPanel.jsx` (`profile: ProfileScreen` uncommented in
+`SCREENS`). All three esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react). **Not yet tested on the real machine** — next check:
+open Profile from the sidebar (or Dashboard's own Quick Action button, which already targeted
+`/admin/profile` since task #22) and confirm the header/info card/security card render with real
+data; edit name/phone and Save Changes, confirm the screen's own display updates immediately (email
+field stays disabled, matching the source); change password with a too-short value, a mismatched
+confirm, and a valid matching pair, and confirm each validation path plus the final success toast;
+tap Sign Out, confirm the styled confirm dialog appears, and confirm confirming it actually signs
+out (the concrete `onLogout` wiring to verify) — the sidebar's own separate Sign Out button should
+still work identically, unaffected by this change.
+
+## Admin: Restaurant Settings screen (2026-07-27, same day) — task #29
+
+Tenth real Admin screen, and the smallest one so far — ported from `website/src/pages/admin/
+AdminRestaurantSettings.jsx` (~994 lines) into `pos-app/src/pages/admin/screens/SettingsScreen.jsx`
+(~440 lines), exported as `AdminSettingsScreen`: a 4-tab sidebar form — Restaurant Info (name/
+address/phone/logo), Financial (currency symbol, tax rate/enabled, service charge rate/enabled),
+Receipt Template (header/footer text + what shows on the customer receipt), and Kitchen Order
+Template (what shows on the kitchen order slip) — all over a single `settingsAPI.get()`/`update()`
+round-trip, no polling. Built against REST throughout, per the recommendation already on record
+from task #21's PowerSync-scoping research: all 3 backing tables (`restaurant_settings`/
+`custom_stations`/`menu_items`) are in the local sync scope now, but this is a single infrequent-
+read settings page and writes must stay REST regardless, so no local-PowerSync read was attempted.
+
+**Printing — the whole "Printers" tab excluded entirely, not just print-trigger code, per the
+standing rule's own callout that a restaurant-settings screen "almost certainly has printer IP/
+port settings fields."** Every printer-related piece found and individually accounted for:
+1. **Receipt printer cards** — name, IP, port fields per printer, a "not configured" status badge.
+2. **Kitchen printer cards** — same name/IP/port fields, plus per-printer kitchen-station
+   assignment toggles (which stations route to which printer).
+3. **`PrinterSetupGuide`** — the collapsible 5-step "how to connect a network printer" walkthrough,
+   a compatible-printer list (Epson TM-T20/TM-T88, Xprinter, Star TSP100, etc.), and a
+   troubleshooting box.
+4. **`AddFormPanel`** — the shared add-printer draft form (name/IP/port + station picker for
+   kitchen printers) used by both the receipt- and kitchen-printer "add" flows.
+5. **`PrintersPanel` itself** and its `loadStations()` (a 3-source merge of preset station names +
+   stations already used by menu items + custom DB stations, existing only to populate the
+   kitchen-printer station picker).
+All five removed entirely as dead code (matching how the Orders screen, task #26, deleted its
+excluded print flow outright rather than disabling it in place) — including the `printers` entry
+in `SECTIONS`, so the tab itself no longer appears in the sidebar at all, not shown greyed out.
+This let `menuAPI` drop out of the import list completely — grepped the source and confirmed its
+only call sites (`getStations`/`getItems`) were both inside the now-removed `loadStations`. Icons
+that only served the removed UI (`Printer`, `Wifi`, `Network`, `MonitorCheck`, `ChevronDown`,
+`ChevronUp`, `Plus`, `Trash2`) dropped from the import list too.
+
+**A real data-preservation fix this exclusion required, not present in the website's own code.**
+`form.receiptPrinters`/`form.kitchenPrinters` are still loaded from `settingsAPI.get()` into state
+and sent back completely UNCHANGED inside `settingsAPI.update(form)` on every save, even though
+this port renders no UI for either array anywhere. Without this, saving any unrelated setting here
+(e.g. just the currency symbol) would send both arrays back as empty lists and silently wipe out
+real printer IP/port configuration entered via the website's own Printers panel — a genuine
+correctness risk the website itself never hits, since its own UI always round-trips the user's
+current edits to those same fields. Documented explicitly in the file's own header comment as a
+deliberate addition made specifically because of the printer-UI removal, not an oversight.
+
+**Receipt/Kitchen "template" toggles were deliberately KEPT — a distinction from the printer
+exclusion above, not an inconsistency.** `ReceiptTemplatePanel` (receipt header/footer text plus
+show-logo/tax/service-charge/footer/order-number/table-name toggles) and `KitchenTemplatePanel`
+(kitchen ticket show-order-type/table-name/order-number/customer-name/qty-unit/item-price/notes/
+timestamp toggles) are pure `restaurant_settings` data fields with zero print-execution code
+attached anywhere in this file — no `print()` call, no `printAPI`, no printer hookup of any kind —
+they just configure content the website/print-agent read elsewhere. The task brief for this screen
+explicitly scoped "receipt header/footer text" as in-scope, distinct from "printer settings
+(EXCLUDE)" — these two panels are the receipt-content half, not the printer-hardware half, and
+were ported unchanged and stay fully functional.
+
+**Logo upload — the known `settingsAPI.uploadLogo` stub, handled with the exact `MenuScreen.jsx`
+precedent flagged for this in MEMORY.md ahead of time.** Rather than wire the file picker to a
+handler that would always throw ("image upload is not yet supported in the Admin panel" — pos-
+app's IPC layer is JSON-only, no multipart/FormData path exists yet), `LogoUpload` now renders a
+disabled, dashed-border control (amber `AlertTriangle` icon + label + tooltip) in place of both the
+"no logo yet" upload prompt and the "replace logo" action — reusing the existing `admin.menu.
+uploadNotSupportedLabel`/`uploadNotSupportedHint` i18n keys verbatim rather than adding a duplicate
+settings-scoped pair, since the message content applies unchanged. The existing-logo preview and
+its "Remove" button are pure local state (no upload API involved) and stay fully functional, same
+as Menu's photo-remove button. Source's `handleFile`/`uploading`/`uploadError` state and the hidden
+`<input type="file">` dropped as unreachable dead code behind the disabled control.
+
+**`window.prompt`/`window.confirm`/`window.alert` — grepped clean.** Zero matches for all three
+(plus bare `confirm(`/`alert(`/`prompt(`) across the whole source file — nothing needed the
+ConfirmDialog/local-modal replacement pattern Inventory/Staff needed. No `navigate` prop needed
+either — this screen never calls react-router navigation anywhere in the source (confirmed by
+grep, same situation as Menu/Inventory/Loans/Staff).
+
+**No new shared dependencies.** `settingsAPI` (client.js — `get`/`update`/`uploadLogo`) was already
+ported and verified for the foundation task (#20); every method this screen actually calls matches
+exactly. All 9 lucide icons this screen imports (`Store`, `DollarSign`, `Percent`, `Receipt`,
+`Check`, `AlertCircle`, `AlertTriangle`, `X`, `UtensilsCrossed`) confirmed present in the installed
+`lucide-react` version by listing its `dist/esm/icons/` folder directly, not assumed. Every real
+`t()` key this screen calls (47 keys) diffed key-by-key against both `en.json`/`uz.json` by
+script — zero missing in either language. (First diff-script pass over-counted due to a naive regex
+matching `set('restaurantName')`-style local closure calls as if they were `t(...)` calls; re-run
+with a lookbehind-anchored pattern excluding any `t(` preceded by another identifier character,
+which correctly narrowed it to the 47 real translation keys.)
+
+**Files:** `pos-app/src/pages/admin/screens/SettingsScreen.jsx` (new, ~440 lines),
+`pos-app/src/pages/admin/AdminPanel.jsx` (`settings: SettingsScreen` uncommented in `SCREENS`).
+Both esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external react/react-dom/
+react-router-dom/lucide-react — the usual harmless tailwindcss/theme.css resolution warnings
+ignored, same as every prior Admin screen). **Not yet tested on the real machine** — next check:
+open Settings from the sidebar, confirm all 4 tabs load with real data and the sidebar shows no
+Printers tab at all; edit restaurant name/address/phone and Save Changes, confirm it persists
+after a reload; toggle tax/service charge on and confirm the rate field appears/disappears and
+saves correctly; edit receipt header/footer text and toggle each receipt/kitchen display option,
+confirm they persist; confirm the logo section shows the disabled "not available yet" control
+(amber icon + tooltip) whether or not a logo is already set, and that an existing logo (set via the
+website) still previews and its Remove button still works; most important given the data-
+preservation fix above — set up a receipt or kitchen printer via the **website's** Settings page
+first, open this screen in pos-app, save an unrelated field (e.g. currency symbol), then reload
+the website's Settings page and confirm the printer configuration is still intact (the concrete
+regression the `receiptPrinters`/`kitchenPrinters` pass-through exists to prevent — verify it
+actually works, not just that it compiles).
+
+## Admin: Staff screen (2026-07-27, same day) — task #28
+
+Ninth real Admin screen — ported verbatim from `website/src/pages/admin/AdminStaff.jsx` (~2075
+lines) into `pos-app/src/pages/admin/screens/StaffScreen.jsx` (~2155 lines), exported as
+`AdminStaffScreen`. Three tabs: **Staff** (staff CRUD — add/edit/suspend/delete, login-credentials
+editor, kitchen-station text input + quick-pick presets with custom-station add/delete backed by
+the DB), **Attendance** (a live per-day clock-in/out status view — manual clock-in as present/late,
+mark-absent, clock-out, plus a manual-shift and edit-shift modal, and a historical shifts table),
+and **Payroll** (salary-type-aware computation — hourly/daily/weekly/monthly — with debt carry-over
+from each staff member's last recorded payment, a record-payment modal, a collapsible attendance +
+payroll summary banner, and a payroll details modal with salary breakdown/payment history/
+attendance records per staff member). Same 1s live-timer tick + 10s background refresh as the
+source.
+
+**The live staff-status complication, handled exactly per the pre-flagged note (task #21's own
+flag, and this task's own brief).** The Attendance tab's per-card "on shift" dot and the Staff
+tab's own small status dot both read from `shiftsAPI.getStaffStatus()` → REST `GET /shifts/admin/
+staff-status`, which does real server-side "pick today's most relevant shift row per user,
+priority-ordered (active > completed > absence)" logic on the backend — not a plain table select.
+This was **not** reimplemented client-side and **not** read from local PowerSync, even though
+`shifts`/`staff_payments` were added to the `powersync` publication earlier this session (task
+#21) — the PowerSync Cloud Sync Streams config for those tables still isn't live regardless (a
+separate, still-open blocker — see task #21's own section above), and even once it is, this
+specific "today's most relevant shift" priority-pick is real business logic that belongs on the
+server, not something to duplicate in client SQL. Called `shiftsAPI.getStaffStatus()` via REST
+throughout, exactly like the website does — built against REST from the start, per the explicit
+instruction not to "optimize" this into a local-PowerSync read prematurely.
+
+**No new shared dependencies — `ConfirmDialog` was reused, not re-ported.** `usersAPI`/
+`shiftsAPI`/`staffPaymentsAPI`/`menuAPI` (client.js), `money` (lib/adminFormat.js), `Dropdown`/
+`DatePicker`/`PhoneInput`/`ConfirmDialog` (components/) were all already ported and verified for
+earlier screens — every method this screen actually calls on each was checked against the real
+`client.js` and matches exactly, including `shiftsAPI.getStaffStatus`/`getAll`/`updateShift`/
+`createManualShift`/`clockIn`/`adminClockOut` and `staffPaymentsAPI.getAll`/`getLatest`/`create`/
+`delete`. `shiftsAPI.getPayroll` exists in `client.js` but this screen never calls it (grepped,
+zero call sites) — it computes payroll client-side from raw shifts + payment history instead, the
+same "confirmed unused, not assumed" pattern as Loans' `loansAPI.getStats()`. `permissionsAPI` —
+imported by the source (`usersAPI, shiftsAPI, staffPaymentsAPI, permissionsAPI, menuAPI`) but never
+called anywhere in the file (grepped, zero call sites — the source's own "── PERMISSIONS MODAL ──"
+comment near the delete modal has no actual modal body under it) — dropped from the port entirely,
+nothing to port. No `navigate` prop needed — this screen never calls react-router navigation
+anywhere in the source (confirmed by grep, same situation as Menu/Inventory/Loans).
+
+**Printing — grepped clean.** Grepped the source for "print"/"Print" — zero matches, nothing to
+exclude.
+
+**Real `window.confirm()` bug found and fixed — the second Electron-native-dialog bug found in
+this build, same class of issue as Inventory's `window.prompt()` fix (task #25).** Grepped the
+whole source for `window.prompt`/`window.confirm`/`window.alert` plus bare `confirm(`/`alert(`/
+`prompt(` and found one real hit: a bare `confirm(t('admin.staff.deletePaymentConfirm', {...}))`
+guarding the delete-payment button inside the payroll details modal — the source never imports its
+own `components/ConfirmDialog.jsx` for this, unlike Menu/Inventory which already use it for their
+own confirm/alert-style prompts. Replaced with the same styled `ConfirmDialog` component every
+other ported screen already uses (new `dialog`/`setDialog` state, `<ConfirmDialog dialog={dialog}
+onClose={...}/>` rendered once near the bottom) — identical functional outcome (Cancel/Delete
+choice, same message), just reliable in this runtime instead of a browser-native dialog Electron's
+renderer doesn't consistently support.
+
+Four unused lucide icon imports dropped (`Shield`, `LogOut`, `LogIn`, `UserX`) — confirmed by
+checking every `<IconName`/`icon:`/`Icon:` JSX usage in the source, none of the four ever renders.
+`Users` IS used (as `icon: Users` for the Staff tab's own tab-icon, not `<Users`), so it's kept.
+Remaining 33 icons confirmed present in the installed `lucide-react` version by checking its
+`dist/esm/icons/` folder directly (`Edit2`→`edit-2.js`, `Trash2`→`trash-2.js`, the same
+non-obvious kebab-case mappings already known from earlier screens). Every translation key this
+screen calls `t()` with (150 real keys via script diff, plus the two dynamic
+`admin.staff.salaryTypes.${type}` template-literal keys checked separately since a literal-string
+regex diff can't catch those) diffed key-by-key between website and pos-app `en.json`/`uz.json`:
+zero missing in either language, including `admin.staff.salaryTypes.*` and `admin.staff.
+kitchenStations.*`.
+
+**Files:** `pos-app/src/pages/admin/screens/StaffScreen.jsx` (new, ~2155 lines),
+`pos-app/src/pages/admin/AdminPanel.jsx` (`staff: StaffScreen` uncommented in `SCREENS`). Both
+esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react — the usual harmless tailwindcss/theme.css resolution
+warnings ignored, same as every prior Admin screen). **Not yet tested on the real machine** — next
+check: open Staff from the sidebar, confirm the staff list loads with real data and role filter
+pills/search work; add a new staff member (incl. a Kitchen-role member with a station quick-pick
+and a custom station add) and confirm the "credentials created" modal shows the right login info;
+edit/suspend/delete a staff member; on the Attendance tab, clock a staff member in as present/late,
+mark another absent, then clock the first one out, and confirm the live "on shift" dot and elapsed
+timer update correctly (this is the concrete `shiftsAPI.getStaffStatus()` REST round-trip to
+verify); edit a historical shift record via the edit-shift modal; on the Payroll tab, switch
+between This Month/Last Month/Custom range, record a payment against staff with each salary type
+(hourly/daily/weekly/monthly) and confirm the remaining-due number drops correctly; open a staff
+member's payroll details modal, confirm the salary breakdown + payment history render, then delete
+a payment from that modal and confirm the new `ConfirmDialog` prompt appears (the specific
+`window.confirm()` compatibility fix to verify) and the delete goes through when confirmed.
+
+## Admin: Loans screen (2026-07-27, same day) — task #27
+
+Eighth real Admin screen, and the smallest one so far — ported verbatim from `website/src/pages/
+admin/AdminLoans.jsx` (~939 lines): a loans list with 4 stat cards (total/active/overdue/
+outstanding), search + status-filter pills, a date-range calendar picker (10s silent poll while
+open period is whatever the picker last set, defaulting to all-time), a loan details modal (pulls
+the linked order's items and computes their subtotal via `ordersAPI.getById`), and a collect-
+payment modal (cash/card/QR, no split, no discount — much simpler than Orders' payment modal since
+a loan is always a single fixed amount). Exported as `AdminLoansScreen`, matching the
+`AdminOrdersScreen`/`AdminMenuScreen` naming convention from earlier screens.
+
+**No new shared dependencies.** `loansAPI`/`ordersAPI` (client.js), `money` (lib/adminFormat.js),
+and `useTranslation` (context/LanguageContext.jsx) were all already ported and verified for
+Dashboard/Tables/Menu/Inventory/Orders — every method this screen actually calls
+(`loansAPI.getAll`/`markPaid`, `ordersAPI.getById`) was checked against the real `client.js` and
+matches exactly. This screen doesn't use `Dropdown`/`DatePicker`/`PhoneInput`/`ConfirmDialog` at
+all — it has its own inline `CalendarPicker` component (byte-for-byte ported, not swapped for the
+shared `DatePicker.jsx`, since the source never used that component either) — and never calls
+`navigate` anywhere (confirmed by grep, same situation as Menu/Inventory), so no `navigate` prop is
+taken.
+
+**Printing — grepped clean.** Grepped the source for "print"/"Print" — zero matches, nothing to
+exclude.
+
+**`window.prompt`/`window.confirm`/`window.alert` — grepped clean.** Zero matches for all three.
+This screen never uses any of them, unlike Inventory's two real `window.prompt()` bugs — nothing
+needed the local-modal-replacement pattern here.
+
+**Two real findings that correct assumptions from the task brief, both re-verified against the
+actual file rather than re-guessed:**
+1. **There is no "remind overdue" flow anywhere in `AdminLoans.jsx`.** `client.js`'s `loansAPI.
+   notifyOverdue()` (`POST /loans/notify-overdue`) exists and matches a real backend route, but
+   grepping the source file for "notify"/"remind"/"Remind" turns up zero call sites — no button,
+   no handler, nothing. The task brief expected a remind-overdue flow to exist on this screen; it
+   doesn't. Nothing was ported for it since there's nothing in the source to port.
+2. **`loansAPI.getStats()`-is-unused, confirmed true.** `client.js` has the method and it matches
+   a real backend route, but this screen never calls it — grepped, zero call sites. It computes
+   its own `totalLoans`/`activeLoans`/`overdueLoans`/`totalOutstanding` client-side by reducing
+   over the raw array from `loansAPI.getAll()` instead. The earlier research note held up exactly
+   as expected.
+
+**Files:** `pos-app/src/pages/admin/screens/LoansScreen.jsx` (new, ~840 lines),
+`pos-app/src/pages/admin/AdminPanel.jsx` (`loans: LoansScreen` uncommented in `SCREENS`). Both
+esbuild-verified clean (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react — the usual harmless tailwindcss/theme.css
+resolution warnings ignored, same as every prior Admin screen); every lucide icon used
+(`CreditCard`/`AlertCircle`/`Check`/`Loader2`/`Search`/`X`/`Wallet`/`QrCode`/`Receipt`/`Clock`/
+`User`/`TableProperties`/`Calendar`/`ChevronDown`/`Banknote`/`TrendingUp`/`Phone`/`FileText`/
+`ShoppingBag`/`CalendarDays`/`Hash`/`Info`) confirmed present in the installed `lucide-react`
+version by listing its `dist/esm/icons/` folder directly, not assumed (`Loader2` → `loader-2.js`
+was the one non-obvious kebab-case mapping, double-checked). All 50-ish unique translation keys
+this screen calls `t()` with (`cashier.loans.*`, `periods.*`, `common.*`, `datePicker.*`,
+`paymentMethods.*`, `statuses.paid`, `cashier.orders.confirmPayment`) diffed key-by-key between
+website and pos-app `en.json`/`uz.json` by script — zero missing in either language, including the
+two array-valued keys (`datePicker.months`/`datePicker.days`). **Not yet tested on the real
+machine** — next check: open Loans from the sidebar, confirm the stats/list load with real data and
+the 10s poll doesn't flicker; search and filter by status; open the date-range calendar picker and
+confirm a custom range actually re-fetches; tap a loan to open its details modal and confirm the
+linked order's items and subtotal load correctly (and that a loan with no `orderId` shows "No order
+linked" instead of erroring); collect a payment with each method (cash/card/QR) from both the list
+row's quick "Mark Paid" button and the details modal's own button, and confirm the loan flips to
+paid in both the list and the stats immediately after.
+
+## Admin: Orders screen (2026-07-27, same day) — task #26
+
+Seventh real Admin screen, ported verbatim from `website/src/pages/admin/AdminOrders.jsx` (~2145
+lines): active/paid/cancelled order tabs with status badges and elapsed-time cards, order detail
+modal (items, payment/loan breakdown incl. split-payment parts, timestamps), status-flow buttons
+(pending → sent to kitchen → preparing → ready → served → bill requested), edit-in-modal (table/
+waitress/guest count, item steppers incl. the weighed kg/L amount picker, add-items search, notes),
+cancellation with a reason picker, delete-with-reason, and the Collect Payment modal (cash/card/QR/
+loan methods, cash change, %/fixed discount, 2/3/4-way split with per-part method + loan fields).
+Same 30s active-order poll as the source. Exported as `AdminOrdersScreen` (matching the
+`AdminMenuScreen`/`AdminOrdersScreen` naming pattern from Menu's port) to avoid any confusion with
+the unrelated cashier-side `pos-app/src/pages/pos/OrdersScreen.jsx` — different folder, no actual
+filename collision.
+
+**No new shared dependencies.** `ordersAPI`/`menuAPI`/`tablesAPI`/`usersAPI` (client.js),
+`useApi`/`money`/`fmtDate` (hooks/useApi.js, re-exporting lib/adminFormat.js), and
+`Dropdown`/`DatePicker`/`PhoneInput` (components/) were all already ported and verified for
+Dashboard/Tables/Menu/Inventory — every method this screen actually calls on each was checked
+against the real `client.js` and matches exactly. `accountingAPI` (source only imports it for
+`getRestaurantSettings()`, feeding the now-removed print flow) was dropped — no other call site.
+
+**The `?open=<id>` deep-link gap, left open since Tables' port (task #23), solved.** The website
+reads `?open=<id>` off `/admin/orders?open=<id>` (the URL TablesScreen.jsx's "View Full Order"
+button already calls, since task #23) via react-router's `useLocation().search`, fetches that order,
+opens the detail modal, then strips the param with `navigate(pathname, {replace:true})`. pos-app has
+no URL/query-string routing at all. Solved by extending `AdminShell.jsx`'s existing `goTo(path)`
+adapter (which already had to split on `?` to strip the query string for nav-key matching) to also
+parse an `open=<id>` value out of that query string into new `openOrderId` state, passed down to
+whichever screen is currently active as a plain prop pair: `openOrderId` and `clearOpenOrderId`
+(alongside the existing `navigate` prop, which every screen already receives whether it uses it or
+not). `OrdersScreen.jsx` consumes `openOrderId` in a `useEffect` — fetches the order via
+`ordersAPI.getById`, opens the detail modal if found, then calls `clearOpenOrderId()` in a `finally`
+so a later re-render or a trip to another screen and back doesn't reopen the same order again. Same
+functional outcome as the website's URL-based version, just prop-based — every other screen ignores
+the extra props harmlessly. `AdminShell.jsx`'s own header comment and `goTo`'s inline comment both
+document the reasoning; `TablesScreen.jsx` itself needed no changes — its "View Full Order" button
+already called the right URL shape since task #23.
+
+**"+ New Order" button — one real, deliberate functional deviation.** The source's header button
+calls `navigate('/admin/new-order')`, the website's standalone `AdminNewOrder.jsx` page (a full
+route, distinct from the `isModal` branch `NewOrderModal.jsx` already ports). That standalone branch
+was explicitly never ported (see `NewOrderModal.jsx`'s own header comment from task #23) — Tables is
+the only caller anywhere in this build and always passes `isModal`. Porting the full standalone page
+was out of scope for this task, so `/admin/new-order` doesn't exist as a pos-app screen; pointing the
+button at it would have silently landed on the "coming in a later build step" placeholder instead of
+doing anything useful. Redirected it to `navigate('/admin/tables')` instead — the actual place a new
+order gets created in this port (tap a free table → New Order modal, from task #23). Flagged clearly
+in the file's own header comment rather than left silent, since this is a genuine behavior change,
+not a pure visual one.
+
+**Printing — excluded per the standing rule, and this screen actually had real print code to strip**
+(unlike Tables/Menu/Inventory, which had none or only dead-behind-`isCashier` code). Grepped the
+source for "print"/"Print" first and found: the `usePrinter()` hook import/call (`printReceipt`),
+the `restSettings` state + its `accountingAPI.getRestaurantSettings()` effect (only existed to feed
+the receipt header/footer text into the print), the `fmtOrderNum()` helper (only existed to format
+the printed order number), `handlePrintCheque()` (built the full receipt HTML string and called
+`printReceipt`), the `Printer` icon import, and the "Print Receipt" button itself in the Collect
+Payment modal's action footer (between Confirm Payment and Cancel). All removed entirely as dead
+code once printing was excluded — none of it had any other call site, confirmed by grep before
+deleting each piece. The Payment modal's action footer now shows just Confirm Payment + Cancel.
+
+**`window.prompt`/`window.confirm`/`window.alert` — checked per the standing Inventory-screen
+lesson, found clean.** Grepped the whole source file for all three — zero matches. Unlike Inventory
+(which had two real, silently-broken `window.prompt()` calls), this screen never uses any of them;
+nothing needed the local-modal-replacement pattern here.
+
+**Files:** `pos-app/src/pages/admin/screens/OrdersScreen.jsx` (new, ~2005 lines),
+`pos-app/src/pages/admin/AdminShell.jsx` (`goTo` extended to parse+store `openOrderId`, new prop
+pair passed to the active screen, header comment updated), `pos-app/src/pages/admin/AdminPanel.jsx`
+(`orders: OrdersScreen` uncommented in `SCREENS`). All three esbuild-verified clean; every lucide
+icon actually rendered (`ClipboardList`/`Check`/`X`/`AlertTriangle`/`Trash2`/`RefreshCw`/`Calendar`/
+`DollarSign`/`Grid3X3`/`User`/`CreditCard`/`Ban`/`Edit3`/`Plus`/`Minus`/`FileText` — confirmed by
+checking every `<IconName` JSX usage plus the payment-method grid's dynamic `<Icon/>` reference,
+`Icon: Grid3X3`) confirmed present in the installed `lucide-react` version by listing its
+`dist/esm/icons/` folder directly; five icons the source imports but never actually renders
+(`Clock`/`Filter`/`ChevronDown`/`Eye`/`Receipt`) dropped as dead imports rather than carried forward.
+Every `admin.orders.*`/`admin.newOrder.*`/`cashier.orders.*`/`common.*`/`paymentMethods.*`/
+`periods.*`/`placeholders.*`/`roles.*`/`statuses.*`/`owner.sales.*` translation key this screen needs
+(113 unique keys total) diffed key-by-key between website and pos-app `en.json`/`uz.json` by script —
+zero missing in either language, including the two array-valued keys (`deleteReasons`/
+`cancelReasons`), confirmed pos-app's `LanguageContext.jsx`'s `t()` returns non-string values as-is
+so `.map()` on them works unchanged. **Not yet tested on the real machine** — next check: open Orders
+from the sidebar, confirm active/paid/cancelled tabs load with real data and the 30s poll doesn't
+flicker; walk an order through the full status flow; edit an order (incl. a weighed item) and confirm
+Save Changes persists; cancel an order with a reason; collect a payment with each method incl. a
+2/3-way split with a loan part, and confirm the modal has no visible gap where the Print Receipt
+button used to be; from Tables, tap an occupied table → "View Full Order" and confirm it now actually
+lands on that specific order's detail modal (was previously just the Orders tab, since this screen
+didn't exist to consume the deep link); from Orders' own header, tap "+ New Order" and confirm it
+lands on Tables (not a blank placeholder).
+
+## Admin: Inventory screen (2026-07-27, same day) — task #25
+
+Sixth real Admin screen, and the largest one so far — ported verbatim from `website/src/pages/
+admin/AdminInventory.jsx` (~2170 lines): warehouse items (stock table with expandable batches,
+low/critical/out-of-stock status), deliveries-in (pending vs. completed, period presets, unpaid-
+debt banner), stock output (OUT/WASTE/ADJUST grouped by item, netted against any order-edit
+refunds via the existing `isOrderRefund`/`autoOrderReasonBadge` logic), and suppliers (cards,
+per-supplier detail, outstanding-debt summary with bulk-pay). Same 15s silent poll and 4 tabs as
+the source. No `navigate` prop needed — like Menu, this screen never calls react-router navigation
+anywhere (confirmed by grep).
+
+**Two new shared dependencies:** `website/src/components/Dropdown.jsx` (custom `<select>`
+replacement) ported to `pos-app/src/components/Dropdown.jsx` completely unchanged — no context/
+translation dependency at all. `website/src/components/DatePicker.jsx` (calendar popover via
+`createPortal`) ported to `pos-app/src/components/DatePicker.jsx`, only its `useTranslation` import
+path adjusted, same as `ConfirmDialog.jsx` before it. `warehouseAPI`/`suppliersAPI`/
+`procurementAPI`/`ConfirmDialog`/`PhoneInput` were already ported and verified for Dashboard/
+Tables/Menu, reused unchanged.
+
+**Printing:** grepped `AdminInventory.jsx` for "print"/"Print" — zero matches, nothing to exclude.
+
+**Real runtime-compatibility fix, not a design change — the `window.prompt()` gap.** The source
+calls `window.prompt()` twice, both inside the pending-delivery detail modal (adjust a line's
+quantity; ask for a removal reason). Electron's renderer does not implement `window.prompt()` at
+all — unlike `alert`/`confirm`, which Chromium does support (this codebase already replaces those
+with the styled `ConfirmDialog` purely for visual consistency, not because they're broken). Calling
+the real `window.prompt()` here would have silently no-op'd or thrown, quietly breaking both
+actions. Replaced with a small local modal (`promptModal`/`promptValue` state in
+`InventoryScreen.jsx`) that asks for the same single value and calls the same handlers afterward —
+identical functional outcome. Kept local to this file, not a new shared component, since nothing
+else has needed it yet (see MEMORY.md).
+
+**`inventoryAPI`-is-dead-code / `purchase_orders`-are-unused facts, re-verified against the real
+file:** confirmed by grep — this screen calls `warehouseAPI`/`suppliersAPI`/`procurementAPI`
+exclusively, never `inventoryAPI`; never calls `suppliersAPI.getPurchaseOrders/
+createPurchaseOrder/receivePurchaseOrder` or `warehouseAPI.audit` either, despite those existing
+in `client.js` with matching signatures. Both held up exactly as expected.
+
+**Files:** `pos-app/src/pages/admin/screens/InventoryScreen.jsx` (new, ~2050 lines),
+`pos-app/src/components/Dropdown.jsx` (new), `pos-app/src/components/DatePicker.jsx` (new),
+`pos-app/src/pages/admin/AdminPanel.jsx` (`inventory: InventoryScreen` uncommented in `SCREENS`).
+All four esbuild-verified clean; every lucide icon used (incl. `Edit2`/`Trash2`/`Check`/
+`ChevronLeft`) confirmed present in the installed `lucide-react` version by listing its
+`dist/esm/icons/` folder directly; every `admin.inventory.*`/`owner.inventory.*`/`placeholders.*`/
+`periods.*`/`common.*` translation key this screen needs diffed key-by-key between website and
+pos-app `en.json`/`uz.json` by script — zero missing in either language. **Not yet tested on the
+real machine** — next check: open Inventory from the sidebar, confirm all 4 tabs load with real
+data; add/edit/delete a warehouse item; receive goods and record output against a real item and
+confirm the stock number and Output tab's grouped total update correctly; record a delivery, mark
+it Delivered, confirm stock lands in the warehouse; on an in-transit delivery, use "Adjust Qty" and
+"Remove" on a line and confirm the new prompt-replacement modal actually appears and works (the
+specific compatibility fix to verify — a real `window.prompt()` would silently do nothing here);
+add/edit a supplier and confirm the debt summary and bulk-pay flow work against real unpaid
+deliveries.
+
+## Admin: Menu screen (2026-07-27, same day) — task #24
+
+Fifth real Admin screen, ported verbatim from `website/src/pages/admin/AdminMenu.jsx` (~1229
+lines) — category sidebar (add/rename/delete + up/down reorder with full-list `sortOrder`
+normalization so the DB never ends up with duplicate `sort_order=0` rows), item grid (search,
+availability toggle, edit/delete), and the add/edit item modal (name/price/unit/description/
+category/availability, Food-vs-Sale item type, kitchen station text input + quick-pick presets
+with custom-station add/remove backed by the DB, item photo, and ingredient-linking to warehouse
+items via a search-then-quantity flow). Same 5s silent poll (categories+items) as the source. No
+`navigate` prop needed — unlike Dashboard/Tables, AdminMenu.jsx never calls react-router
+navigation anywhere (confirmed by grep).
+
+**New shared dependency:** `website/src/components/ConfirmDialog.jsx` (styled confirm/alert
+replacement, used here for the station-delete confirm + upload-issue notices) — ported verbatim
+to `pos-app/src/components/ConfirmDialog.jsx`, only its `useTranslation` import path adjusted.
+`menuAPI`/`warehouseAPI` in `client.js` were checked against every method AdminMenu.jsx actually
+calls — all already present with matching signatures.
+
+**Printing:** grepped AdminMenu.jsx for "print"/"Print" — zero matches, nothing to exclude.
+
+**Image upload — the known `menuAPI.uploadImage` stub gap, handled deliberately.** The stub
+throws `'... image upload is not yet supported ...'` (pos-app's IPC client is JSON-only, the
+website's picker needs multipart/FormData — real support is out of scope for this port). Instead
+of wiring a control that would throw on first use, the item-photo upload control now renders
+disabled with an amber warning icon + "Photo upload not available yet" + a tooltip pointing at the
+website Admin panel as the working alternative (new i18n keys under `admin.menu.
+uploadNotSupportedLabel`/`uploadNotSupportedHint`, both `en.json`/`uz.json`). The source's
+`handleImageFileChange`/`imageUploading` were dropped as unreachable dead code. The existing-photo
+preview and its "×" remove button (pure local-state, no upload API involved) still work fully.
+
+**Files:** `pos-app/src/pages/admin/screens/MenuScreen.jsx` (new, exported as `AdminMenuScreen` to
+avoid any confusion with the unrelated `pos-app/src/pages/pos/MenuScreen.jsx` cashier screen — no
+actual filename collision, different folders/SCREENS maps, just a naming-clarity choice),
+`pos-app/src/components/ConfirmDialog.jsx` (new), `pos-app/src/i18n/en.json`+`uz.json` (2 new
+keys), `pos-app/src/pages/admin/AdminPanel.jsx` (`menu: MenuScreen` uncommented in `SCREENS`). All
+esbuild-verified clean (every lucide icon used, including `Edit2`/`Trash2`, confirmed present in
+the installed `lucide-react` version, not assumed); JSON files re-verified with `JSON.parse`.
+**Not yet tested on the real machine** — next check: categories/items load and poll without
+flicker; category reorder persists across a refresh; add/edit an item incl. kitchen-station
+quick-pick and ingredient linking to a real warehouse item; confirm the photo control shows the
+disabled "not available yet" state cleanly, and that an item with an existing photo (added via the
+website) still previews/clears correctly.
+
+## Admin: Tables + New Order screens (2026-07-27, same day) — task #23
+
+Second real Admin screen, ported verbatim from `website/src/pages/admin/AdminTables.jsx` (~1912
+lines) plus its modal-only companion `website/src/pages/admin/AdminNewOrder.jsx` (~1319 lines,
+invoked by AdminTables as `<AdminNewOrder isModal .../>` whenever a table's "New Order"/"Seat
+Guests" button is tapped, or a table is marked occupied via the status picker). Floor plan grid,
+status summary cards, floor summary bar, section filter pills, table detail sheet (context-aware
+actions per status), add/edit table modal, reserve-table modal, status-picker sheet, manage-
+sections modal (add/rename/delete with optimistic-update shielding against poll races), the live
+order view + "Add Food" flow for occupied tables, and cancel-reservation confirm — all unchanged
+from the website, including the 5s table poll, 8s section poll, and 1s order-view poll.
+
+**Adaptations, same pattern as Dashboard (task #22):** `useNavigate()` → `navigate` prop (used in
+exactly one place — the occupied-table sheet's "View Full Order" button, which calls
+`navigate('/admin/orders?open=<id>')`). This surfaced a real gap in `AdminShell.jsx`'s `goTo`
+adapter: it only stripped the leading `/admin/` segment, not a trailing `?...` query string, so
+`orders?open=<id>` would never have matched the `orders` SCREENS key at all. Fixed `goTo` to also
+`.split('?')[0]` — the `?open=<id>` value itself isn't consumed by anything yet since pos-app's
+Orders screen doesn't exist (task #26); once built it'll need its own prop-based way to accept
+"open this order on load," not a URL param.
+
+**AdminNewOrder.jsx ported as `NewOrderModal.jsx`, modal-mode only** (see that file's own header
+comment for the full reasoning): AdminTables.jsx is the only caller anywhere in this port and
+always renders it with `isModal` — the source file's OTHER branch (a full standalone page at the
+website's `/admin/new-order` route) is unreachable from here and wasn't ported. Two real findings
+while porting it, both called out prominently in the file's own header comment:
+
+1. **`existingOrderId`/`existingOrder`** used to come from react-router's `useLocation().state`
+   (set only by the *cashier* role's CashierTables.jsx/CashierOrders.jsx navigating with route
+   state to add items to an already-open order — confirmed by grep, AdminTables.jsx never sets
+   this state). pos-app has no route-state mechanism at all, so these became plain optional props
+   (default `null`) instead — behavior for what AdminTables actually does is unchanged (always
+   "place a new order"), and the add-to-existing-order logic itself is preserved unchanged in case
+   a future screen wants to pass these props directly.
+2. **Real pre-existing bug found and fixed, not preserved:** the source file's amount-picker modal
+   JSX (the "type an amount" popup for weighed kg/l/g/ml items) is only rendered inside the
+   STANDALONE branch's return — never inside the `isModal` branch's return, confirmed by grepping
+   every `amountPicker` reference in the source (the `{amountPicker && (...)}` block appears
+   exactly once, after the standalone branch's own `<TablePickerModal/>`). Since AdminTables only
+   ever uses the modal branch, tapping a weighed item in the Tables screen's "New Order" modal on
+   the **live website today** sets `amountPicker` state but nothing renders it — the picker
+   silently never appears and a weighed item (e.g. "Jiz" rice, sold by the kg) can never actually
+   be added that way. Fixed in the port by rendering that same JSX (content byte-for-byte
+   unchanged) as a sibling of the modal overlay, so it now works the same way weighed items already
+   work everywhere else in this codebase (Menu/Orders/Tables' cashier screens). Flagging this to
+   the user directly: **the website itself likely has this same bug live right now** — worth a
+   quick manual confirm and, if real, the identical one-block fix ported back to
+   `website/src/pages/admin/AdminNewOrder.jsx`.
+
+**Printing — excluded per standing rule, confirmed and stubbed:** AdminTables.jsx itself has zero
+print-related code (grepped, no matches). AdminNewOrder.jsx had `usePrinter()` (a hook that doesn't
+exist in pos-app), a `handlePrintItem()` function, and a per-cart-item Printer icon button — all
+gated behind `isCashier` (only true for `/cashier`-prefixed routes). Since this port only ever
+renders inside the Admin panel, `isCashier` is hardcoded `false` in `NewOrderModal.jsx`, meaning
+those buttons could never have rendered here anyway even on the website — removed the hook import,
+handler, and button entirely rather than carrying dead print code forward, documented in the file's
+header comment as adaptation #3.
+
+**Files:** `pos-app/src/pages/admin/screens/TablesScreen.jsx` (new),
+`pos-app/src/pages/admin/screens/NewOrderModal.jsx` (new), `pos-app/src/pages/admin/AdminShell.jsx`
+(`goTo` query-string fix), `pos-app/src/pages/admin/AdminPanel.jsx` (`tables` uncommented in
+`SCREENS`). No new shared deps needed — `tablesAPI`/`ordersAPI`/`menuAPI`/`useApi`/
+`useTranslation`/`invalidate`/`withCache`/`PhoneInput` were all already ported and verified for
+Dashboard or foundation work. All 4 files esbuild-verified clean. **Not yet tested on the real
+machine** — next check: open Tables from the sidebar, confirm the floor plan/status cards/section
+filters render with real data, tap a free table → New Order → add a weighed item (e.g. "Jiz") and
+confirm the amount picker now actually appears and the item gets added, tap an occupied table →
+View Full Order and confirm it lands on the Orders nav item (Orders screen itself is still a
+placeholder — task #26 — so it won't show the specific order yet, that's expected).
+
+## Fixed: Admin buttons had an unwanted bold native border (2026-07-27, same day)
+
+User's screenshot of the live Dashboard showed the Quick Action pills with a bold border/box
+around them that isn't in the website's design — root cause: skipping Tailwind Preflight in
+`admin.css` (deliberate, see that file's own comment — protects the cashier's inline-style
+screens from a global reset) also means native browser `<button>`/`<input>`/`<select>`/
+`<textarea>` chrome (border, background, font) never gets zeroed out, so it shows through under
+Tailwind's utility classes. Every ported website admin page assumes Preflight already happened.
+Fixed with a small scoped reset in `admin.css`, written with `:where(.admin-panel) button, ...`
+specifically so it carries the same near-zero specificity as Tailwind's own Preflight (`:where()`
+adds none) — utility classes still win regardless of source order, and it has zero effect outside
+the Admin panel's own subtree. `AdminShell.jsx`'s root div now carries the `admin-panel` class
+this scope hooks onto. Both files esbuild/CSS-syntax verified. This same fix now protects every
+future ported screen (Tables, Menu, Inventory, etc. all have native form buttons/inputs) from the
+identical bug — **fixed once, not screen-by-screen.**
+
+## Admin: Dashboard screen (2026-07-27, same day) — task #22
+
+First real Admin screen, ported verbatim from `website/src/pages/admin/AdminDashboard.jsx` — all
+15 parallel data fetches (`Promise.allSettled` across reports/orders/warehouse/shifts/tables/
+loans/notifications/staff-payments/accounting/procurement), every computed KPI/financial-flow/
+debts-payables number, the 15s auto-refresh, and the notifications bell all unchanged. Two
+adaptations, neither a design/behavior change: `useNavigate()` (react-router) swapped for a
+`navigate` prop — `AdminShell.jsx` now passes down a `goTo(path)` adapter that maps the same
+`/admin/orders`-style path strings this screen already calls onto pos-app's internal nav-key
+state (no `<Outlet/>` here, same reasoning as `AdminShell.jsx`'s existing header comment); `money`
+formatter pulled into a new shared `src/lib/adminFormat.js` (verbatim from the website's
+`useApi.js`) since every remaining Admin screen will need it too, not just Dashboard. File:
+`src/pages/admin/screens/DashboardScreen.jsx`, wired into `AdminPanel.jsx`'s `SCREENS` map.
+
+All 4 touched/new files esbuild-verified clean. **Not yet tested on the real machine** — next
+check: confirm the Dashboard renders with real numbers (not stuck loading), the 6 KPI cards and
+table-status grid populate, and the 6 Quick Action buttons actually jump to their target screens
+(most of which are still placeholders until later tasks — that's expected, not a bug).
+
+## PowerSync extension for Inventory/Loans/Staff (2026-07-27, same day) — task #21
+
+Scoped via a research subagent reading the website's actual admin screens + API client + backend
+routes (not guessed) which of Inventory/Finance/Loans/Staff needs new synced tables. Real
+findings that changed the plan: **there is no admin "Finance" screen** — `financeAPI`
+(`finance_expenses`/`finance_loans`/etc.) is Owner-only, out of this project's current Admin
+scope, so Finance sync was dropped from this task. `inventoryAPI` (backend `inventory.js`) is
+dead code — `AdminInventory.jsx` uses `warehouseAPI` exclusively. `purchase_orders`/
+`purchase_order_items`/`inventory_audits`/`inventory_audit_items` have zero rows in production
+and zero frontend call sites — confirmed unbuilt/orphaned, excluded from sync scope.
+`AdminRestaurantSettings.jsx`'s 3 backing tables (`restaurant_settings`, `custom_stations`,
+`menu_items`) are already fully synced — no new sync needed there, and no real win from moving it
+off REST (single infrequent read, writes stay REST-only regardless), so it stays as-is.
+
+**Done (this sandbox, via Supabase MCP):**
+- `ALTER PUBLICATION powersync ADD TABLE` for the 9 tables Inventory/Loans/Staff actually need:
+  `warehouse_items`, `suppliers`, `stock_batches`, `stock_movements`, `supplier_deliveries`,
+  `delivery_items`, `loans`, `shifts`, `staff_payments`. Confirmed via `pg_publication_tables`.
+  Purely additive — no existing table's replication touched.
+- `pos-app/powersync/schema.js` — added local `Table` defs for all 9 (column lists mirror what
+  each Admin screen actually reads, per the subagent's cross-reference against
+  `warehouse.js`/`suppliers.js`/`procurement.js`/`loans.js`/`shifts.js`/`staff-payments.js`).
+  Verified via `node --check`.
+
+**NOT done — needs the user, no API access to this from the sandbox:** the actual PowerSync
+Cloud Sync Streams config (the query that streams each table's rows down, scoped to
+`restaurant_id`) has to be added manually in the "the-bill-pos" project's dashboard, same
+limitation as every prior PowerSync Cloud change this project has hit. Add one stream per table
+below, in the same syntax/pattern your existing streams already use (they're all `restaurant_id
+= token_parameters.restaurant_id`-scoped), with these exact columns:
+
+- `warehouse_items`: id, restaurant_id, name, category, sku_code, unit, purchase_unit,
+  quantity_in_stock, min_stock_level, low_stock_alert, cost_per_unit, supplier_id, created_at,
+  updated_at
+- `suppliers`: id, restaurant_id, name, phone, email, address, contact_name, payment_terms,
+  category, created_at
+- `stock_batches`: id, restaurant_id, item_id, quantity_remaining, cost_price, expiry_date,
+  received_at
+- `stock_movements`: id, restaurant_id, item_id, type, quantity, user_id, reason, notes,
+  cost_per_unit, created_at
+- `supplier_deliveries`: id, restaurant_id, supplier_name, supplier_id, total, status,
+  payment_status, notes, timestamp, paid_at, payment_method, payment_note, payment_due_date,
+  created_at, updated_at
+- `delivery_items`: id, delivery_id, item_name, qty, unit, unit_price, expiry_date, removed,
+  remove_reason, created_at (scope via a join to `supplier_deliveries.restaurant_id` — this
+  table has no `restaurant_id` column of its own)
+- `loans`: id, restaurant_id, order_id, customer_name, customer_phone, due_date, amount, status,
+  paid_at, payment_method, notes, created_at, updated_at
+- `shifts`: id, restaurant_id, user_id, clock_in, clock_out, hourly_rate, scheduled_start_time,
+  status, note, shift_date, created_at
+- `staff_payments`: id, restaurant_id, user_id, amount, payment_method, payment_date, note,
+  recorded_by, created_at, updated_at
+
+Until that dashboard step is done, these 9 tables exist locally but stay empty — no functional
+risk (nothing reads them yet, since tasks #25/#27/#28 haven't built the actual screens), but it's
+the blocking dependency for those three screens reading from local PowerSync instead of REST.
+Also flagged: `AdminStaff.jsx`'s live "staff status" view (`GET /shifts/admin/staff-status`) has
+real server-side priority-pick logic (today's most relevant shift row per user) beyond a plain
+table sync — needs porting to client SQL/JS when task #28 is built, not just a raw table sync;
+full detail on this and everything above is in SESSIONS.md.
+
+## Admin panel foundation (2026-07-27, same day) — task #20
+
+Started the Admin panel per explicit standing rules: **no design changes, no functional changes
+from the existing website's admin pages** — the only allowed improvement is speed — and
+**printing/print-related functionality is excluded from every screen** until the user says
+otherwise. Build order confirmed as the sidebar's own order (Dashboard → Tables → Menu →
+Inventory → Orders → Loans → Staff → Settings → Profile).
+
+Built the shared foundation, no screens yet:
+- `main.js`/`preload.js` — new generic write IPC (`api:post/put/patch/delete`, one factory
+  function mirroring the existing `api:get` handler) for Admin's ~20 API domains — separate from
+  and does not touch the cashier's dedicated-handler/`submitOrderWrite()` write pattern.
+- `src/i18n/en.json`/`uz.json`, `src/context/LanguageContext.jsx` — copied verbatim from the
+  website (its own dot-path `t()` system, distinct from the cashier's `lib/i18n.js`).
+- `src/api/client.js` (new) — website's `client.js` ported verbatim (camelize/snakeize + ~19 API
+  groups), IPC-routed instead of axios. `printAPI` excluded; upload endpoints stubbed (not built
+  yet, need their own IPC design).
+- `src/pages/admin/AdminShell.jsx` + `AdminPanel.jsx` (new) — sidebar/topbar shell matching
+  `website/src/components/Layout.jsx` exactly, `PosCashier.jsx`-style entry wrapper. Deliberately
+  skips `useKitchenPrint`/printer prefetch (print-only).
+- `src/admin.css` (new) + `vite.config.js` — Tailwind v4 utilities-only import (no Preflight, to
+  avoid any risk to the cashier's inline-style screens), scoped to just this one file.
+- `package.json` — added `tailwindcss`/`@tailwindcss/vite` `^4.2.2` to devDependencies —
+  **needs `npm install` on the real machine, not run from this sandbox.**
+- `App.jsx` — `/admin` now renders the real `AdminPanel`, lazy-loaded (`React.lazy`/`Suspense`)
+  so other roles never load Admin's JS/CSS at all.
+
+All new/changed files verified (`node --check` for the two CommonJS files, Linux `esbuild` for
+the rest, `JSON.parse` for the two dictionaries). **Confirmed working on the real machine
+(2026-07-27)** — sidebar, blue header, all 9 nav items with correct UZ labels/icons, UZ/EN
+switcher, collapse, logout all render correctly; each nav item shows its placeholder cleanly.
+Every nav item still shows a placeholder — no real screen built yet. Full detail in SESSIONS.md.
+
+## "Change Table" button redesign (2026-07-27, same day)
+
+Title bar confirmed working after the restart. Small follow-up: the plain text link
+"Change on floor plan" in Orders'/Tables' edit-mode table row (identical code in both, ported
+verbatim originally) redesigned into a real button — green-tinted pill, `ArrowLeftRight` icon,
+hover state, renamed to "Change Table" per direct request. Same change applied identically to
+both `OrdersScreen.jsx` and `TablesScreen.jsx` to keep them in sync (as they've been kept
+throughout this rebuild). `i18n.js`'s `'Change on floor plan'` dictionary key replaced with
+`'Change Table'` (Uzbek: "Stolni o'zgartirish") — grepped first to confirm no other call site
+still referenced the old key. All three files esbuild-verified clean. **Not yet tested on the
+real machine.**
+
+## Title bar follow-up: redesign + a likely dev-mode gotcha explained (2026-07-27, same day)
+
+User reported the new title bar's buttons were visible but did nothing when clicked, and asked
+if that's because they're still on dev mode — plus asked for a redesign: white instead of the
+dark bar, and drop the "The Bill" label since the app name is already shown in the sidebar.
+
+**Redesign, done:** `TitleBar.jsx` background changed from dark navy to white with a subtle
+1px bottom border (`#EEF1F1`, matches the rest of the app's hairline borders) to separate it
+from the page below without a hard color break; the "The Bill" label removed entirely (comment
+left explaining why — every page under it already shows its own branding). Icon color changed
+from light-gray-on-dark to muted-gray-on-white (`#7C8792`), hover states now light gray for
+minimize/maximize and coral for close, matching the coral used for destructive actions
+elsewhere in this codebase (Discard buttons, etc.).
+
+**Buttons not responding — likely cause, not yet confirmed on the real machine:** `window:
+minimize/maximize/close` live in `main.js`, and `windowMinimize`/etc. are exposed via
+`preload.js` — unlike renderer-side React/Vite changes, which hot-reload live, **main-process
+and preload script changes require a full Electron restart to take effect**, not just Vite's
+HMR reloading the page. If the app was only kept running with Vite hot-reloading the UI while
+`main.js`/`preload.js` changed underneath it, `window.electronAPI.windowMinimize` etc. would
+still be `undefined` in the running process — and since every call site uses optional chaining
+(`window.electronAPI?.windowMinimize?.()`), a missing method fails completely silently instead
+of throwing, which matches "I see them but once I touch they do not work" exactly. Also added a
+defensive `-webkit-app-region: no-drag` directly on each button element (not just its wrapper) —
+harmless either way, but a known category of Chromium bug is a click being swallowed as "start
+dragging the window" instead of reaching the element, and this is the standard extra-safety fix
+for it. **Told the user to fully quit and restart the Electron app (not just reload the window)
+and test again** — if buttons still don't respond after a real restart, that would point at the
+Chromium drag-region bug instead and need a different fix.
+
+`TitleBar.jsx` re-verified via Linux `esbuild` after the redesign. **Not yet confirmed working on
+the real machine.**
+
+## Custom title bar — window controls + move/resize (2026-07-27, same day)
+
+User asked whether minimize/maximize/close buttons were needed, since the window has none —
+confirmed why: `main.js`'s `createWindow()` uses `frame: false` ("kiosk-friendly: no native
+menu/frame chrome"), which removes ALL native title-bar chrome, including the draggable region.
+Asked the user which direction they wanted (kiosk-locked with no controls at all, minimal
+minimize+close only, or full controls with a resizable window) — chose **full controls,
+resizable**. Mid-answer the user also reported the window "does not move at all," which is the
+same root cause: no draggable region exists anywhere without a title bar.
+
+Built a custom title bar rather than turning the native frame back on (which would reintroduce
+OS-styled chrome clashing with the app's own design):
+- `main.js`: `resizable: true` made explicit; new `window:minimize`/`window:maximize` (toggles
+  maximize/unmaximize)/`window:close`/`window:isMaximized` IPC handlers; `maximize`/`unmaximize`
+  window events forwarded to the renderer (`window:maximized-changed`) so the custom button's
+  icon stays in sync even when the window is maximized via a non-button gesture (double-click
+  the bar, Windows snap, etc.) — the bar's own `onDoubleClick` also calls `windowMaximize()`,
+  matching standard title-bar behavior.
+- `preload.js`: exposes all four plus `onWindowMaximizedChange` (subscribe/unsubscribe pair).
+- New `src/TitleBar.jsx` — slim 32px dark bar (`#1E2433`, independent of any page's own theme
+  since it's global — sits above Login's purple gradient AND the mint POS pages equally),
+  `-webkit-app-region: drag` on the bar itself and `no-drag` on the button group so the buttons
+  stay clickable. Renders nothing if `window.electronAPI` doesn't exist (e.g. plain `vite dev` in
+  a browser tab during UI iteration — a real browser already has its own chrome there).
+- `App.jsx`: now wraps the whole route tree in a flex column — `TitleBar` (fixed 32px) on top,
+  routes in a `flex: 1, minHeight: 0, overflow: hidden` box below — rendered unconditionally
+  (even during the initial session-loading state) so the window is always movable/closable, not
+  just once logged in.
+- Every page that used to claim `height: '100vh'` for itself (`Login.jsx`, `RolePlaceholder.jsx`,
+  `PosShell.jsx`) changed to `height: '100%'` — with the title bar now taking 32px at the real
+  top level, a fresh `100vh` on each page would have measured the FULL viewport again and
+  overflowed the window by exactly the title bar's height. `Cashier.jsx` (old, unrouted — see
+  RULES/MEMORY) intentionally left untouched.
+
+All 6 touched files verified: `main.js`/`preload.js` via `node --check`, the four `.jsx` files
+via a standalone Linux `esbuild` (icons used — `Minus`/`Square`/`Copy`/`X` — confirmed present in
+the installed `lucide-react` version by listing its `dist/esm/icons/` folder, not assumed).
+**Not yet tested on the real machine** — next check: confirm the window can actually be dragged
+by the new bar, minimize/maximize/close all work, double-clicking the bar toggles maximize, and
+none of the four pages (Login, the 3 RolePlaceholders, PosShell) show a cut-off bottom edge or an
+unwanted scrollbar now that they fill `100%` of the space below the bar instead of a fresh
+`100vh`.
+
+## Root-caused and fixed: "loading a lot" on History/Receivables/Profile + a real topbar bug (2026-07-27, same day)
+
+User reported History, Receivables, and Profile's Shift Info were "loading a lot," then — mid-
+investigation — sent a live screenshot showing History's own stale-data badge saying "Offline —
+showing data from 3m ago" while the topbar badge said "Online" at the same moment. That
+screenshot was the real diagnostic: it proved two different, disconnected signals.
+
+**Root cause, confirmed by reading the code (not guessed):**
+1. `main.js`'s `request()` (the function every `apiGet` call goes through — used by History,
+   Receivables, and Profile's Shift Info/stats, none of which are PowerSync-backed) had **no
+   timeout at all**. If the Render backend was slow or unresponsive, the request could hang
+   indefinitely with zero feedback beyond a perpetual spinner — this is the literal mechanism
+   behind "loading a lot."
+2. The topbar's sync badge (`PosShell.jsx`) only ever checked `psStatus()` — PowerSync's own sync
+   stream, used by Menu/Orders/Tables. It never checked whether the Express/Render backend itself
+   (what History/Receivables/Profile actually depend on) was reachable. So the badge could
+   legitimately say "Online" while the backend those three screens hit was down or slow — exactly
+   what the screenshot showed. Two genuinely separate services, one badge, and it was only ever
+   measuring one of them.
+
+(Tried to independently verify current backend reachability via a sandbox `curl` to `/health` —
+inconclusive: every attempt died at the same ~15s mark with an SSL EOF, which looks like this
+sandbox's own network egress cutting the connection rather than real evidence about Render's
+state. Not used as a basis for any conclusion — the user's own screenshot was the real evidence.)
+
+**Fixes:**
+- `main.js`: `request()` now takes a `timeoutMs` (default 15s) and destroys the socket on timeout
+  instead of hanging forever — every `apiGet` call now fails within a bounded time instead of
+  potentially never resolving.
+- `main.js` + `preload.js`: new `backend:health` IPC — a bare `GET /health` (already existed,
+  unauthenticated, in `server.js`) with a short 6s timeout, exposed as
+  `window.electronAPI.backendHealth()`.
+- `PosShell.jsx`: `checkSync()` now calls `psStatus()` AND `backendHealth()` in parallel; the
+  topbar badge only says "Online" when PowerSync is connected+synced **and** the backend
+  responds — "Offline" if either is down. Fixes the exact contradiction from the screenshot.
+- `ProfileScreen.jsx`: `loadShift()` used to collapse every failure (including a timeout) into
+  `setShift(null)`, which silently rendered as "Not clocked in yet today." — indistinguishable
+  from a real off-shift state. Split this into a separate `shiftError` flag: if the shift has
+  never loaded successfully and the latest attempt failed, shows an honest "Can't reach server —
+  shift status unknown" message with a Retry button instead of guessing; if a previously-loaded
+  real shift state exists and a later background refresh fails, keeps showing that last-known
+  state with a small "Couldn't refresh — showing last known status" note, rather than discarding
+  a known-good state over a transient blip.
+
+All five touched files (`main.js`, `preload.js`, `PosShell.jsx`, `ProfileScreen.jsx`, `i18n.js`)
+verified — `main.js`/`preload.js` via `node --check`, the rest via a standalone Linux `esbuild`.
+**Not yet tested on the real machine** — next check: force a backend outage (or just watch it
+happen naturally) and confirm (1) the topbar badge actually flips to Offline instead of staying
+stuck on Online, (2) History/Receivables/Profile's spinners resolve within ~15s instead of
+hanging, and (3) Profile's Shift Info shows the new "Can't reach server" message instead of a
+false "Not clocked in."
+
+## Small follow-ups after the translation pass (2026-07-27, same day)
+
+User reported two things from live screenshots of Menu's Order Details panel: (1) once an
+occupied table is tapped and Menu enters "Adding to Order #N" mode, there was no way back out of
+it — confirmed from the screenshots that even after removing every item from the "Adding Now"
+section, the green banner and the mode stayed stuck with no exit control; (2) the sync-status
+pill in the topbar should say "Online" instead of "Synced".
+
+Fixed both. `PosShell.jsx`'s sync pill source string changed from `'Synced'` to `'Online'`
+(`i18n.js` dictionary updated to match, `'Synced'` key removed after confirming via grep nothing
+else referenced it).
+
+The back button went through two revisions after user feedback that it was too easy to miss.
+First attempt put a small icon-only button inside the green "Adding to Order #N" banner — user
+said still hard to spot even with a "Back" text label added. Moved it per explicit direction:
+now a "‹ Back" pill sits at the top of the Order Details panel, right-aligned next to the "Order
+Details" title itself (not tucked inside the conditional banner), and — also per explicit
+request — it's no longer scoped to add-to-existing-order mode only. New `hasOrderInProgress`
+derived flag (`cartEntries.length > 0 || selTable || existingOrder || custName/Phone/Addr ||
+orderType !== 'dine_in'`) controls its visibility, so it shows for ANY in-progress order (a
+plain new dine-in/takeout/delivery order too, not just the add-to-existing-order case) and stays
+hidden on a genuinely blank cart. Clicking it calls the existing `clearOrder()` function (already
+used for post-Fire cleanup — reused, not reinvented): clears cart, `selTable`, `existingOrder`,
+customer fields, resets order type to dine-in, closes the table picker. All three touched files
+(`i18n.js`, `PosShell.jsx`, `MenuScreen.jsx`) esbuild-verified clean. **Not yet tested on the
+real machine** — next check: confirm the Back pill appears next to "Order Details" as soon as
+anything is added to the cart or a table/order-type is picked, and disappears again once cleared.
+
+## Full Uzbek translation of the pos-app cashier panel (2026-07-27)
+
+User asked for a full Uzbek translation of the new cashier panel and reported the existing
+UZ/EN toggle button "does not work yet at all". Root cause, confirmed via grep before writing
+any code: `PosShell.jsx` already had the toggle's `lang` state (`useState` + localStorage
+persistence, `screenProps = { ..., lang }` threaded to every screen) — but **zero files in
+`pos-app/src` actually read `lang`**. The button changed state; nothing consumed it.
+
+Fix: new `pos-app/src/lib/i18n.js` — a translation dictionary keyed by the *exact English
+source string* (not invented semantic keys), so wiring a screen up is "wrap the literal in
+`t(str, lang)`" rather than a structural refactor. Two helpers: `t(str, lang)` (plain lookup,
+silently falls back to English if `lang !== 'UZ'` or no dictionary entry exists) and
+`tt(lang, enTemplate, uzTemplate, vars)` (for strings with variables — counts, amounts, dates —
+since UZ/EN word order differs and a lookup on a pre-composed string can't handle that).
+`tableFallbackLabel`/`tableLabel` centralize the repeated `` `Table ${n}` `` fallback used
+across Menu/Orders/Tables. `tokens.js`'s `statusPill(status, lang)` and (new)
+`ReceivablesScreen.jsx`'s `statusStyle(status, lang)` both translate their pill labels through
+the same dictionary; `lang` is optional everywhere so any call site not yet passing it still
+renders in English rather than throwing.
+
+Every screen/modal in `pos-app/src/pages/pos/` now imports `t`/`tt` and translates its
+user-facing strings: `PosShell.jsx` (nav, search placeholders, sync status, staff chip),
+`MenuScreen.jsx`, `OrdersScreen.jsx`, `TablesScreen.jsx`, `HistoryScreen.jsx` (incl.
+`RefundDialog`/`CalendarModal`/`StaleBadge` sub-components and a new `paymentLabel()` helper for
+the snake_case `cash`/`card`/`qr_code`/`loan` payment-method values), `ReceivablesScreen.jsx`
+(incl. its own `StaleBadge`), `ProfileScreen.jsx`, `AmountPickerModal.jsx`, and
+`PaymentModal.jsx` (incl. the `LoanFields` sub-component, which needed `lang` added to its
+props since it didn't receive any screen props before). All locale-aware
+`toLocaleDateString`/`toLocaleTimeString` calls touched during this pass now switch between
+`'uz-UZ'` and `'en-GB'`/`'en-US'` based on `lang`, so month/weekday names localize too.
+
+13 files touched/created in total (`i18n.js` new; `tokens.js`, `PosShell.jsx`, `MenuScreen.jsx`,
+`OrdersScreen.jsx`, `TablesScreen.jsx`, `staleCache.js`, `HistoryScreen.jsx`,
+`ReceivablesScreen.jsx`, `ProfileScreen.jsx`, `AmountPickerModal.jsx`, `PaymentModal.jsx`
+edited) — all esbuild-verified clean (one harmless duplicate-key warning in the dictionary
+found and fixed, no functional bug). **Not yet tested on the real machine** — next check: open
+pos-app, toggle UZ/EN from the sidebar, and click through all 6 screens + Payment/Amount-picker
+modals to confirm every visible label actually switches language, not just the labels called
+out above.
+
+## Offline/robustness pass (2026-07-27, same day as the speed pass)
+
+User asked "what else can we get like this way" after the DB/cache-header speed pass — three
+more free, safe wins, all built and esbuild-verified (**not yet run on the real machine**):
+
+- **Self-hosted Plus Jakarta Sans** — `pos-app/src/assets/fonts/PlusJakartaSans-Variable.woff2`
+  (single variable-font file, weights 400-800 confirmed via its HVAR/MVAR/STAT tables),
+  `@font-face` added to `src/index.css`, Google Fonts `<link>`s + `preconnect`s removed from
+  `index.html`, CSP's `style-src`/`font-src` no longer need `fonts.googleapis.com`/
+  `fonts.gstatic.com`. Removes an external network dependency entirely — same font renders
+  online or fully offline, no flash-of-fallback-font.
+- **Local photo disk-cache** — new `app-photo://` custom Electron protocol (`main.js`,
+  registered before `app.whenReady()`), backed by a cache directory under
+  `app.getPath('userData')/photo-cache`. First request for a menu-item photo downloads it once
+  and saves to disk; every later request (any screen, any session) is served straight from disk,
+  no network round-trip. Safe with zero invalidation logic because uploaded filenames
+  (`${Date.now()}-${random}${ext}`, `restaurant-app/backend/src/routes/menu.js`) are never
+  reused — a cached file can never go stale. `src/lib/localPhoto.js` rewrites a menu photo URL
+  to `app-photo://<filename>`; wired into `MenuScreen.jsx`'s image tag only (the old unrouted
+  `Cashier.jsx` deliberately left alone, same "globally in pos-app only" rule as before). CSP's
+  `img-src` extended to allow `app-photo:`. **Correction to an earlier claim in this same
+  conversation: I said this cache would also cover staff avatar photos — checked
+  `users.js`/`schema.sql`/`ProfileScreen.jsx` before actually building it and found that's wrong.
+  There is no avatar/staff-photo feature anywhere in this codebase — only `menu_items.image_url`
+  exists.** Staff are shown via initials chips only. See MEMORY.md.
+- **Stale-data badge on History and Receivables** — both screens read live from the backend
+  (`apiGet`, not local PowerSync — see their own top-of-file comments for why) with no offline
+  fallback before now: a failed refresh just showed a toast and an empty/stuck table. New shared
+  `src/lib/staleCache.js` (`loadCached`/`saveCached`/`timeAgo`, plain localStorage) persists the
+  last successful load; both screens now initialize their list from that cache on mount (skips
+  the spinner if there's already something to show) and display a small badge — "Updated Xm ago"
+  normally, or a coral "Offline — showing data from Xm ago" if the most recent refresh attempt
+  failed — instead of silently showing possibly-stale data with no indication.
+
+All six touched/new files (`index.css`, `index.html`, `main.js`, `src/lib/localPhoto.js`,
+`src/lib/staleCache.js`, `MenuScreen.jsx`, `HistoryScreen.jsx`, `ReceivablesScreen.jsx`)
+esbuild/syntax-verified, **and confirmed working on the user's real machine (2026-07-27)** — no
+regressions reported after the font/photo-cache/stale-badge changes went live in the running app.
+
+## Speed pass — free wins (2026-07-27)
+
+User asked what could be done to make pos-app faster for free. Checked real evidence instead
+of guessing (Supabase's own performance advisor, the actual server.js/package.json), then did
+what was confirmed safe and asked before anything with tradeoffs:
+
+- **Added 5 missing indexes** on the foreign keys pos-app hits constantly — flagged by
+  Supabase's performance advisor, not guessed: `orders.table_id`, `orders.waitress_id`,
+  `order_items.menu_item_id`, `menu_items.category_id`, `restaurant_tables.assigned_to`.
+  Also dropped one confirmed duplicate index on `finance_manual_income` (advisor WARN level,
+  unrelated table, pure write overhead). Applied directly via Supabase MCP
+  (`add_hot_path_fk_indexes` migration) — re-ran the advisor after, confirmed the FK warnings
+  are gone (the 5 new indexes now show as "unused" only because they're brand new, not an
+  error).
+- **Added 7-day cache headers to menu photo serving** — `restaurant-app/backend/src/server.js`,
+  `express.static('/uploads', ...)` had zero cache headers, so every screen re-downloaded the
+  same photo. Verified uploaded filenames are `${Date.now()}-${random}${ext}` (never reused,
+  `menu.js` multer storage) before adding a long `maxAge`, so this can't ever serve a stale
+  photo after a re-upload. `node --check` passed, committed (`eada77b`) to
+  `restaurant-app/backend`'s own repo (same nested-repo situation as the earlier 403 fix — see
+  MEMORY.md) — **needs `git push origin main` from the user, same as before, no GitHub push
+  credentials in this sandbox.**
+- **pos-app is currently run via `npm run dev` on the real terminal** (confirmed by the user,
+  not assumed) — dev mode has real overhead (unminified, dev-server) vs. the packaged build
+  path that already exists (`npm run build:win` → NSIS installer via electron-builder). Handed
+  back to the user to build/install and compare — this AI's sandbox can't produce a Windows
+  installer.
+- **Render "always warm" pinger — user opted in ("set it up carefully")**, given the real risk:
+  the original 2026-07-06 Render suspension happened because something kept the service running
+  24/7 and blew through the free 750-hour/month cap. Recommended (not yet set up — needs the
+  user to create the free third-party account, this AI can't sign up on their behalf): a free
+  external monitor (UptimeRobot / cron-job.org) hitting `/health`, but scoped to actual
+  restaurant operating hours only (e.g. ~14h/day ≈ 420 hrs/month, comfortably under the 750h
+  cap) rather than 24/7 — pos-app itself never opens a WebSocket, so it doesn't keep Render warm
+  on its own; only another connected client's WS keep-alive (30s ping, `server.js`) does that,
+  and only while something stays connected.
+
+**Not yet re-tested for actual before/after speed** — this is architecture-level/DB-level work,
+no user-visible confirmation loop the way UI fixes get.
+
+## Bug fix: ADD/+ on a weighed item asked for the wrong thing (replace vs. add)
+
+Follow-up to the weighed-item fix directly below this entry. Once the amount picker existed,
+tapping ADD/+ on an item ALREADY on the order (e.g. KFC already at 0.5 kg) reopened the picker
+prefilled with the current total (`0.5`) — if the cashier meant "add 1.33 more" and just typed
+over it, the order ended up at `1.33 kg` instead of the correct `1.83 kg`. Real mistake risk in
+a rush, reported directly by the user with a screenshot.
+
+Fixed in all three screens (`MenuScreen.jsx`, `OrdersScreen.jsx`, `TablesScreen.jsx`) by giving
+`openAmountPicker`/`confirmAmountPicker` a `mode`: `'add'` (ADD button / + stepper) now opens
+with a BLANK field and, on confirm, SUMS the typed amount with whatever qty is already there
+(`existingQty + typed`) instead of replacing it — a brand-new item still works identically
+since existingQty is 0 either way. `'set'` (the minus stepper — a correction/reduction) keeps
+the old prefilled-with-current/replace behavior, since that's the one place typing an exact new
+lower value is the actual intent. `AmountPickerModal.jsx` shows contextual copy in add mode:
+header "Add amount", field label "Amount to add", and a hint line "already 0.5 kg on this
+order" when there's an existing qty, so the field's meaning is visually unambiguous, not just
+correct under the hood. All four touched files esbuild-verified clean. **Not yet tested on the
+real machine** — next check: on an order that already has a weighed item, tap ADD/+ again,
+confirm the field is blank (not prefilled with the old total), type an amount, and confirm the
+new total is old + typed, not just typed.
+
+## Bug fix: Orders/Tables edit mode didn't understand weighed items (kg/l/g/ml)
+
+Both screens' in-place edit mode (add-items grid + right-panel steppers) only ever did blind
+integer `qty + 1` / `qty - 1` — fine for piece-counted items, wrong for anything sold by
+kg/l/g/ml (e.g. "Jiz" rice, sold as `0.5 kg`): tapping the stepper on those would silently
+round to whole units instead of opening the type-an-amount picker Menu's cart already has.
+This logic (`isWeighedItem`/`unitSuffix`/`formatQty`) previously only existed as private
+functions inside `MenuScreen.jsx`. Extracted to shared `pos-app/src/lib/weighed.js` and a new
+shared `pos-app/src/pages/pos/AmountPickerModal.jsx` (the modal UI, previously duplicated
+inline in Menu only); `MenuScreen.jsx` now imports both instead of defining its own copies
+(behavior unchanged, just de-duplicated). `OrdersScreen.jsx` and `TablesScreen.jsx` edit modes
+now: open the amount picker instead of incrementing when `editAdd`/`editDec` hits a weighed
+item (looked up via `menuById` so the check has the real `.unit`, not a partial `{id,name,price}`
+object like the stepper button used to pass), show the unit suffix on the add-items grid price
+(`14,000 so'm / kg`), and format the panel's qty text as `0.5 kg` instead of `×0.5`. Also fixed
+the Charge/Payment modal on both screens, which built `payEntries` with `unit: 'piece'`
+hardcoded (so weighed items always displayed as `×qty` there too, read-only display bug, no
+functional impact since those steppers are disabled for existing orders) — now reads the real
+unit via `menuById` and passes the shared `formatQty` instead of a hardcoded `×${q}` function.
+All 5 touched/new files (`weighed.js`, `AmountPickerModal.jsx`, `MenuScreen.jsx`,
+`OrdersScreen.jsx`, `TablesScreen.jsx`) esbuild-verified clean. **Not yet tested on the real
+machine** — next check: edit an order containing a weighed item (e.g. add/adjust "Jiz" from
+Tables or Orders edit mode), confirm the amount picker opens instead of a blind +1, and that
+Charge afterward shows the right unit.
+
+## Bug fix: Edit → Done was 403ing on Orders and Tables (fixed + deployed 2026-07-27)
+
+`PUT /api/orders/:id` (`restaurant-app/backend/src/routes/orders.js`, the route both Orders'
+and Tables' edit-mode "Done" button call via `orders:update`/`ordersUpdate`) only had
+`authorize('owner', 'admin', 'cashier', 'waitress')` — missing `new_cashier`/`new_waiter`, the
+roles pos-app actually logs in as. Every save threw the literal `403 { error: 'Access denied' }`
+shown on screen. Added the two missing roles, committed (`2444d39`) and pushed to
+`the-bill-backend`'s `origin/main` (confirmed via `git fetch` — matches local), Render should
+auto-deploy from there. **User confirmed the push landed; not yet re-confirmed that Edit → Done
+now succeeds live** — check this first if it's reported again.
+
+Note for future sessions: `restaurant-app/backend/` is its OWN nested git repo
+(`github.com/JahongirMamadiyorov/the-bill-backend`), separate from the parent `The-Bill` repo's
+`origin` (`github.com/JahongirMamadiyorov/The-Bill`) — commit/push backend fixes from inside
+`restaurant-app/backend/`, not the repo root. Also: this sandbox's mount of `D:\The-Bill` can't
+`rm` a stale `.git/index.lock`/temp-object files (`Operation not permitted` even as the owning
+user) but CAN `mv`/rename them out of the way — use `mv .git/index.lock .git/index.lock.bak`
+(any name) as the workaround if a git command fails with "Unable to create index.lock".
 
 ## New feature: add-to-existing-order from Menu (built 2026-07-27, confirmed working)
 
@@ -316,8 +1618,16 @@ to the owner as an open question, not decided, don't silently change it either d
 
 ## Open questions / unresolved
 
-- Render plan: CLAUDE.md says "paid," actual behavior during the 2026-07-06 incident matched
-  free tier. Not reconciled with the project owner yet.
+- **RESOLVED (2026-07-27): Render is genuinely on the Free instance type** — user confirmed
+  directly in the Render dashboard (Settings → Instance Type), contradicting CLAUDE.md's "paid"
+  note. This is the confirmed root cause of intermittent login/request failures reported the same
+  day ("Client network socket disconnected before secure TLS connection was established") —
+  classic free-tier sleep-after-~15min-idle + dropped connections during the cold-start wake
+  window, not a code bug. **User's explicit decision: leave it as Free for now, no pinger, no
+  upgrade** — so this will keep happening (first request after ~15 min idle fails, retry
+  succeeds) until the user revisits it. Don't re-diagnose this as a new bug if reported again;
+  point back to this entry. CLAUDE.md's "paid plan" line is now known to be inaccurate — flagged
+  to the user, not silently edited (that file is theirs to maintain).
 - Which GitHub repo actually covers `electron-app` + `print-agent`? Not confirmed.
 - Supabase RLS disabled on ~35 public tables — flagged, not decided whether intentional.
 - `RestaurantApp/src/api/client.js` has `USE_LOCAL_BACKEND = true` — dev builds point at

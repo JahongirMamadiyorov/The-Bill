@@ -210,6 +210,134 @@ function buildSchema({ column, Schema, Table }) {
     receipt_printers:         column.text, // jsonb -> JSON string
   });
 
+  // ── Added for the Admin panel's Inventory/Loans/Staff screens (2026-07-27) ──
+  // Backing Postgres tables added to the `powersync` publication via Supabase
+  // MCP (ALTER PUBLICATION powersync ADD TABLE ...) — confirmed via
+  // pg_publication_tables. The other half of this change — the actual Sync
+  // Streams query definitions in the PowerSync Cloud dashboard — has to be
+  // done manually by the project owner (no API access to that dashboard from
+  // this sandbox); see STATUS.md "PowerSync extension" for the exact SQL to
+  // paste there. Until that's done, these tables exist locally but stay
+  // empty (no sync rule is streaming rows into them yet).
+
+  const warehouse_items = new Table({
+    restaurant_id:      column.text,
+    name:                column.text,
+    category:            column.text,
+    sku_code:            column.text,
+    unit:                column.text,
+    purchase_unit:       column.text,
+    quantity_in_stock:   column.real,
+    min_stock_level:     column.real,
+    low_stock_alert:     column.real,
+    cost_per_unit:       column.real,
+    supplier_id:         column.text,
+    created_at:          column.text,
+    updated_at:          column.text,
+  }, { indexes: { by_restaurant: ['restaurant_id'] } });
+
+  const suppliers = new Table({
+    restaurant_id:  column.text,
+    name:           column.text,
+    phone:          column.text,
+    email:          column.text,
+    address:        column.text,
+    contact_name:   column.text,
+    payment_terms:  column.text,
+    category:       column.text,
+    created_at:     column.text,
+  }, { indexes: { by_restaurant: ['restaurant_id'] } });
+
+  const stock_batches = new Table({
+    restaurant_id:       column.text,
+    item_id:             column.text,
+    quantity_remaining:  column.real,
+    cost_price:          column.real,
+    expiry_date:         column.text,
+    received_at:         column.text,
+  }, { indexes: { by_item: ['item_id'] } });
+
+  const stock_movements = new Table({
+    restaurant_id:  column.text,
+    item_id:        column.text,
+    type:           column.text,
+    quantity:       column.real,
+    user_id:        column.text,
+    reason:         column.text,
+    notes:          column.text,
+    cost_per_unit:  column.real,
+    created_at:     column.text,
+  }, { indexes: { by_item: ['item_id'], by_restaurant: ['restaurant_id'] } });
+
+  const supplier_deliveries = new Table({
+    restaurant_id:      column.text,
+    supplier_name:      column.text,
+    supplier_id:        column.text,
+    total:              column.real,
+    status:             column.text,
+    payment_status:     column.text,
+    notes:              column.text,
+    timestamp:          column.text,
+    paid_at:            column.text,
+    payment_method:     column.text,
+    payment_note:       column.text,
+    payment_due_date:   column.text,
+    created_at:         column.text,
+    updated_at:         column.text,
+  }, { indexes: { by_restaurant: ['restaurant_id'] } });
+
+  const delivery_items = new Table({
+    delivery_id:     column.text,
+    item_name:       column.text,
+    qty:             column.real,
+    unit:            column.text,
+    unit_price:      column.real,
+    expiry_date:     column.text,
+    removed:         column.integer,
+    remove_reason:   column.text,
+    created_at:      column.text,
+  }, { indexes: { by_delivery: ['delivery_id'] } });
+
+  const loans = new Table({
+    restaurant_id:    column.text,
+    order_id:         column.text,
+    customer_name:    column.text,
+    customer_phone:   column.text,
+    due_date:         column.text,
+    amount:           column.real,
+    status:           column.text,
+    paid_at:          column.text,
+    payment_method:   column.text,
+    notes:            column.text,
+    created_at:       column.text,
+    updated_at:       column.text,
+  }, { indexes: { by_restaurant: ['restaurant_id'], by_order: ['order_id'] } });
+
+  const shifts = new Table({
+    restaurant_id:          column.text,
+    user_id:                column.text,
+    clock_in:               column.text,
+    clock_out:              column.text,
+    hourly_rate:            column.real,
+    scheduled_start_time:   column.text,
+    status:                 column.text,
+    note:                   column.text,
+    shift_date:             column.text,
+    created_at:             column.text,
+  }, { indexes: { by_restaurant: ['restaurant_id'], by_user: ['user_id'] } });
+
+  const staff_payments = new Table({
+    restaurant_id:   column.text,
+    user_id:         column.text,
+    amount:          column.real,
+    payment_method:  column.text,
+    payment_date:    column.text,
+    note:            column.text,
+    recorded_by:     column.text,
+    created_at:      column.text,
+    updated_at:      column.text,
+  }, { indexes: { by_restaurant: ['restaurant_id'], by_user: ['user_id'] } });
+
   return new Schema({
     restaurants,
     users,
@@ -225,6 +353,15 @@ function buildSchema({ column, Schema, Table }) {
     notifications,
     waitress_permissions,
     restaurant_settings,
+    warehouse_items,
+    suppliers,
+    stock_batches,
+    stock_movements,
+    supplier_deliveries,
+    delivery_items,
+    loans,
+    shifts,
+    staff_payments,
   });
 }
 

@@ -364,3 +364,257 @@ see above) — root-caused entirely from code + the user's screenshots:
   suspected "permissions," but the actual fix was fully quitting and restarting `npm run dev`
   (not just `dev:renderer`). Check for this first whenever a *newly added* IPC call silently
   no-ops right after it was wired up, before investigating auth/role permissions.
+- **Recurring bug class: backend routes missing `new_cashier`/`new_waiter` in their
+  `authorize(...)` role list, left over from before those roles existed.** Hit three times now:
+  `settings.js` (fixed 2026-07-26, would have blocked reading currency/tax settings), the refund
+  endpoint (built correctly from the start 2026-07-26), and `PUT /api/orders/:id` (fixed
+  2026-07-27 — this is what both Orders' and Tables' edit-mode "Done" button calls via
+  `orders:update`; every save 403'd with the literal `{ error: 'Access denied' }` shown in the
+  UI). **If a pos-app action ever shows "Access denied," grep the target route's
+  `authorize('...')` call in `restaurant-app/backend/src/routes/*.js` first** — check
+  `middleware/auth.js`'s `authorize` for the exact mechanism (`403` if `!roles.includes(req.user.role)`).
+  Known-checked-clean so far: `orders.js` `PUT /:id`, `POST /:id/items`, `POST /:id/refund`,
+  `settings.js`. Not yet checked: `PUT /:id/loan/pay` and `tables.js` `PUT /:id` (both still
+  missing `new_cashier`/`new_waiter` as of 2026-07-27, but pos-app doesn't call either route
+  today — grep pos-app before "fixing" these preemptively, don't assume they need it).
+- **`restaurant-app/backend/` is its own nested git repo** (`github.com/JahongirMamadiyorov/the-bill-backend`),
+  separate from the parent `The-Bill` repo's own `origin`
+  (`github.com/JahongirMamadiyorov/The-Bill`). Backend fixes must be committed and pushed from
+  inside `restaurant-app/backend/`, not the repo root — `git push` from the root pushes the
+  wrong repo and does nothing for Render (which deploys from `the-bill-backend`).
+- **This sandbox's mount of `D:\The-Bill` cannot `rm`/unlink certain git-internal files
+  (`.git/index.lock`, temp objects under `.git/objects/**/tmp_obj_*`) — fails with `Operation
+  not permitted` even though `ls -la` shows the current user as owner.** Confirmed this is a
+  mount quirk, not a real permissions problem: `mv`-ing the same file to a different name in the
+  same directory succeeds every time. Workaround when a git command fails with "Unable to
+  create '.../index.lock': File exists" or similar: `mv .git/index.lock .git/index.lock.bak`
+  (any destination name works), then retry. Also had no git identity configured in this sandbox
+  the first time it needed to commit here — set locally (not `--global`) with
+  `git config user.name "Jahongir"` / `git config user.email "m.jahongir2205@gmail.com"`. No
+  GitHub push credentials exist in this sandbox either — `git push` will fail with "could not
+  read Username for 'https://github.com'"; hand the push back to the user rather than trying to
+  authenticate.
+- **Weighed-item logic (`isWeighedItem`/`unitSuffix`/`formatQty`, and the type-an-amount modal)
+  now lives in shared files, not per-screen copies — `pos-app/src/lib/weighed.js` and
+  `pos-app/src/pages/pos/AmountPickerModal.jsx`.** It originally existed only inside
+  `MenuScreen.jsx` (built 2026-07-07/08); when Orders'/Tables' in-place edit modes were built
+  later, they never got it, so editing a kg/l/g/ml item there silently rounded to whole units
+  via blind `+1`/`-1` — fixed 2026-07-27 by extracting instead of copy-pasting a third time.
+  **If any screen ever adds its own "add item to a list" interaction, wire it through these
+  shared files, not a new local `isWeighedItem`/modal** — that's exactly how this bug happened.
+  Also: when checking `isWeighedItem(x)`, `x` must be the real `menu_items` row (has `.unit`) —
+  a couple of call sites used to synthesize a partial `{id, name, price}` object (e.g. a
+  stepper button building its own object instead of looking the item up in `menuById`), which
+  silently defeats the check since `.unit` comes back `undefined` → treated as `'piece'`.
+- **The amount picker for weighed items (kg/l/g/ml) has two distinct modes — don't collapse
+  them back into one "prefill with current, replace on confirm" behavior.** `mode: 'add'`
+  (wired to every ADD button and every `+` stepper) opens BLANK and SUMS the typed amount onto
+  whatever qty already exists; `mode: 'set'` (wired only to the `-`/minus stepper) prefills with
+  the current qty and REPLACES it on confirm. This distinction exists because of a real,
+  reported mistake: with only "replace" semantics, tapping ADD/+ on an item already at 0.5 kg
+  reopened the field prefilled with `0.5`, and a cashier typing "1.33" meaning "add 1.33 more"
+  silently overwrote the order to `1.33 kg` instead of the correct `1.83 kg`. If a future screen
+  wires up its own ADD/+ for a weighed item, it MUST use `'add'` mode, not `'set'` — `'set'`
+  reproduces the exact bug that was just fixed.
+- **pos-app never opens its own WebSocket connection to the backend.** Only the old
+  cashier-panel/print-agent side uses `server.js`'s WS (`/ws`, 30s keep-alive ping for
+  real-time kitchen print push). This matters for speed reasoning: whether Render is "warm"
+  (no cold start) when pos-app makes a write (Fire/Charge/Save/addItems) depends entirely on
+  whether some OTHER client happens to be connected via WS at that moment — pos-app itself
+  can't be blamed or credited either way.
+- **Do not casually recommend "just keep Render always-on" without flagging the 750-hour risk
+  it already caused once.** The original 2026-07-06 Render suspension happened because
+  something (very likely the WS keep-alive traffic) kept the free-tier service running 24/7,
+  which uses up the ENTIRE monthly 750-hour free allowance (a 31-day month is 744 hours — right
+  at the edge) and got the account suspended, requiring a full migration to a new account/URL.
+  If asked to set up a keep-alive pinger again, scope it to actual operating hours (e.g. ~14h/
+  day ≈ 420 hrs/month) rather than 24/7, and say why.
+- **There is no staff/avatar photo feature anywhere in this codebase — only `menu_items.image_url`
+  exists.** Checked directly (grepped `restaurant-app/backend/src/routes/users.js`, `schema.sql`,
+  and `pos-app/src/pages/pos/ProfileScreen.jsx`) after almost stating the opposite unverified —
+  staff are shown via initials chips only (see Profile screen). Don't assume an avatar-upload
+  path exists or extend the photo-cache/upload logic to "cover" it without re-checking; this was
+  a real caught mistake, not a design choice.
+- **Local photo disk-cache for menu-item images (built 2026-07-27)** — custom `app-photo://`
+  Electron protocol (`main.js`, registered via `protocol.registerSchemesAsPrivileged` before
+  `whenReady`/`protocol.handle` inside it), backed by `app.getPath('userData')/photo-cache`.
+  Deliberately has no invalidation logic: `menu.js`'s multer `diskStorage.filename` produces
+  `${Date.now()}-${random}${ext}`, so a cached file can never go stale — a re-uploaded photo gets
+  a brand-new filename, never overwrites the old cached one. `src/lib/localPhoto.js` rewrites a
+  known `/uploads/menu/<file>` URL to the local scheme; only wired into `MenuScreen.jsx` so far
+  (the one place pos-app renders a menu photo — old unrouted `Cashier.jsx` untouched, same rule
+  as elsewhere). If a future screen ever renders a menu-item photo, route it through
+  `localPhotoSrc()` too rather than hitting the backend URL directly.
+- **Plus Jakarta Sans is self-hosted, not loaded from Google Fonts (changed 2026-07-27).** One
+  variable-font woff2 (`pos-app/src/assets/fonts/PlusJakartaSans-Variable.woff2`, weights 400-800
+  via its own HVAR/MVAR/STAT tables) + one `@font-face` rule in `index.css`. No more
+  `fonts.googleapis.com`/`fonts.gstatic.com` in the CSP or `index.html` — don't re-add a Google
+  Fonts link if a future design pass wants a font tweak; add another local file/weight instead.
+- **History and Receivables now show a "last updated"/stale badge (built 2026-07-27)**, backed by
+  shared `pos-app/src/lib/staleCache.js` (`loadCached`/`saveCached`/`timeAgo`, plain
+  localStorage). Both screens seed their list from cache on mount and flip the badge to a coral
+  "Offline — showing data from Xm ago" state if the most recent `apiGet` refresh failed, instead
+  of silently leaving stale data on screen with no indication. If a future screen gets the same
+  "reads live from the backend, no offline signal" gap, reuse this helper rather than rebuilding it.
+- **`pos-app/src/components/ConfirmDialog.jsx` now exists (ported verbatim 2026-07-27, for the
+  Admin Menu screen's station-delete confirm + upload notices)** — a styled `window.confirm`/
+  `alert` replacement, `setDialog({title, message, type, confirmLabel, onConfirm})` +
+  `<ConfirmDialog dialog={dialog} onClose={...}/>`. Dashboard/Tables never needed it; any future
+  Admin screen ported from the website that used the website's `components/ConfirmDialog.jsx`
+  should reuse this one, not re-port it.
+- **Established UI pattern for the `menuAPI.uploadImage`/`settingsAPI.uploadLogo` stubs (both
+  throw "not yet supported" — see `client.js`'s header comment, real multipart/FormData IPC was
+  never built): don't wire the picker to a handler that will throw on first use.** Render the
+  upload control disabled instead, with an amber warning icon + short label + a tooltip pointing
+  at the website Admin panel as the working alternative — see `MenuScreen.jsx`'s item-photo
+  control (`admin.menu.uploadNotSupportedLabel`/`uploadNotSupportedHint` in en.json/uz.json) for
+  the reference implementation. `AdminSettings`'s logo upload (task #29, not built yet) will hit
+  the identical gap via `settingsAPI.uploadLogo` — reuse this same disabled-control pattern rather
+  than re-deciding it. Existing-image preview + "remove" (pure local state, no upload call) stay
+  fully functional either way — only the actual file-picker/upload action needs disabling.
+- **`pos-app/src/components/Dropdown.jsx` and `pos-app/src/components/DatePicker.jsx` now exist
+  (ported verbatim 2026-07-27, for the Admin Inventory screen's status/category/unit dropdowns and
+  its date filters/expiry/due-date fields)** — custom `<select>`/`<input type="date">` replacements
+  matching the website's own design exactly. Dropdown has no dependencies at all; DatePicker uses
+  `createPortal` and only needed its `useTranslation` import path adjusted. Any future Admin screen
+  ported from the website that used either of these should reuse these copies, not re-port them —
+  same practice as `ConfirmDialog.jsx` before them.
+- **Electron's renderer does not implement `window.prompt()` at all** (unlike `alert`/`confirm`,
+  which Chromium does support, and which this codebase already replaces with the styled
+  `ConfirmDialog` purely for visual-consistency reasons, not because they're broken). Discovered
+  porting the Admin Inventory screen (2026-07-27): the website's `AdminInventory.jsx` calls
+  `window.prompt()` twice (adjust a pending delivery line's quantity; ask for a removal reason) —
+  calling it as-is in pos-app would silently no-op or throw. Fixed with a small local `promptModal`/
+  `promptValue` state pattern inside `InventoryScreen.jsx` (a lightweight modal asking for the same
+  single value, then calling the same handler) — kept local since nothing else has needed it yet.
+  **If a future ported screen also uses `window.prompt()`, reuse this same local-modal pattern
+  (or promote it to a shared component if a second screen needs it) — do not port a raw
+  `prompt()` call through, it will silently break in the real app.**
+- **Bare `window.confirm()` calls also get replaced in this port, same as `window.prompt()` — the
+  build brief for this Admin work treats all three (`prompt`/`confirm`/`alert`) as "not reliably
+  implemented" in Electron's renderer and requires grepping every ported screen for them,
+  regardless of the more nuanced note above about Chromium technically supporting `confirm`/
+  `alert`.** Found one real instance porting the Admin Staff screen (2026-07-27): the website's
+  `AdminStaff.jsx` has a bare `confirm(t('admin.staff.deletePaymentConfirm', {...}))` guarding the
+  delete-payment button in the payroll details modal, with no import of the website's own
+  `components/ConfirmDialog.jsx` at all (unlike Menu/Inventory, which already use `ConfirmDialog`
+  for their own confirm/alert-style prompts). Fixed in `StaffScreen.jsx` by routing it through the
+  already-shared `ConfirmDialog` component instead (new local `dialog`/`setDialog` state) — same
+  pattern Menu/Inventory already established for confirm/alert-style dialogs, just applied here
+  because this specific source screen happened to use the raw browser API instead. **If a future
+  ported screen has a bare `confirm(...)`/`alert(...)` call not already going through
+  `ConfirmDialog`, replace it the same way — don't leave the raw browser call in, even though it
+  may often still work.**
+- **`pos-app/src/pages/admin/screens/StaffScreen.jsx` now exists (ported 2026-07-27, exported as
+  `AdminStaffScreen`)** — Staff/Attendance/Payroll tabs, staff CRUD, live clock-in/out status,
+  shift history, and salary-type-aware payroll with debt carry-over. Its live "on shift" status
+  reads `shiftsAPI.getStaffStatus()` via REST (`GET /shifts/admin/staff-status`) throughout,
+  deliberately not switched to local PowerSync even though `shifts`/`staff_payments` are now in
+  the `powersync` publication (task #21) — that endpoint's "pick today's most relevant shift row
+  per user" logic is real server-side business logic, not a plain table read, and the PowerSync
+  Cloud Sync Streams config for those tables isn't live yet regardless. `permissionsAPI` is
+  imported by the website's `AdminStaff.jsx` but has zero call sites there (confirmed by grep) —
+  not ported, nothing to port; if a future screen needs actual waitress-permission toggles, it
+  isn't this one.
+- **Cross-screen deep-link pattern for the Admin panel, established 2026-07-27 (Orders screen,
+  task #26) — reuse this, don't reinvent it.** The website passes state between admin pages via
+  URL query strings read with react-router's `useLocation()`/`useSearchParams()` (e.g.
+  `/admin/orders?open=<id>`, set by `AdminTables.jsx`'s "View Full Order" button). pos-app has no
+  URL/query-string routing at all — `AdminShell.jsx`'s `goTo(path)` adapter (which every ported
+  screen calls via its `navigate` prop) now parses any trailing `?key=value` query string off the
+  path itself and stores values it recognizes in its own state (currently just `openOrderId`, for
+  `?open=<id>`), then passes them down to whichever screen is active as plain extra props
+  (`openOrderId`/`clearOpenOrderId`) alongside `navigate`. The receiving screen consumes the value
+  in a `useEffect` and calls the paired `clear*()` function afterward so it doesn't re-trigger on
+  a later re-render or a round trip through another screen. If a future ported Admin screen also
+  needs to receive a query-string-style parameter from another screen's `navigate()` call, extend
+  `goTo()`'s existing parsing (don't add a second, parallel mechanism) and follow the same
+  prop-pair-plus-clear-callback shape.
+- **`pos-app/src/pages/admin/screens/OrdersScreen.jsx` now exists (ported 2026-07-27, exported as
+  `AdminOrdersScreen`)** — order list/tabs, detail modal, status flow, edit-in-modal, cancel/
+  delete, and the Collect Payment modal (cash/card/QR/loan, discount, split). This was the first
+  Admin screen ported so far where the source had real, reachable print code to actually remove
+  (`usePrinter()`, `printReceipt`, `handlePrintCheque()`, a `restSettings`/`accountingAPI.
+  getRestaurantSettings()` effect that only fed it, an `fmtOrderNum()` helper, the `Printer` icon,
+  and a "Print Receipt" button in the payment modal's footer) — Dashboard/Tables/Menu/Inventory
+  either had none or had it already dead-behind-`isCashier` from an earlier port. If a future
+  screen (Loans, Staff, Settings) also has a working print button, expect to remove a similarly
+  full set (hook + helper + button), not just a button.
+- **A source `navigate()` target can point at a website page that was never ported into pos-app —
+  check before wiring it through blindly.** `AdminOrders.jsx`'s "+ New Order" button called
+  `navigate('/admin/new-order')`, the website's standalone `AdminNewOrder.jsx` route — but only
+  that file's `isModal` branch was ever ported (as `NewOrderModal.jsx`, task #23, since
+  `AdminTables.jsx` is its only caller and always uses modal mode). Redirected the button to
+  `navigate('/admin/tables')` instead (the actual place a new order gets created in this build)
+  rather than leaving it pointed at a screen key with no `SCREENS` entry, which would have
+  silently landed on the generic "coming in a later build step" placeholder. If a future ported
+  screen's button targets another website route, check whether that target was actually ported
+  into pos-app's `SCREENS` map before wiring the `navigate()` call through unchanged.
+- **`pos-app/src/pages/admin/screens/LoansScreen.jsx` now exists (ported 2026-07-27, exported as
+  `AdminLoansScreen`)** — loans list/stats/search/status-filter, a date-range calendar picker (its
+  own inline component, not the shared `DatePicker.jsx`), a loan details modal (pulls the linked
+  order's items via `ordersAPI.getById`), and a collect-payment modal (cash/card/QR). No new
+  shared deps needed at all — `loansAPI`/`ordersAPI`/`money`/`useTranslation` were already covered.
+  **There is no "remind overdue" feature anywhere in the website's `AdminLoans.jsx`** — despite
+  `client.js`'s `loansAPI.notifyOverdue()` existing with a real matching backend route, the source
+  file has zero call sites for it (no button, no handler). Don't assume this feature exists or try
+  to "restore" it in a future pass without an explicit request — it was never built on the website
+  either, this isn't a porting gap. `loansAPI.getStats()` is the same story — exists in `client.js`,
+  unused by the actual screen (which computes its own totals client-side from `getAll()`).
+- **`pos-app/src/pages/admin/screens/SettingsScreen.jsx` now exists (ported 2026-07-27, exported as
+  `AdminSettingsScreen`)** — Restaurant Info/Financial/Receipt Template/Kitchen Order Template tabs
+  over a single `settingsAPI.get()`/`update()` round-trip, built against REST per task #21's
+  standing recommendation (no polling, no local-PowerSync read attempted). The whole "Printers" tab
+  (receipt/kitchen printer IP/port fields, station assignment, the connect-a-printer guide, add-
+  printer forms) was removed entirely as dead code — the specific "printer IP/port settings fields"
+  a restaurant-settings screen was expected to have, per the standing printing-exclusion rule.
+- **New reusable pattern from that exclusion, worth applying to any future screen that drops a
+  whole settings section's UI while the section's fields still live in the same save payload as
+  everything else: keep the excluded fields in local state, loaded and round-tripped UNCHANGED on
+  save, even with zero UI to view/edit them.** `SettingsScreen.jsx`'s `receiptPrinters`/
+  `kitchenPrinters` arrays are the concrete instance — without this, saving any unrelated field on
+  that screen (e.g. currency symbol) would silently send both arrays back empty and wipe out real
+  printer config entered via the website, since `PUT /settings` takes the whole form object, not a
+  per-field patch. This risk only exists because a whole editable section was dropped from a
+  shared-payload save endpoint — it does not apply to screens that just remove a single print
+  button/call (Orders, task #26) since those never had a save-the-whole-object endpoint to begin
+  with. If a future ported screen drops an entire section's UI for the printing exclusion (or any
+  other reason) while other fields on the same screen still get saved via one combined
+  create/update call, check whether the dropped section's own fields need this same "keep in state,
+  never edit, always resend" treatment before assuming removal is safe.
+- **`settingsAPI.uploadLogo` gap resolved the same way `menuAPI.uploadImage` was (see the entry
+  below) — confirms the disabled-control pattern generalizes cleanly to a second, unrelated upload
+  stub.** Reused the exact `admin.menu.uploadNotSupportedLabel`/`uploadNotSupportedHint` i18n keys
+  rather than adding a settings-scoped duplicate pair, since the message ("not available yet, use
+  the website Admin panel") reads correctly for any upload control in this app, not just Menu's
+  item photos. If a third upload stub ever surfaces, prefer reusing these same generic keys again
+  before adding a new pair, unless the wording genuinely needs to differ for that specific field.
+- **`pos-app/src/pages/admin/screens/ProfileScreen.jsx` now exists (ported 2026-07-27, exported as
+  `AdminProfileScreen`)** — the admin's own profile info, edit-profile modal, and change-password
+  modal. **This was the 9th and last Admin screen — the full sidebar screen-porting effort (tasks
+  #20-30) is now functionally complete end-to-end**, though nothing has been tested on a real
+  machine yet for any of the 9 (see STATUS.md's "Admin panel build complete — summary" section for
+  the full outstanding-work picture: real-machine testing, task #21's still-pending PowerSync Cloud
+  Sync Streams config, printing as the next explicit phase, and a few small carried-forward gaps).
+  No AuthContext in pos-app, so this screen's `authUser`/`updateUser` (website's `useAuth()`) became
+  a local `profile` state seeded from the `user` prop + `usersAPI.getMe()` on mount — same "use the
+  already-passed-down user prop" fix as every other screen needing the current user. One new prop
+  threaded through `AdminShell.jsx`: `onLogout` is now passed to every active screen (not just the
+  sidebar's own Sign Out button), since this is the first screen with its own in-screen Sign Out
+  action needing the same centralized logout flow. Known, deliberately-flagged (not silent)
+  limitation: editing your name/phone here doesn't live-update the sidebar's own name/avatar until
+  next login, since there's no callback wired back up through `App.jsx` for it — judged out of scope
+  for a cosmetic staleness gap on the very last screen; re-verified there is still no avatar/photo
+  upload feature anywhere in this codebase (confirmed again directly against the real file, not
+  assumed from the earlier note two entries below).
+- **Confirmed real, applied free performance wins (2026-07-27), don't redo/re-suggest these:**
+  5 missing FK indexes added (`orders.table_id`, `orders.waitress_id`,
+  `order_items.menu_item_id`, `menu_items.category_id`, `restaurant_tables.assigned_to`) plus
+  one duplicate index dropped (`finance_manual_income`), applied via Supabase migration
+  `add_hot_path_fk_indexes`; 7-day `Cache-Control` on menu photo serving
+  (`restaurant-app/backend/src/server.js`, safe because upload filenames are timestamp+random
+  and never reused). Still open, not yet acted on further: pos-app was confirmed running via
+  `npm run dev` (not the packaged `build:win` installer) as of 2026-07-27 — worth checking
+  again if speed comes up; a Render keep-alive pinger was discussed and approved in principle
+  but not yet actually set up (needs the user to create a free UptimeRobot/cron-job.org
+  account, can't be done from this sandbox).

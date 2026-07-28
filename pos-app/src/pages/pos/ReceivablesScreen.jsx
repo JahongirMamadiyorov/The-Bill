@@ -4,6 +4,8 @@ import {
   Banknote, QrCode, Bell,
 } from 'lucide-react';
 import { T, card, pill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
+import { loadCached, saveCached, timeAgo } from '../../lib/staleCache.js';
+import { t, tt } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Receivables screen — customer loans/debts. Design handoff screens 11–13.
@@ -20,6 +22,7 @@ import { T, card, pill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
 //   active, otherwise      → 'current'    (counts as Active tab)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const CACHE_KEY = 'pos.receivables.cache.v1';
 const FILTERS = ['All', 'Active', 'Paid', 'Overdue'];
 const METHODS = [
   { id: 'cash', Icon: Banknote,   label: 'Cash' },
@@ -37,19 +40,27 @@ function classify(loan) {
   return 'current';
 }
 
-const STATUS_STYLE = {
-  paid:     { label: 'Paid',     color: T.greenDark, bg: T.greenTint },
-  overdue:  { label: 'Overdue',  color: T.coral,      bg: T.coralBg   },
-  due_soon: { label: 'Due Soon', color: T.amber,       bg: T.amberBg  },
-  current:  { label: 'Current',  color: T.blue,        bg: T.blueBg   },
-};
+// `lang` optional — omitted, returns the English label.
+function statusStyle(status, lang) {
+  const STYLE = {
+    paid:     { label: 'Paid',     color: T.greenDark, bg: T.greenTint },
+    overdue:  { label: 'Overdue',  color: T.coral,      bg: T.coralBg   },
+    due_soon: { label: 'Due Soon', color: T.amber,       bg: T.amberBg  },
+    current:  { label: 'Current',  color: T.blue,        bg: T.blueBg   },
+  };
+  const s = STYLE[status] || STYLE.current;
+  return { ...s, label: t(s.label, lang) };
+}
 
-export default function ReceivablesScreen({ user, settings, search }) {
+export default function ReceivablesScreen({ user, settings, search, lang }) {
   const symbol = settings.currencySymbol;
   const money  = (n) => fmtMoney(n, symbol);
 
-  const [loans,   setLoans]   = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cached = useMemo(() => loadCached(CACHE_KEY), []); // read once on mount
+  const [loans,   setLoans]   = useState(cached?.data || []);
+  const [loading, setLoading] = useState(!cached); // skip spinner if we already have something to show
+  const [lastUpdated, setLastUpdated] = useState(cached?.savedAt || null);
+  const [stale,   setStale]   = useState(false);
   const [filter,  setFilter]  = useState('All');
   const [selected, setSelected] = useState(null); // loan row
   const [orderDetail, setOrderDetail] = useState(null);
@@ -63,9 +74,20 @@ export default function ReceivablesScreen({ user, settings, search }) {
     setLoading(true);
     try {
       const res = await window.electronAPI.apiGet('/api/loans');
-      if (res?.ok) setLoans(Array.isArray(res.data) ? res.data : []);
-      else showToast(res?.error || 'Failed to load receivables — is the backend reachable?', false);
-    } catch { showToast('Failed to load receivables', false); }
+      if (res?.ok) {
+        const data = Array.isArray(res.data) ? res.data : [];
+        setLoans(data);
+        setStale(false);
+        setLastUpdated(Date.now());
+        saveCached(CACHE_KEY, data);
+      } else {
+        showToast(res?.error || t('Failed to load receivables — is the backend reachable?', lang), false);
+        setStale(true);
+      }
+    } catch {
+      showToast(t('Failed to load receivables', lang), false);
+      setStale(true);
+    }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -111,8 +133,8 @@ export default function ReceivablesScreen({ user, settings, search }) {
     setBusy(true);
     try {
       const res = await window.electronAPI.loansPay(selected.id, { payment_method: method });
-      if (!res.ok) { showToast(res.error || 'Failed to record payment', false); return; }
-      showToast('Payment recorded — loan marked paid');
+      if (!res.ok) { showToast(res.error || t('Failed to record payment', lang), false); return; }
+      showToast(t('Payment recorded — loan marked paid', lang));
       setShowCollect(false);
       setSelected(null);
       load();
@@ -125,8 +147,8 @@ export default function ReceivablesScreen({ user, settings, search }) {
   const remind = async () => {
     try {
       const res = await window.electronAPI.loansRemind();
-      showToast(res?.ok ? 'Overdue reminders sent to admins/owners' : (res?.error || 'Failed to send reminders'), !!res?.ok);
-    } catch { showToast('Failed to send reminder', false); }
+      showToast(res?.ok ? t('Overdue reminders sent to admins/owners', lang) : (res?.error || t('Failed to send reminders', lang)), !!res?.ok);
+    } catch { showToast(t('Failed to send reminder', lang), false); }
   };
 
   if (loading) return (
@@ -150,11 +172,13 @@ export default function ReceivablesScreen({ user, settings, search }) {
         </div>
       )}
 
+      {lastUpdated && <StaleBadge stale={stale} lastUpdated={lastUpdated} lang={lang} />}
+
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        <StatCard label="Total Outstanding" value={money(stats.outstanding)} />
-        <StatCard label="Overdue" value={money(stats.overdueTotal)} accent={T.coral} />
-        <StatCard label="Customers with Balance" value={stats.customerCount} />
+        <StatCard label={t('Total Outstanding', lang)} value={money(stats.outstanding)} />
+        <StatCard label={t('Overdue', lang)} value={money(stats.overdueTotal)} accent={T.coral} />
+        <StatCard label={t('Customers with Balance', lang)} value={stats.customerCount} />
       </div>
 
       {/* Filter chips */}
@@ -165,7 +189,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
             background: filter === f ? T.green : T.surface, color: filter === f ? '#fff' : T.muted,
             fontSize: 12, fontWeight: 800, boxShadow: filter === f ? 'none' : T.cardShadow,
           }}>
-            {f}
+            {t(f, lang)}
           </button>
         ))}
       </div>
@@ -174,7 +198,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
       <div style={{ ...card, flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {filtered.length === 0 ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted, fontSize: 14 }}>
-            No receivables in this filter
+            {t('No receivables in this filter', lang)}
           </div>
         ) : (
           <div style={{ overflowY: 'auto' }}>
@@ -182,13 +206,13 @@ export default function ReceivablesScreen({ user, settings, search }) {
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.line}` }}>
                   {['Customer', 'Phone', 'Owed', 'Last Charge', 'Due', 'Status', ''].map(h => (
-                    <th key={h} style={{ ...uppercaseLabel, textAlign: 'left', padding: '12px 18px' }}>{h}</th>
+                    <th key={h} style={{ ...uppercaseLabel, textAlign: 'left', padding: '12px 18px' }}>{t(h, lang)}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(l => {
-                  const sp = STATUS_STYLE[l._status];
+                  const sp = statusStyle(l._status, lang);
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${T.line2}` }}
                       onMouseEnter={e => e.currentTarget.style.background = T.rowHover}
@@ -207,8 +231,8 @@ export default function ReceivablesScreen({ user, settings, search }) {
                       </td>
                       <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', fontSize: 12.5, color: T.muted, cursor: 'pointer' }}>{l.customer_phone || '—'}</td>
                       <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', fontSize: 13, fontWeight: 800, color: l.status === 'paid' ? T.muted : T.coral, cursor: 'pointer' }}>{money(l.amount)}</td>
-                      <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', fontSize: 12, color: T.muted, cursor: 'pointer' }}>{fmtDate(l.created_at)}</td>
-                      <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', fontSize: 12, color: T.muted, cursor: 'pointer' }}>{fmtDate(l.due_date)}</td>
+                      <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', fontSize: 12, color: T.muted, cursor: 'pointer' }}>{fmtDate(l.created_at, lang)}</td>
+                      <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', fontSize: 12, color: T.muted, cursor: 'pointer' }}>{fmtDate(l.due_date, lang)}</td>
                       <td onClick={() => openDetail(l)} style={{ padding: '11px 18px', cursor: 'pointer' }}>
                         <span style={pill(sp)}>{sp.label}</span>
                       </td>
@@ -219,9 +243,9 @@ export default function ReceivablesScreen({ user, settings, search }) {
                               padding: '6px 12px', borderRadius: T.rBtn, border: `1.5px solid ${T.green}`,
                               background: T.surface, color: T.greenDark, fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                             }}>
-                              Record Payment
+                              {t('Record Payment', lang)}
                             </button>
-                            <button onClick={remind} title="Remind all overdue" style={{
+                            <button onClick={remind} title={t('Remind all overdue', lang)} style={{
                               width: 30, height: 30, borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                               background: T.surface, color: T.muted, cursor: 'pointer', display: 'flex',
                               alignItems: 'center', justifyContent: 'center',
@@ -252,7 +276,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 15.5, fontWeight: 800 }}>Loan Details</div>
+                <div style={{ fontSize: 15.5, fontWeight: 800 }}>{t('Loan Details', lang)}</div>
                 <div style={{ fontSize: 11.5, color: T.muted }}>{selected.customer_name}</div>
               </div>
               <button onClick={() => setSelected(null)} style={{
@@ -265,7 +289,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
 
             {/* Status banner */}
             {(() => {
-              const sp = STATUS_STYLE[selected._status];
+              const sp = statusStyle(selected._status, lang);
               return (
                 <div style={{ background: sp.bg, borderRadius: 14, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <div>
@@ -273,9 +297,9 @@ export default function ReceivablesScreen({ user, settings, search }) {
                     <div style={{ fontSize: 21, fontWeight: 800, color: sp.color, marginTop: 2 }}>{money(selected.amount)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ ...uppercaseLabel, color: sp.color }}>{selected.status === 'paid' ? 'Paid On' : 'Due Date'}</div>
+                    <div style={{ ...uppercaseLabel, color: sp.color }}>{t(selected.status === 'paid' ? 'Paid On' : 'Due Date', lang)}</div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: sp.color, marginTop: 2 }}>
-                      {fmtDate(selected.status === 'paid' ? selected.paid_at : selected.due_date)}
+                      {fmtDate(selected.status === 'paid' ? selected.paid_at : selected.due_date, lang)}
                     </div>
                   </div>
                 </div>
@@ -284,18 +308,18 @@ export default function ReceivablesScreen({ user, settings, search }) {
 
             {/* Tiles */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-              <Tile label="Customer" value={selected.customer_name} />
-              <Tile label="Phone" value={selected.customer_phone || '—'} />
-              <Tile label="Order #" value={selected.daily_number ? `#${selected.daily_number}` : '—'} />
-              <Tile label="Table" value={selected.table_name || selected.order_type || '—'} />
-              <Tile label="Taken On" value={fmtDate(selected.created_at)} />
-              <Tile label={selected.status === 'paid' ? 'Paid On' : 'Due'} value={fmtDate(selected.status === 'paid' ? selected.paid_at : selected.due_date)} />
+              <Tile label={t('Customer', lang)} value={selected.customer_name} />
+              <Tile label={t('Phone', lang)} value={selected.customer_phone || '—'} />
+              <Tile label={t('Order #', lang)} value={selected.daily_number ? `#${selected.daily_number}` : '—'} />
+              <Tile label={t('Table', lang)} value={selected.table_name || selected.order_type || '—'} />
+              <Tile label={t('Taken On', lang)} value={fmtDate(selected.created_at, lang)} />
+              <Tile label={t(selected.status === 'paid' ? 'Paid On' : 'Due', lang)} value={fmtDate(selected.status === 'paid' ? selected.paid_at : selected.due_date, lang)} />
             </div>
 
             {/* Order items */}
             {orderDetail && (
               <>
-                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Order Items · {(orderDetail.items || []).length} items</div>
+                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{tt(lang, 'Order Items · {n} items', 'Buyurtma mahsulotlari · {n} ta', { n: (orderDetail.items || []).length })}</div>
                 {(orderDetail.items || []).map((it, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${T.line2}` }}>
                     <span style={{ fontSize: 12.5, fontWeight: 700 }}>
@@ -306,7 +330,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, fontSize: 13, fontWeight: 800 }}>
-                  <span>Subtotal</span>
+                  <span>{t('Subtotal', lang)}</span>
                   <span>{money(selected.amount)}</span>
                 </div>
               </>
@@ -314,7 +338,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
 
             {selected.status === 'paid' && selected.payment_method && (
               <div style={{ background: T.greenTint, color: T.greenDark, borderRadius: T.rBtn, padding: '9px 12px', fontSize: 12, fontWeight: 700, marginTop: 12 }}>
-                Paid via {selected.payment_method}
+                {tt(lang, 'Paid via {method}', '{method} orqali to’landi', { method: selected.payment_method })}
               </div>
             )}
 
@@ -323,7 +347,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
                 flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                 background: T.surface, color: T.muted, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
               }}>
-                Close
+                {t('Close', lang)}
               </button>
               {selected.status === 'active' && (
                 <button onClick={() => setShowCollect(true)} style={{
@@ -331,7 +355,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
                   background: T.green, color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}>
-                  <Check size={14} strokeWidth={2.5} /> Mark Paid
+                  <Check size={14} strokeWidth={2.5} /> {t('Mark Paid', lang)}
                 </button>
               )}
             </div>
@@ -350,7 +374,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
             width: 'min(440px, 94vw)', padding: 22,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 800 }}>Collect Loan Payment</div>
+              <div style={{ fontSize: 15.5, fontWeight: 800 }}>{t('Collect Loan Payment', lang)}</div>
               <button onClick={() => setShowCollect(false)} style={{
                 width: 30, height: 30, borderRadius: '50%', border: 'none', background: T.chipBg,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted,
@@ -360,11 +384,11 @@ export default function ReceivablesScreen({ user, settings, search }) {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-              <Tile label="Customer" value={selected.customer_name} />
-              <Tile label="Order #" value={selected.daily_number ? `#${selected.daily_number}` : '—'} />
+              <Tile label={t('Customer', lang)} value={selected.customer_name} />
+              <Tile label={t('Order #', lang)} value={selected.daily_number ? `#${selected.daily_number}` : '—'} />
             </div>
 
-            <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Payment method</div>
+            <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Payment method', lang)}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
               {METHODS.map(({ id, Icon, label }) => {
                 const active = method === id;
@@ -385,7 +409,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
                       </span>
                     )}
                     <Icon size={18} strokeWidth={1.8} />
-                    {label}
+                    {t(label, lang)}
                   </button>
                 );
               })}
@@ -395,7 +419,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               background: T.chipBg, borderRadius: T.rBtn, padding: '12px 16px', marginBottom: 16,
             }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>Total to collect</span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>{t('Total to collect', lang)}</span>
               <span style={{ fontSize: 17, fontWeight: 800 }}>{money(selected.amount)}</span>
             </div>
 
@@ -404,7 +428,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
                 flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                 background: T.surface, color: T.muted, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
               }}>
-                Cancel
+                {t('Cancel', lang)}
               </button>
               <button onClick={collect} disabled={busy} style={{
                 flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: 'none',
@@ -412,7 +436,7 @@ export default function ReceivablesScreen({ user, settings, search }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: busy ? 0.7 : 1,
               }}>
                 {busy ? <Loader2 size={14} style={{ animation: 'posspin 1s linear infinite' }} /> : <DollarSign size={14} strokeWidth={2.5} />}
-                Confirm Payment
+                {t('Confirm Payment', lang)}
               </button>
             </div>
           </div>
@@ -424,9 +448,25 @@ export default function ReceivablesScreen({ user, settings, search }) {
 
 // ── Bits ──────────────────────────────────────────────────────────────────────
 
-function fmtDate(iso) {
+function fmtDate(iso, lang) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(lang === 'UZ' ? 'uz-UZ' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// Shows "Updated Xm ago" normally, or an offline warning if the last refresh
+// attempt failed and we're showing cached data (see staleCache.js / load()).
+function StaleBadge({ stale, lastUpdated, lang }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700,
+      color: stale ? T.coral : T.faint,
+    }}>
+      {stale && <AlertCircle size={13} strokeWidth={2} />}
+      {stale
+        ? tt(lang, 'Offline — showing data from {time}', 'Oflayn — {time} ma’lumot ko’rsatilmoqda', { time: timeAgo(lastUpdated, lang) })
+        : tt(lang, 'Updated {time}', '{time} yangilandi', { time: timeAgo(lastUpdated, lang) })}
+    </div>
+  );
 }
 
 function StatCard({ label, value, accent }) {

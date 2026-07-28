@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   Phone, Mail, CalendarDays, LogOut as ClockOutIcon, LogIn as ClockInIcon,
-  Loader2, CheckCircle2, AlertCircle,
+  Loader2, CheckCircle2, AlertCircle, RefreshCw,
 } from 'lucide-react';
 import { T, card, pill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
+import { t } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile screen — design handoff screen 14.
@@ -28,11 +29,17 @@ function elapsedLabel(fromIso) {
   return `${h}h ${m}m`;
 }
 
-export default function ProfileScreen({ user, settings }) {
+export default function ProfileScreen({ user, settings, lang }) {
   const symbol = settings.currencySymbol;
   const money  = (n) => fmtMoney(n, symbol);
 
-  const [shift,   setShift]   = useState(undefined); // undefined = loading, null = not clocked in
+  const [shift,   setShift]   = useState(undefined); // undefined = never loaded yet, null = confirmed not clocked in, object = active shift
+  // Separate from `shift` on purpose: a failed/timed-out request used to be
+  // treated identically to "not clocked in" (setShift(null) on both), which
+  // silently lied to the cashier — a network hiccup and a genuine off-shift
+  // state looked exactly the same. Now a failure only ever sets this flag;
+  // it never invents a `shift` value the backend didn't actually confirm.
+  const [shiftError, setShiftError] = useState(false);
   const [stats,   setStats]   = useState({ orders: 0, sales: 0, avgServeMin: null });
   const [busy,    setBusy]    = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -42,9 +49,9 @@ export default function ProfileScreen({ user, settings }) {
   const loadShift = async () => {
     try {
       const res = await window.electronAPI.apiGet('/api/shifts/active');
-      if (res?.ok) setShift(res.data?.active ? res.data : null);
-      else setShift(null);
-    } catch { setShift(null); }
+      if (res?.ok) { setShiftError(false); setShift(res.data?.active ? res.data : null); }
+      else setShiftError(true);
+    } catch { setShiftError(true); }
   };
 
   const loadStats = async () => {
@@ -76,8 +83,8 @@ export default function ProfileScreen({ user, settings }) {
     setBusy(true);
     try {
       const res = await window.electronAPI.shiftsClockIn();
-      if (!res.ok) { showToast(res.error || 'Failed to clock in', false); return; }
-      showToast('Clocked in');
+      if (!res.ok) { showToast(res.error || t('Failed to clock in', lang), false); return; }
+      showToast(t('Clocked in', lang));
       loadShift();
     } finally { setBusy(false); }
   };
@@ -85,13 +92,13 @@ export default function ProfileScreen({ user, settings }) {
     setBusy(true);
     try {
       const res = await window.electronAPI.shiftsClockOut();
-      if (!res.ok) { showToast(res.error || 'Failed to clock out', false); return; }
-      showToast('Clocked out');
+      if (!res.ok) { showToast(res.error || t('Failed to clock out', lang), false); return; }
+      showToast(t('Clocked out', lang));
       loadShift();
     } finally { setBusy(false); }
   };
 
-  const roleLabel = user.role === 'new_cashier' ? 'Cashier' : (user.role || '').replace(/_/g, ' ');
+  const roleLabel = user.role === 'new_cashier' ? t('Cashier', lang) : (user.role || '').replace(/_/g, ' ');
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, overflow: 'auto', minWidth: 0 }}>
@@ -119,9 +126,9 @@ export default function ProfileScreen({ user, settings }) {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18, fontWeight: 800 }}>{user.name || 'Staff'}</span>
+            <span style={{ fontSize: 18, fontWeight: 800 }}>{user.name || t('Staff', lang)}</span>
             <span style={pill(shift ? { color: T.greenDark, bg: T.greenTint } : { color: T.gray, bg: T.grayBg })}>
-              {shift ? 'On Shift' : 'Off Shift'}
+              {t(shift ? 'On Shift' : 'Off Shift', lang)}
             </span>
           </div>
           <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3, textTransform: 'capitalize' }}>
@@ -133,14 +140,36 @@ export default function ProfileScreen({ user, settings }) {
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         {/* Shift Info card */}
         <div style={{ ...card, padding: 20, flex: '1 1 280px' }}>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 14 }}>Shift Info</div>
-          {shift === undefined ? (
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 14 }}>{t('Shift Info', lang)}</div>
+          {shift === undefined && shiftError ? (
+            // Never successfully loaded AND the attempt just failed — say so
+            // honestly instead of guessing "not clocked in" or spinning forever.
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.coral, fontSize: 12.5, fontWeight: 700, marginBottom: 12 }}>
+                <AlertCircle size={15} />
+                {t("Can't reach server — shift status unknown", lang)}
+              </div>
+              <button onClick={loadShift} style={{
+                width: '100%', padding: '10px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
+                background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}>
+                <RefreshCw size={14} strokeWidth={1.8} />
+                {t('Retry', lang)}
+              </button>
+            </>
+          ) : shift === undefined ? (
             <Loader2 size={20} color={T.green} style={{ animation: 'posspin 1s linear infinite' }} />
           ) : shift ? (
             <>
-              <InfoRow label="Clocked In" value={new Date(shift.clock_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} />
-              <InfoRow label="Shift Length" value={elapsedLabel(shift.clock_in)} />
-              <InfoRow label="Break" value="—" />
+              <InfoRow label={t('Clocked In', lang)} value={new Date(shift.clock_in).toLocaleTimeString(lang === 'UZ' ? 'uz-UZ' : 'en-US', { hour: '2-digit', minute: '2-digit' })} />
+              <InfoRow label={t('Shift Length', lang)} value={elapsedLabel(shift.clock_in)} />
+              <InfoRow label={t('Break', lang)} value="—" />
+              {shiftError && (
+                <div style={{ fontSize: 11, color: T.coral, marginTop: 8 }}>
+                  {t("Couldn't refresh — showing last known status", lang)}
+                </div>
+              )}
               <button onClick={clockOut} disabled={busy} style={{
                 marginTop: 14, width: '100%', padding: '11px 0', borderRadius: T.rBtn,
                 border: `1.5px solid ${T.coral}`, background: T.surface, color: T.coral,
@@ -148,19 +177,24 @@ export default function ProfileScreen({ user, settings }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}>
                 {busy ? <Loader2 size={14} style={{ animation: 'posspin 1s linear infinite' }} /> : <ClockOutIcon size={15} strokeWidth={1.8} />}
-                Clock Out
+                {t('Clock Out', lang)}
               </button>
             </>
           ) : (
             <>
-              <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>Not clocked in yet today.</div>
+              <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>{t('Not clocked in yet today.', lang)}</div>
+              {shiftError && (
+                <div style={{ fontSize: 11, color: T.coral, marginBottom: 10 }}>
+                  {t("Couldn't refresh — showing last known status", lang)}
+                </div>
+              )}
               <button onClick={clockIn} disabled={busy} style={{
                 width: '100%', padding: '11px 0', borderRadius: T.rBtn, border: 'none',
                 background: T.green, color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}>
                 {busy ? <Loader2 size={14} style={{ animation: 'posspin 1s linear infinite' }} /> : <ClockInIcon size={15} strokeWidth={1.8} />}
-                Clock In
+                {t('Clock In', lang)}
               </button>
             </>
           )}
@@ -168,18 +202,18 @@ export default function ProfileScreen({ user, settings }) {
 
         {/* Personal Details card */}
         <div style={{ ...card, padding: 20, flex: '1 1 280px' }}>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 14 }}>Personal Details</div>
-          <IconRow Icon={Phone} label="Phone" value={user.phone || '—'} />
-          <IconRow Icon={Mail} label="Email" value={user.email || '—'} />
-          <IconRow Icon={CalendarDays} label="Hire Date" value={user.created_at ? new Date(user.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 14 }}>{t('Personal Details', lang)}</div>
+          <IconRow Icon={Phone} label={t('Phone', lang)} value={user.phone || '—'} />
+          <IconRow Icon={Mail} label={t('Email', lang)} value={user.email || '—'} />
+          <IconRow Icon={CalendarDays} label={t('Hire Date', lang)} value={user.created_at ? new Date(user.created_at).toLocaleDateString(lang === 'UZ' ? 'uz-UZ' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
         </div>
       </div>
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        <StatCard label="Orders Handled Today" value={stats.orders} />
-        <StatCard label="Sales Today" value={money(stats.sales)} />
-        <StatCard label="Avg Serve Time" value={stats.avgServeMin != null ? `${Math.round(stats.avgServeMin)}m` : '—'} />
+        <StatCard label={t('Orders Handled Today', lang)} value={stats.orders} />
+        <StatCard label={t('Sales Today', lang)} value={money(stats.sales)} />
+        <StatCard label={t('Avg Serve Time', lang)} value={stats.avgServeMin != null ? `${Math.round(stats.avgServeMin)}m` : '—'} />
       </div>
     </div>
   );

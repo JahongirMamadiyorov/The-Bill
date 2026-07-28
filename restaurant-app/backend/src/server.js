@@ -10,6 +10,22 @@ require('dotenv').config();
 
 const app = express();
 
+// Render (and most PaaS hosts) terminate TLS at their own edge proxy and talk
+// to this process over plain HTTP internally, forwarding the real scheme via
+// `X-Forwarded-Proto: https`. Express ignores that header by default, so
+// `req.protocol` reports 'http' even for a request that arrived over HTTPS —
+// this is the confirmed root cause of menu.js's `POST /menu/upload` building
+// `fullUrl` as `http://the-bill-backend-pego.onrender.com/uploads/menu/...`
+// instead of `https://...`, which then gets blocked by pos-app's Admin panel
+// CSP (`img-src ... https://the-bill-backend-pego.onrender.com` — https only,
+// on purpose) and would also silently trip browsers' mixed-content blocking
+// on the website itself. `trust proxy` makes Express honor the forwarded
+// header, so every fullUrl built from here on is correctly https://.
+// Existing rows already saved with an http:// image_url are NOT retroactively
+// fixed by this — see the client-side upgrade in pos-app's MenuScreen.jsx
+// (resolveImgUrl) for the fix covering already-stored bad URLs.
+app.set('trust proxy', 1);
+
 // All schema changes are consolidated in src/config/schema.sql.
 // Historical migration files have been archived to src/config/migrations_archive/.
 
@@ -22,7 +38,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── Static files ──────────────────────────────────────────────────────────────
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// maxAge so the POS/website don't re-download an unchanged menu photo on every
+// screen load — free speed win, no functional change (uploaded filenames are
+// already unique per upload, so a long cache lifetime can't ever serve stale
+// content for a changed photo).
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), { maxAge: '7d', etag: true }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',          require('./routes/auth'));

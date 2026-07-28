@@ -6,6 +6,7 @@ import {
 import { T, card, initials } from './tokens.js';
 import { TableIcon } from './icons.jsx';
 import { useSettings } from './useSettings.js';
+import { t, tt } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POS Terminal shell — sidebar + top bar + active screen.
@@ -22,10 +23,10 @@ const NAV = [
   { key: 'profile',     label: 'Profile',     Icon: User,            searchPlaceholder: null }, // "My Profile" title instead
 ];
 
-function Placeholder({ label }) {
+function Placeholder({ label, lang }) {
   return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted, fontSize: 15, fontWeight: 600 }}>
-      {label} — coming in a later build step
+      {label} — {t('coming in a later build step', lang)}
     </div>
   );
 }
@@ -40,23 +41,36 @@ export default function PosShell({ session, onLogout, screens = {} }) {
   const [lang, setLang]         = useState(() => localStorage.getItem('pos.lang') || 'EN');
   const [search, setSearch]     = useState('');
   const [clockIn, setClockIn]   = useState(null); // "06:33 AM" from /shifts/active
-  const [sync, setSync]         = useState({ connected: false, hasSynced: false, checkedAt: null });
+  const [sync, setSync]         = useState({ connected: false, hasSynced: false, backendUp: false, checkedAt: null });
 
   useEffect(() => { localStorage.setItem('pos.sidebarCollapsed', collapsed ? '1' : '0'); }, [collapsed]);
   useEffect(() => { localStorage.setItem('pos.lang', lang); }, [lang]);
   useEffect(() => { setSearch(''); }, [nav]);
 
-  // PowerSync connection/sync status — surfaced in the topbar so "an order I
-  // just fired isn't showing up" is diagnosable at a glance instead of
-  // guessing. Local screens (Menu/Orders/Tables) read from the LOCAL synced
-  // copy, not the backend directly — if this badge isn't green, that's why
-  // writes made elsewhere (or even from this terminal) won't appear yet.
+  // Topbar sync badge — checks TWO independent things, not one. PowerSync's
+  // sync stream (psStatus) only tells you whether Menu/Orders/Tables' LOCAL
+  // synced copy is current; it says nothing about whether the Express/Render
+  // backend that History/Receivables/Profile hit directly via apiGet is
+  // actually reachable. Those are genuinely separate services, so PowerSync
+  // can be happily connected while the backend is down or slow — which
+  // previously showed as a live contradiction: the topbar said "Online" while
+  // History's own stale-data badge said "Offline — showing data from Xm ago"
+  // (reported against a real screenshot). The badge now requires BOTH to be
+  // healthy before it calls itself "Online"; if either is down, it's "Offline".
   const checkSync = async () => {
     try {
-      const s = await window.electronAPI.psStatus();
-      setSync({ connected: !!s?.connected, hasSynced: !!s?.hasSynced, checkedAt: new Date() });
+      const [s, health] = await Promise.all([
+        window.electronAPI.psStatus(),
+        window.electronAPI.backendHealth(),
+      ]);
+      setSync({
+        connected:  !!s?.connected,
+        hasSynced:  !!s?.hasSynced,
+        backendUp:  !!health?.ok,
+        checkedAt:  new Date(),
+      });
     } catch {
-      setSync({ connected: false, hasSynced: false, checkedAt: new Date() });
+      setSync({ connected: false, hasSynced: false, backendUp: false, checkedAt: new Date() });
     }
   };
   useEffect(() => {
@@ -87,7 +101,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
 
   return (
     <div style={{
-      display: 'flex', height: '100vh', background: T.pageBg,
+      display: 'flex', height: '100%', background: T.pageBg,
       fontFamily: T.font, color: T.ink, padding: 16, gap: 16, boxSizing: 'border-box',
     }}>
 
@@ -110,7 +124,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
           {!collapsed && (
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 800, whiteSpace: 'nowrap' }}>{restName}</div>
-              <div style={{ fontSize: 10, color: T.faint, whiteSpace: 'nowrap' }}>Restaurant management system</div>
+              <div style={{ fontSize: 10, color: T.faint, whiteSpace: 'nowrap' }}>{t('Restaurant management system', lang)}</div>
             </div>
           )}
         </div>
@@ -120,7 +134,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
           {NAV.map(({ key, label, Icon }) => {
             const isActive = nav === key;
             return (
-              <button key={key} onClick={() => setNav(key)} title={label} style={{
+              <button key={key} onClick={() => setNav(key)} title={t(label, lang)} style={{
                 display: 'flex', alignItems: 'center', gap: 12,
                 justifyContent: collapsed ? 'center' : 'flex-start',
                 padding: collapsed ? '12px 0' : '11px 14px',
@@ -131,7 +145,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
                 transition: 'background .15s, color .15s', whiteSpace: 'nowrap',
               }}>
                 <Icon size={19} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                {!collapsed && label}
+                {!collapsed && t(label, lang)}
               </button>
             );
           })}
@@ -141,7 +155,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
           {/* UZ/EN segmented toggle */}
           {collapsed ? (
-            <button onClick={() => setLang(l => (l === 'EN' ? 'UZ' : 'EN'))} title={`Language: ${lang}`} style={{
+            <button onClick={() => setLang(l => (l === 'EN' ? 'UZ' : 'EN'))} title={`${t('Language', lang)}: ${lang}`} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 0',
               borderRadius: T.rBtn, border: 'none', background: 'transparent', color: T.muted,
               cursor: 'pointer', fontFamily: T.font, fontSize: 12, fontWeight: 700, gap: 6,
@@ -166,7 +180,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
             </div>
           )}
 
-          <button onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Expand' : 'Collapse'} style={{
+          <button onClick={() => setCollapsed(c => !c)} title={t(collapsed ? 'Expand' : 'Collapse', lang)} style={{
             display: 'flex', alignItems: 'center', gap: 12,
             justifyContent: collapsed ? 'center' : 'flex-start',
             padding: collapsed ? '10px 0' : '9px 14px',
@@ -176,10 +190,10 @@ export default function PosShell({ session, onLogout, screens = {} }) {
             {collapsed
               ? <ChevronsRight size={18} strokeWidth={1.8} style={{ flexShrink: 0 }} />
               : <ChevronsLeft  size={18} strokeWidth={1.8} style={{ flexShrink: 0 }} />}
-            {!collapsed && 'Collapse'}
+            {!collapsed && t('Collapse', lang)}
           </button>
 
-          <button onClick={onLogout} title="Logout" style={{
+          <button onClick={onLogout} title={t('Logout', lang)} style={{
             display: 'flex', alignItems: 'center', gap: 12,
             justifyContent: collapsed ? 'center' : 'flex-start',
             padding: collapsed ? '10px 0' : '9px 14px',
@@ -187,7 +201,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
             color: T.coral, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, whiteSpace: 'nowrap',
           }}>
             <LogOut size={18} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-            {!collapsed && 'Logout'}
+            {!collapsed && t('Logout', lang)}
           </button>
         </div>
       </aside>
@@ -206,7 +220,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder={active.searchPlaceholder}
+                placeholder={t(active.searchPlaceholder, lang)}
                 style={{
                   border: 'none', outline: 'none', flex: 1, fontSize: 13.5,
                   fontFamily: T.font, color: T.ink, background: 'transparent',
@@ -214,38 +228,43 @@ export default function PosShell({ session, onLogout, screens = {} }) {
               />
             </div>
           ) : (
-            <div style={{ fontSize: 22, fontWeight: 800 }}>My Profile</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{t('My Profile', lang)}</div>
           )}
 
           <div style={{ flex: 1 }} />
 
-          {/* Sync status — diagnostic: local screens read from this synced copy,
-              not the backend directly. If this isn't green, new orders/table
-              changes made anywhere won't show up here yet regardless of screen. */}
-          <button onClick={checkSync} title="Click to re-check now" style={{
-            display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
-            background: T.surface, boxShadow: T.cardShadow, borderRadius: T.rPill,
-            padding: '7px 12px', fontFamily: T.font,
-          }}>
-            {sync.connected && sync.hasSynced
-              ? <Wifi size={14} strokeWidth={2} color={T.greenDark} />
-              : sync.connected
-                ? <RefreshCw size={14} strokeWidth={2} color={T.amber} />
-                : <WifiOff size={14} strokeWidth={2} color={T.coral} />}
-            <span style={{
-              fontSize: 11, fontWeight: 800,
-              color: sync.connected && sync.hasSynced ? T.greenDark : sync.connected ? T.amber : T.coral,
-            }}>
-              {sync.connected && sync.hasSynced ? 'Synced' : sync.connected ? 'Syncing…' : 'Offline'}
-            </span>
-          </button>
+          {/* Sync status — requires BOTH PowerSync (local synced copy for
+              Menu/Orders/Tables) AND the Express backend (History/Receivables/
+              Profile, via apiGet) to be healthy before calling itself "Online" —
+              see checkSync's comment above for why both matter. */}
+          {(() => {
+            const isOnline  = sync.connected && sync.hasSynced && sync.backendUp;
+            const isSyncing = sync.connected && !sync.hasSynced;
+            const color = isOnline ? T.greenDark : isSyncing ? T.amber : T.coral;
+            return (
+              <button onClick={checkSync} title="Click to re-check now" style={{
+                display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
+                background: T.surface, boxShadow: T.cardShadow, borderRadius: T.rPill,
+                padding: '7px 12px', fontFamily: T.font,
+              }}>
+                {isOnline
+                  ? <Wifi size={14} strokeWidth={2} color={color} />
+                  : isSyncing
+                    ? <RefreshCw size={14} strokeWidth={2} color={color} />
+                    : <WifiOff size={14} strokeWidth={2} color={color} />}
+                <span style={{ fontSize: 11, fontWeight: 800, color }}>
+                  {t(isOnline ? 'Online' : isSyncing ? 'Syncing…' : 'Offline', lang)}
+                </span>
+              </button>
+            );
+          })()}
 
           {/* Staff chip */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>{user.name || 'Staff'}</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{user.name || t('Staff', lang)}</div>
               <div style={{ fontSize: 10.5, color: T.muted }}>
-                {clockIn ? `Clocked in at ${clockIn}` : (user.role === 'new_cashier' ? 'Cashier' : user.role || '')}
+                {clockIn ? tt(lang, 'Clocked in at {time}', '{time} da ishga kelgan', { time: clockIn }) : (user.role === 'new_cashier' ? t('Cashier', lang) : user.role || '')}
               </div>
             </div>
             <div style={{
@@ -271,7 +290,7 @@ export default function PosShell({ session, onLogout, screens = {} }) {
 
         {/* Active screen */}
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          {Screen ? <Screen {...screenProps} /> : <Placeholder label={active.label} />}
+          {Screen ? <Screen {...screenProps} /> : <Placeholder label={t(active.label, lang)} lang={lang} />}
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import {
   Check, CheckCircle2, AlertCircle, AlertTriangle, Loader2,
 } from 'lucide-react';
 import { T, card, uppercaseLabel, fmtMoney } from './tokens.js';
+import { t, tt } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Process Payment modal — design handoff screen 2 + "Process Payment modal"
@@ -26,7 +27,7 @@ const METHODS = [
 ];
 
 export default function PaymentModal({
-  entries, subtotal, taxAmt, total, settings,
+  entries, subtotal, taxAmt, total, settings, lang,
   formatQty, onQtyChange, onClose, onSubmit, onDone,
 }) {
   const symbol = settings.currencySymbol;
@@ -103,17 +104,17 @@ export default function PaymentModal({
   };
 
   const validate = () => {
-    if (!entries.length) return 'Cart is empty';
+    if (!entries.length) return t('Cart is empty', lang);
     if (splitWays) {
       for (const p of splitParts) {
-        if (!p.paid) return 'Mark every split part as paid before confirming';
+        if (!p.paid) return t('Mark every split part as paid before confirming', lang);
         if (p.method === 'Loan' && (!p.loanName.trim() || !p.loanDue))
-          return 'Loan split parts need the borrower\'s name and a due date';
+          return t("Loan split parts need the borrower's name and a due date", lang);
       }
       return '';
     }
     if (method === 'Loan' && (!loanName.trim() || !loanDue))
-      return 'Loan payments need the borrower\'s name and a due date';
+      return t("Loan payments need the borrower's name and a due date", lang);
     return '';
   };
 
@@ -124,7 +125,7 @@ export default function PaymentModal({
     setBusy(true);
     try {
       const res = await onSubmit(buildPayload());
-      if (!res.ok) { setError(res.error || 'Payment failed'); return; }
+      if (!res.ok) { setError(res.error || t('Payment failed', lang)); return; }
       setConfirmed(true);
     } finally { setBusy(false); }
   };
@@ -144,16 +145,16 @@ export default function PaymentModal({
           }}>
             <CheckCircle2 size={38} color={T.green} strokeWidth={2} />
           </div>
-          <div style={{ fontSize: 19, fontWeight: 800, color: T.ink }}>Payment Confirmed</div>
+          <div style={{ fontSize: 19, fontWeight: 800, color: T.ink }}>{t('Payment Confirmed', lang)}</div>
           <div style={{ fontSize: 25, fontWeight: 800, color: T.greenDark }}>{money(toPay)}</div>
           {change > 0 && !splitWays && method === 'Cash' && (
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>Change to give back: {money(change)}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>{tt(lang, 'Change to give back: {amount}', 'Qaytariladigan qaytim: {amount}', { amount: money(change) })}</div>
           )}
           <button onClick={onDone} style={{
             marginTop: 10, width: '100%', padding: '13px 0', borderRadius: T.rBtn, border: 'none',
             background: T.green, color: '#fff', fontSize: 14.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
           }}>
-            Done
+            {t('Done', lang)}
           </button>
         </div>
       </Backdrop>
@@ -171,11 +172,11 @@ export default function PaymentModal({
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 14px' }}>
           <div>
-            <div style={{ fontSize: 16.5, fontWeight: 800 }}>Process Payment</div>
+            <div style={{ fontSize: 16.5, fontWeight: 800 }}>{t('Process Payment', lang)}</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-              {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}
+              {new Date().toLocaleDateString(lang === 'UZ' ? 'uz-UZ' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}
               {' · '}
-              {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              {new Date().toLocaleTimeString(lang === 'UZ' ? 'uz-UZ' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -191,8 +192,8 @@ export default function PaymentModal({
           {/* ── Left: order items + totals ── */}
           <div style={{ width: 330, flexShrink: 0, borderRight: `1px solid ${T.line}`, padding: '16px 22px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={uppercaseLabel}>Order items</span>
-              <span style={{ ...uppercaseLabel, color: T.greenDark }}>{entries.length} items</span>
+              <span style={uppercaseLabel}>{t('Order items', lang)}</span>
+              <span style={{ ...uppercaseLabel, color: T.greenDark }}>{tt(lang, '{n} items', '{n} ta mahsulot', { n: entries.length })}</span>
             </div>
 
             {entries.map(e => (
@@ -215,11 +216,11 @@ export default function PaymentModal({
             ))}
 
             <div style={{ borderTop: `1px dashed ${T.line}`, marginTop: 10, paddingTop: 10 }}>
-              <Row label="Subtotal" value={money(subtotal)} />
-              {settings.taxEnabled && <Row label={`Tax (${settings.taxRate}%)`} value={money(taxAmt)} />}
-              {discAmt > 0 && <Row label="Discount" value={`−${money(discAmt)}`} color={T.greenDark} />}
+              <Row label={t('Subtotal', lang)} value={money(subtotal)} />
+              {settings.taxEnabled && <Row label={tt(lang, 'Tax ({rate}%)', 'Soliq ({rate}%)', { rate: settings.taxRate })} value={money(taxAmt)} />}
+              {discAmt > 0 && <Row label={t('Discount', lang)} value={`−${money(discAmt)}`} color={T.greenDark} />}
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 800 }}>Total</span>
+                <span style={{ fontSize: 14, fontWeight: 800 }}>{t('Total', lang)}</span>
                 <span style={{ fontSize: 17, fontWeight: 800, color: T.greenDark }}>{money(toPay)}</span>
               </div>
             </div>
@@ -231,7 +232,7 @@ export default function PaymentModal({
             {/* Method grid (hidden when splitting — per-part methods take over) */}
             {!splitWays && (
               <div>
-                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Payment method</div>
+                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Payment method', lang)}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   {METHODS.map(({ id, Icon, label }) => {
                     const active = method === id;
@@ -245,7 +246,7 @@ export default function PaymentModal({
                         transition: 'background .15s, border-color .15s',
                       }}>
                         <Icon size={19} strokeWidth={1.8} />
-                        {label}
+                        {t(label, lang)}
                       </button>
                     );
                   })}
@@ -256,7 +257,7 @@ export default function PaymentModal({
             {/* Cash received + change */}
             {!splitWays && method === 'Cash' && (
               <div>
-                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Amount received</div>
+                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Amount received', lang)}</div>
                 <input
                   value={cashIn} onChange={e => setCashIn(e.target.value.replace(/[^\d]/g, ''))}
                   inputMode="numeric" placeholder={String(toPay)}
@@ -269,7 +270,7 @@ export default function PaymentModal({
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   background: T.chipBg, borderRadius: T.rBtn, padding: '10px 14px', marginTop: 8,
                 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>Change to give back</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>{t('Change to give back', lang)}</span>
                   <span style={{ fontSize: 14, fontWeight: 800 }}>{money(change)}</span>
                 </div>
               </div>
@@ -281,12 +282,13 @@ export default function PaymentModal({
                 name={loanName} setName={setLoanName}
                 phone={loanPhone} setPhone={setLoanPhone}
                 due={loanDue} setDue={setLoanDue}
+                lang={lang}
               />
             )}
 
             {/* Discount */}
             <div>
-              <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Apply discount (optional)</div>
+              <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Apply discount (optional)', lang)}</div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{ display: 'flex', background: T.chipBg, borderRadius: T.rBtn, padding: 3 }}>
                   {[['%', true], [symbol, false]].map(([lbl, isPct]) => (
@@ -313,7 +315,7 @@ export default function PaymentModal({
 
             {/* Split bill */}
             <div>
-              <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Split bill (optional)</div>
+              <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Split bill (optional)', lang)}</div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {[2, 3, 4].map(n => {
                   const active = splitWays === n;
@@ -324,7 +326,7 @@ export default function PaymentModal({
                       background: active ? T.greenTint : T.surface,
                       color: active ? T.greenDark : T.muted, fontSize: 12.5, fontWeight: 800,
                     }}>
-                      {n} ways
+                      {tt(lang, '{n} ways', '{n} qism', { n })}
                     </button>
                   );
                 })}
@@ -335,13 +337,13 @@ export default function PaymentModal({
                   {splitParts.map((p, i) => (
                     <div key={i} style={{ border: `1.5px solid ${p.paid ? T.green : T.line}`, borderRadius: 14, padding: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 800 }}>Part {i + 1} · {money(p.amount)}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 800 }}>{tt(lang, 'Part {n} · {amount}', 'Qism {n} · {amount}', { n: i + 1, amount: money(p.amount) })}</span>
                         <button onClick={() => setPart(i, { paid: !p.paid })} style={{
                           display: 'flex', alignItems: 'center', gap: 6, border: 'none', cursor: 'pointer',
                           background: p.paid ? T.greenTint : T.chipBg, color: p.paid ? T.greenDark : T.muted,
                           borderRadius: T.rPill, padding: '5px 12px', fontSize: 11.5, fontWeight: 800, fontFamily: T.font,
                         }}>
-                          <Check size={13} strokeWidth={3} /> Paid
+                          <Check size={13} strokeWidth={3} /> {t('Paid', lang)}
                         </button>
                       </div>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -367,6 +369,7 @@ export default function PaymentModal({
                             name={p.loanName}  setName={v => setPart(i, { loanName: v })}
                             phone={p.loanPhone} setPhone={v => setPart(i, { loanPhone: v })}
                             due={p.loanDue}    setDue={v => setPart(i, { loanDue: v })}
+                            lang={lang}
                           />
                         </div>
                       )}
@@ -378,9 +381,9 @@ export default function PaymentModal({
 
             {/* Notes */}
             <div>
-              <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Notes</div>
+              <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Notes', lang)}</div>
               <input
-                value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add payment notes…"
+                value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('Add payment notes…', lang)}
                 style={{
                   width: '100%', boxSizing: 'border-box', border: `1.5px solid ${T.line}`, borderRadius: T.rBtn,
                   padding: '10px 14px', fontSize: 12.5, fontFamily: T.font, color: T.ink, outline: 'none',
@@ -412,13 +415,13 @@ export default function PaymentModal({
                 {busy
                   ? <Loader2 size={16} style={{ animation: 'posspin 1s linear infinite' }} />
                   : <Check size={16} strokeWidth={2.5} />}
-                Confirm Payment · {money(toPay)}
+                {tt(lang, 'Confirm Payment · {amount}', "To'lovni tasdiqlash · {amount}", { amount: money(toPay) })}
               </button>
               <button onClick={onClose} style={{
                 padding: '9px 0', borderRadius: T.rBtn, border: 'none', background: 'transparent',
                 color: T.muted, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
               }}>
-                Cancel
+                {t('Cancel', lang)}
               </button>
             </div>
           </div>
@@ -464,7 +467,7 @@ function Row({ label, value, color }) {
   );
 }
 
-function LoanFields({ name, setName, phone, setPhone, due, setDue, compact }) {
+function LoanFields({ name, setName, phone, setPhone, due, setDue, compact, lang }) {
   const inputStyle = {
     width: '100%', boxSizing: 'border-box', border: `1.5px solid ${T.line}`, borderRadius: T.rBtn,
     padding: compact ? '8px 10px' : '10px 12px', fontSize: 12.5, fontWeight: 700,
@@ -477,11 +480,11 @@ function LoanFields({ name, setName, phone, setPhone, due, setDue, compact }) {
         borderRadius: T.rBtn, padding: '9px 12px', fontSize: 11.5, fontWeight: 700, lineHeight: 1.4,
       }}>
         <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-        Order will be marked paid. Debt is tracked in Receivables until the customer returns.
+        {t('Order will be marked paid. Debt is tracked in Receivables until the customer returns.', lang)}
       </div>
-      <input value={name} onChange={e => setName(e.target.value)} placeholder="Customer name *" style={inputStyle} />
+      <input value={name} onChange={e => setName(e.target.value)} placeholder={t('Customer name *', lang)} style={inputStyle} />
       <div style={{ display: 'flex', gap: 8 }}>
-        <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone" style={{ ...inputStyle, flex: 1 }} />
+        <input value={phone} onChange={e => setPhone(e.target.value)} placeholder={t('Phone', lang)} style={{ ...inputStyle, flex: 1 }} />
         <input value={due} onChange={e => setDue(e.target.value)} type="date" style={{ ...inputStyle, flex: 1 }} />
       </div>
     </div>

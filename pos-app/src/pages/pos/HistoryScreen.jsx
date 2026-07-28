@@ -4,6 +4,8 @@ import {
   CheckCircle2, AlertCircle, ArrowLeft,
 } from 'lucide-react';
 import { T, card, pill, statusPill, uppercaseLabel, fmtMoney } from './tokens.js';
+import { loadCached, saveCached, timeAgo } from '../../lib/staleCache.js';
+import { t, tt } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // History screen — closed orders + refunds. Design handoff screens 7–10.
@@ -19,6 +21,7 @@ import { T, card, pill, statusPill, uppercaseLabel, fmtMoney } from './tokens.js
 // partial/line-item refunds yet).
 // ─────────────────────────────────────────────────────────────────────────────
 
+const CACHE_KEY = 'pos.history.cache.v1';
 const DATE_CHIPS = ['Today', 'Yesterday', 'This Week', 'Custom'];
 const REFUND_REASONS = ['Customer Complaint', 'Wrong Order', 'Duplicate Payment', 'Other'];
 
@@ -37,12 +40,15 @@ function rangeFor(chip) {
   return { from: isoDate(now), to: isoDate(now) };
 }
 
-export default function HistoryScreen({ user, settings, search }) {
+export default function HistoryScreen({ user, settings, search, lang }) {
   const symbol = settings.currencySymbol;
   const money  = (n) => fmtMoney(n, symbol);
 
-  const [orders,  setOrders]  = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cached = useMemo(() => loadCached(CACHE_KEY), []); // read once on mount
+  const [orders,  setOrders]  = useState(cached?.data || []);
+  const [loading, setLoading] = useState(!cached); // skip spinner if we already have something to show
+  const [lastUpdated, setLastUpdated] = useState(cached?.savedAt || null);
+  const [stale,   setStale]   = useState(false);
   const [chip,    setChip]    = useState('Today');
   const [range,   setRange]   = useState(rangeFor('Today'));
   const [showCal, setShowCal] = useState(false);
@@ -63,10 +69,19 @@ export default function HistoryScreen({ user, settings, search }) {
         status: 'paid,cancelled', from: range.from, to: range.to, limit: '200',
       });
       const res = await window.electronAPI.apiGet(`/api/orders?${qs.toString()}`);
-      if (res?.ok) setOrders(Array.isArray(res.data) ? res.data : []);
-      else showToast(res?.error || 'Failed to load history — is the backend reachable?', false);
+      if (res?.ok) {
+        const data = Array.isArray(res.data) ? res.data : [];
+        setOrders(data);
+        setStale(false);
+        setLastUpdated(Date.now());
+        saveCached(CACHE_KEY, data);
+      } else {
+        showToast(res?.error || t('Failed to load history — is the backend reachable?', lang), false);
+        setStale(true);
+      }
     } catch {
-      showToast('Failed to load history', false);
+      showToast(t('Failed to load history', lang), false);
+      setStale(true);
     } finally { setLoading(false); }
   };
 
@@ -109,8 +124,8 @@ export default function HistoryScreen({ user, settings, search }) {
     setBusy(true);
     try {
       const res = await window.electronAPI.ordersRefund(detail.id, { reason: refundReason });
-      if (!res.ok) { showToast(res.error || 'Refund failed', false); return; }
-      showToast('Order refunded');
+      if (!res.ok) { showToast(res.error || t('Refund failed', lang), false); return; }
+      showToast(t('Order refunded', lang));
       setShowRefund(false);
       setDetail(d => d ? { ...d, refunded_at: new Date().toISOString(), refund_reason: refundReason } : d);
       load();
@@ -118,6 +133,13 @@ export default function HistoryScreen({ user, settings, search }) {
   };
 
   const statusLabel = (o) => o.refunded_at ? 'refunded' : (o.status === 'cancelled' ? 'cancelled' : 'completed');
+
+  // Payment methods are stored snake_case ('qr_code') — map to the same
+  // display words used elsewhere (Cash/Card/QR Code/Loan) before translating.
+  const paymentLabel = (pm) => {
+    const map = { cash: 'Cash', card: 'Card', qr_code: 'QR Code', loan: 'Loan' };
+    return pm ? t(map[pm] || pm, lang) : '—';
+  };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, overflow: 'hidden', minWidth: 0 }}>
@@ -133,12 +155,14 @@ export default function HistoryScreen({ user, settings, search }) {
         </div>
       )}
 
+      {lastUpdated && <StaleBadge stale={stale} lastUpdated={lastUpdated} lang={lang} />}
+
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
-        <StatCard label="Today's Sales" value={money(stats.sales)} />
-        <StatCard label="Orders Completed" value={stats.completed} />
-        <StatCard label="Avg Ticket" value={money(Math.round(stats.avgTicket))} />
-        <StatCard label="Refunds" value={stats.refundCount} sub={stats.refundTotal ? money(stats.refundTotal) : null} accent={T.coral} />
+        <StatCard label={t("Today's Sales", lang)} value={money(stats.sales)} />
+        <StatCard label={t('Orders Completed', lang)} value={stats.completed} />
+        <StatCard label={t('Avg Ticket', lang)} value={money(Math.round(stats.avgTicket))} />
+        <StatCard label={t('Refunds', lang)} value={stats.refundCount} sub={stats.refundTotal ? money(stats.refundTotal) : null} accent={T.coral} />
       </div>
 
       {/* Date chips */}
@@ -153,7 +177,7 @@ export default function HistoryScreen({ user, settings, search }) {
             background: chip === c ? T.green : T.surface, color: chip === c ? '#fff' : T.muted,
             fontSize: 12, fontWeight: 800, boxShadow: chip === c ? 'none' : T.cardShadow,
           }}>
-            {c === 'Custom' && customLabel ? customLabel : c}
+            {c === 'Custom' && customLabel ? customLabel : t(c, lang)}
           </button>
         ))}
       </div>
@@ -167,7 +191,7 @@ export default function HistoryScreen({ user, settings, search }) {
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted, fontSize: 14 }}>
-            No orders in this range
+            {t('No orders in this range', lang)}
           </div>
         ) : (
           <div style={{ overflowY: 'auto' }}>
@@ -175,27 +199,27 @@ export default function HistoryScreen({ user, settings, search }) {
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.line}` }}>
                   {['Date & Time', 'Order', 'Table', 'Waiter', 'Items', 'Total', 'Payment', 'Status'].map(h => (
-                    <th key={h} style={{ ...uppercaseLabel, textAlign: 'left', padding: '12px 18px' }}>{h}</th>
+                    <th key={h} style={{ ...uppercaseLabel, textAlign: 'left', padding: '12px 18px' }}>{t(h, lang)}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(o => {
-                  const sp = statusPill(statusLabel(o));
+                  const sp = statusPill(statusLabel(o), lang);
                   return (
                     <tr key={o.id} onClick={() => openDetail(o)} style={{ borderBottom: `1px solid ${T.line2}`, cursor: 'pointer' }}
                       onMouseEnter={e => e.currentTarget.style.background = T.rowHover}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                       <td style={{ padding: '11px 18px', fontSize: 12.5, color: T.muted, whiteSpace: 'nowrap' }}>
-                        {new Date(o.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(o.created_at).toLocaleString(lang === 'UZ' ? 'uz-UZ' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td style={{ padding: '11px 18px', fontSize: 12.5, fontWeight: 800 }}>#{o.daily_number || o.id.slice(-4)}</td>
-                      <td style={{ padding: '11px 18px', fontSize: 12.5 }}>{o.table_name || (o.order_type === 'to_go' ? 'Takeout' : o.order_type === 'delivery' ? 'Delivery' : '—')}</td>
+                      <td style={{ padding: '11px 18px', fontSize: 12.5 }}>{o.table_name || (o.order_type === 'to_go' ? t('Takeout', lang) : o.order_type === 'delivery' ? t('Delivery', lang) : '—')}</td>
                       <td style={{ padding: '11px 18px', fontSize: 12.5 }}>{o.waitress_name || '—'}</td>
-                      <td style={{ padding: '11px 18px', fontSize: 12.5, color: T.muted }}>{o.item_count} items</td>
+                      <td style={{ padding: '11px 18px', fontSize: 12.5, color: T.muted }}>{tt(lang, '{n} items', '{n} ta', { n: o.item_count })}</td>
                       <td style={{ padding: '11px 18px', fontSize: 13, fontWeight: 800 }}>{money(o.total_amount)}</td>
-                      <td style={{ padding: '11px 18px', fontSize: 12.5, color: T.muted, textTransform: 'capitalize' }}>{o.payment_method || '—'}</td>
+                      <td style={{ padding: '11px 18px', fontSize: 12.5, color: T.muted }}>{paymentLabel(o.payment_method)}</td>
                       <td style={{ padding: '11px 18px' }}><span style={pill(sp)}>{sp.label}</span></td>
                     </tr>
                   );
@@ -209,6 +233,7 @@ export default function HistoryScreen({ user, settings, search }) {
       {/* ══ Custom date-range calendar modal ══ */}
       {showCal && (
         <CalendarModal
+          lang={lang}
           onClose={() => setShowCal(false)}
           onApply={(from, to, label) => {
             setRange({ from, to }); setCustomLabel(label); setShowCal(false);
@@ -236,13 +261,13 @@ export default function HistoryScreen({ user, settings, search }) {
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 800 }}>
-                    Order #{detail.daily_number || detail.id.slice(-4)}
+                    {tt(lang, 'Order #{n}', '#{n}-buyurtma', { n: detail.daily_number || detail.id.slice(-4) })}
                     <span style={{ marginLeft: 8 }}>
-                      <BadgeInline sp={statusPill(statusLabel(detail))} />
+                      <BadgeInline sp={statusPill(statusLabel(detail), lang)} />
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: T.muted }}>
-                    {new Date(detail.created_at).toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {new Date(detail.created_at).toLocaleString(lang === 'UZ' ? 'uz-UZ' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
               </div>
@@ -258,14 +283,14 @@ export default function HistoryScreen({ user, settings, search }) {
               {/* Left: items */}
               <div style={{ flex: 1, padding: '16px 22px', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-                  <Tile label="Table" value={detail.table_name || detail.order_type || '—'} />
-                  <Tile label="Waiter" value={detail.waitress_name || '—'} />
+                  <Tile label={t('Table', lang)} value={detail.table_name || detail.order_type || '—'} />
+                  <Tile label={t('Waiter', lang)} value={detail.waitress_name || '—'} />
                 </div>
                 {detailLoading ? (
                   <div style={{ padding: 30, textAlign: 'center' }}><Loader2 size={22} color={T.green} style={{ animation: 'posspin 1s linear infinite' }} /></div>
                 ) : (
                   <>
-                    <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Items</div>
+                    <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Items', lang)}</div>
                     {(detail.items || []).map((it, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${T.line2}` }}>
                         <span style={{ fontSize: 12.5, fontWeight: 700 }}>{it.name || it.item_name} <span style={{ color: T.faint, fontWeight: 600 }}>×{it.quantity}</span></span>
@@ -273,7 +298,7 @@ export default function HistoryScreen({ user, settings, search }) {
                       </div>
                     ))}
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, fontWeight: 800, fontSize: 13.5 }}>
-                      <span>Subtotal</span>
+                      <span>{t('Subtotal', lang)}</span>
                       <span>{money(Number(detail.total_amount || 0) - Number(detail.tax_amount || 0))}</span>
                     </div>
                   </>
@@ -282,27 +307,27 @@ export default function HistoryScreen({ user, settings, search }) {
 
               {/* Right: payment + summary + actions */}
               <div style={{ width: 260, flexShrink: 0, borderLeft: `1px solid ${T.line}`, padding: '16px 22px', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Payment Method</div>
-                <div style={{ background: T.chipBg, borderRadius: T.rBtn, padding: '10px 12px', fontSize: 13, fontWeight: 800, textTransform: 'capitalize', marginBottom: 16 }}>
-                  {detail.payment_method || '—'}
+                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Payment Method', lang)}</div>
+                <div style={{ background: T.chipBg, borderRadius: T.rBtn, padding: '10px 12px', fontSize: 13, fontWeight: 800, marginBottom: 16 }}>
+                  {paymentLabel(detail.payment_method)}
                 </div>
 
-                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>Summary</div>
-                <Row label="Subtotal" value={money(Number(detail.total_amount || 0) - Number(detail.tax_amount || 0))} />
-                <Row label="Service & Tax" value={money(detail.tax_amount)} />
+                <div style={{ ...uppercaseLabel, marginBottom: 8 }}>{t('Summary', lang)}</div>
+                <Row label={t('Subtotal', lang)} value={money(Number(detail.total_amount || 0) - Number(detail.tax_amount || 0))} />
+                <Row label={t('Service & Tax', lang)} value={money(detail.tax_amount)} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginBottom: 16 }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 800 }}>Total Paid</span>
+                  <span style={{ fontSize: 13.5, fontWeight: 800 }}>{t('Total Paid', lang)}</span>
                   <span style={{ fontSize: 15, fontWeight: 800 }}>{money(detail.total_amount)}</span>
                 </div>
 
                 {detail.refunded_at ? (
                   <div style={{ background: T.coralBg, color: T.coral, borderRadius: T.rBtn, padding: '10px 12px', fontSize: 11.5, fontWeight: 700 }}>
-                    Refunded — {detail.refund_reason}
+                    {tt(lang, 'Refunded — {reason}', 'Qaytarildi — {reason}', { reason: t(detail.refund_reason, lang) })}
                   </div>
                 ) : detail.status === 'paid' ? (
                   showRefund ? (
                     <RefundDialog
-                      reason={refundReason} setReason={setRefundReason}
+                      reason={refundReason} setReason={setRefundReason} lang={lang}
                       busy={busy} onConfirm={doRefund} onCancel={() => setShowRefund(false)}
                     />
                   ) : (
@@ -311,7 +336,7 @@ export default function HistoryScreen({ user, settings, search }) {
                       background: T.surface, color: T.coral, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     }}>
-                      <RotateCcw size={14} strokeWidth={2} /> Process Refund
+                      <RotateCcw size={14} strokeWidth={2} /> {t('Process Refund', lang)}
                     </button>
                   )
                 ) : null}
@@ -358,15 +383,31 @@ function BadgeInline({ sp }) {
   return <span style={pill(sp)}>{sp.label}</span>;
 }
 
-function RefundDialog({ reason, setReason, busy, onConfirm, onCancel }) {
+// Shows "Updated Xm ago" normally, or an offline warning if the last refresh
+// attempt failed and we're showing cached data (see staleCache.js / load()).
+function StaleBadge({ stale, lastUpdated, lang }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700,
+      color: stale ? T.coral : T.faint,
+    }}>
+      {stale && <AlertCircle size={13} strokeWidth={2} />}
+      {stale
+        ? tt(lang, 'Offline — showing data from {time}', 'Oflayn — {time} ma’lumot ko’rsatilmoqda', { time: timeAgo(lastUpdated, lang) })
+        : tt(lang, 'Updated {time}', '{time} yangilandi', { time: timeAgo(lastUpdated, lang) })}
+    </div>
+  );
+}
+
+function RefundDialog({ reason, setReason, busy, onConfirm, onCancel, lang }) {
   return (
     <div style={{ marginTop: 'auto', border: `1.5px solid ${T.coral}`, borderRadius: 14, padding: 14 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 800, color: T.coral, marginBottom: 10 }}>Refund reason</div>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: T.coral, marginBottom: 10 }}>{t('Refund reason', lang)}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
         {REFUND_REASONS.map(r => (
           <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
             <input type="radio" name="refundReason" checked={reason === r} onChange={() => setReason(r)} />
-            {r}
+            {t(r, lang)}
           </label>
         ))}
       </div>
@@ -375,7 +416,7 @@ function RefundDialog({ reason, setReason, busy, onConfirm, onCancel }) {
           flex: 1, padding: '9px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
           background: T.surface, color: T.muted, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
         }}>
-          Cancel
+          {t('Cancel', lang)}
         </button>
         <button onClick={onConfirm} disabled={busy} style={{
           flex: 1, padding: '9px 0', borderRadius: T.rBtn, border: 'none',
@@ -383,7 +424,7 @@ function RefundDialog({ reason, setReason, busy, onConfirm, onCancel }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: busy ? 0.7 : 1,
         }}>
           {busy && <Loader2 size={13} style={{ animation: 'posspin 1s linear infinite' }} />}
-          Confirm
+          {t('Confirm', lang)}
         </button>
       </div>
     </div>
@@ -391,7 +432,7 @@ function RefundDialog({ reason, setReason, busy, onConfirm, onCancel }) {
 }
 
 // ── Custom date-range calendar modal ───────────────────────────────────────────
-function CalendarModal({ onClose, onApply }) {
+function CalendarModal({ onClose, onApply, lang }) {
   const today = new Date();
   const [month, setMonth] = useState(today.getMonth());
   const [year,  setYear]  = useState(today.getFullYear());
@@ -447,18 +488,18 @@ function CalendarModal({ onClose, onApply }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CalendarDays size={17} strokeWidth={1.8} /> Custom Range
+            <CalendarDays size={17} strokeWidth={1.8} /> {t('Custom Range', lang)}
           </div>
           <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: T.muted }}><X size={16} /></button>
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <div style={{ flex: 1, background: T.chipBg, borderRadius: T.rBtn, padding: '8px 10px' }}>
-            <div style={uppercaseLabel}>From</div>
+            <div style={uppercaseLabel}>{t('From', lang)}</div>
             <div style={{ fontSize: 12.5, fontWeight: 800 }}>{from || '—'}</div>
           </div>
           <div style={{ flex: 1, background: T.chipBg, borderRadius: T.rBtn, padding: '8px 10px' }}>
-            <div style={uppercaseLabel}>To</div>
+            <div style={uppercaseLabel}>{t('To', lang)}</div>
             <div style={{ fontSize: 12.5, fontWeight: 800 }}>{to || '—'}</div>
           </div>
         </div>
@@ -468,7 +509,7 @@ function CalendarModal({ onClose, onApply }) {
             <ChevronLeft size={14} />
           </button>
           <span style={{ fontSize: 12.5, fontWeight: 800 }}>
-            {new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            {new Date(year, month, 1).toLocaleDateString(lang === 'UZ' ? 'uz-UZ' : 'en-US', { month: 'long', year: 'numeric' })}
           </span>
           <button onClick={() => setMonth(m => { if (m === 11) { setYear(y => y + 1); return 0; } return m + 1; })} style={{ border: 'none', background: T.chipBg, borderRadius: 8, width: 26, height: 26, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronRight size={14} />
@@ -496,7 +537,7 @@ function CalendarModal({ onClose, onApply }) {
               padding: '6px 10px', borderRadius: T.rPill, border: `1px solid ${T.line}`, background: T.surface,
               color: T.muted, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
             }}>
-              {l}
+              {t(l, lang)}
             </button>
           ))}
         </div>
@@ -510,7 +551,7 @@ function CalendarModal({ onClose, onApply }) {
             fontFamily: T.font, opacity: from ? 1 : 0.5,
           }}
         >
-          Apply
+          {t('Apply', lang)}
         </button>
       </div>
     </div>

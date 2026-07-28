@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Minus, Plus, X, Printer, Loader2, CheckCircle2, AlertCircle, Eye,
+  Minus, Plus, X, Printer, Loader2, CheckCircle2, AlertCircle, Eye, ArrowLeftRight,
 } from 'lucide-react';
 import { camelizeRows } from '../../lib/case.js';
 import { T, card, pill, statusPill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
 import PaymentModal from './PaymentModal.jsx';
+import AmountPickerModal from './AmountPickerModal.jsx';
+import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
+import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Orders screen — live order cards + right detail panel + edit mode.
@@ -26,16 +29,16 @@ const TYPE_FILTERS = [
 
 const ACTIVE_STATUSES = "('pending','sent_to_kitchen','preparing','ready','served','bill_requested')";
 
-const timeAgo = (iso) => {
+const timeAgo = (iso, lang) => {
   if (!iso) return '';
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1)  return 'just now';
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1)  return t('just now', lang);
+  if (mins < 60) return tt(lang, '{m} min ago', '{m} daqiqa oldin', { m: mins });
   const h = Math.floor(mins / 60);
-  return `${h}h ${mins % 60}m ago`;
+  return tt(lang, '{h}h {m}m ago', '{h} soat {m} daq. oldin', { h, m: mins % 60 });
 };
 
-export default function OrdersScreen({ user, settings, search }) {
+export default function OrdersScreen({ user, settings, search, lang }) {
   const symbol = settings.currencySymbol;
   const money  = (n) => fmtMoney(n, symbol);
 
@@ -62,6 +65,9 @@ export default function OrdersScreen({ user, settings, search }) {
   const [showPayment, setShowPayment] = useState(false);
   const [toast,      setToast]        = useState(null);
   const [error,      setError]        = useState('');
+  // Weighed items (kg/l/g/ml) being added/adjusted in edit mode — same
+  // type-an-amount flow as Menu's cart, see lib/weighed.js + AmountPickerModal.
+  const [amountPicker, setAmountPicker] = useState(null);
 
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
@@ -94,7 +100,7 @@ export default function OrdersScreen({ user, settings, search }) {
         setItemsByOrd({});
       }
     } catch {
-      if (first) showToast('Failed to load orders', false);
+      if (first) showToast(t('Failed to load orders', lang), false);
     } finally { if (first) setLoading(false); }
   };
 
@@ -111,7 +117,7 @@ export default function OrdersScreen({ user, settings, search }) {
 
   const tableLabelOf = (tid) => {
     const tb = tableById[tid];
-    return tb ? (tb.name || `Table ${tb.tableNumber}`) : null;
+    return tb ? (tb.name || tableFallbackLabel(tb.tableNumber, lang)) : null;
   };
 
   const filtered = useMemo(() => {
@@ -173,7 +179,69 @@ export default function OrdersScreen({ user, settings, search }) {
     setEditing(false); setPickTable(false); setSnapshot(null); setError('');
   };
 
+  // Weighed items (kg/l/g/ml) need a typed amount, not a blind +1/-1 — same
+  // rule Menu's cart follows. `menuItem` here must be the real menu_items row
+  // (has `.unit`), not a partial {id,name,price} — see call sites below.
+  //
+  // `mode: 'add'` (ADD/+ on a weighed item) starts blank and is SUMMED with
+  // whatever qty is already on the order — a cashier topping up an existing
+  // 0.5 kg by "1.33 more" must end up at 1.83 kg, not have the 0.5 silently
+  // overwritten (this was reported as a real mistake risk — see MEMORY.md).
+  // `mode: 'set'` (the minus stepper, a correction) keeps the old
+  // prefilled/replace behavior.
+  const openAmountPicker = (menuItem, mode = 'set') => {
+    const current = editItems.find(x => x.menuItemId === menuItem.id)?.qty || 0;
+    const unitPrice = Number(menuItem.price || 0);
+    const draftBase = mode === 'add' ? '' : (current ? String(current) : '');
+    setAmountPicker({
+      item: menuItem, mode, existingQty: current,
+      draft: draftBase,
+      priceDraft: draftBase ? String(Math.round(Number(draftBase) * unitPrice)) : '',
+    });
+  };
+  const onAmountQtyChange = (v) => {
+    const unit = Number(amountPicker?.item?.price || 0);
+    const qty  = parseFloat(String(v || '').replace(',', '.')) || 0;
+    setAmountPicker(p => p ? { ...p, draft: v, priceDraft: String(Math.round(qty * unit)) } : p);
+  };
+  const onAmountPriceChange = (v) => {
+    const unit  = Number(amountPicker?.item?.price || 0);
+    const price = parseFloat(String(v || '').replace(',', '.')) || 0;
+    const qty   = unit > 0 ? Math.round((price / unit) * 1000) / 1000 : 0;
+    setAmountPicker(p => p ? { ...p, priceDraft: v, draft: qty > 0 ? String(qty) : '' } : p);
+  };
+  const confirmAmountPicker = () => {
+    if (!amountPicker) return;
+    const raw  = String(amountPicker.draft || '').replace(',', '.').trim();
+    const amt  = parseFloat(raw);
+    const item = amountPicker.item;
+    if (amountPicker.mode === 'add') {
+      if (!isFinite(amt) || amt <= 0) { setAmountPicker(null); return; } // no-op, don't touch what's already there
+      const newQty = Math.round((amountPicker.existingQty + amt) * 1000) / 1000;
+      setEditItems(items => {
+        const i = items.findIndex(x => x.menuItemId === item.id);
+        if (i >= 0) return items.map((x, idx) => idx === i ? { ...x, qty: newQty } : x);
+        return [...items, { menuItemId: item.id, name: item.name, price: Number(item.price || 0), qty: newQty }];
+      });
+      setAmountPicker(null);
+      return;
+    }
+    if (!isFinite(amt) || amt <= 0) {
+      setEditItems(items => items.filter(x => x.menuItemId !== item.id));
+      setAmountPicker(null);
+      return;
+    }
+    const rounded = Math.round(amt * 1000) / 1000;
+    setEditItems(items => {
+      const i = items.findIndex(x => x.menuItemId === item.id);
+      if (i >= 0) return items.map((x, idx) => idx === i ? { ...x, qty: rounded } : x);
+      return [...items, { menuItemId: item.id, name: item.name, price: Number(item.price || 0), qty: rounded }];
+    });
+    setAmountPicker(null);
+  };
+
   const editAdd = (menuItem) => {
+    if (isWeighedItem(menuItem)) { openAmountPicker(menuItem, 'add'); return; }
     setEditItems(items => {
       const i = items.findIndex(x => x.menuItemId === menuItem.id);
       if (i >= 0) return items.map((x, idx) => idx === i ? { ...x, qty: x.qty + 1 } : x);
@@ -181,6 +249,8 @@ export default function OrdersScreen({ user, settings, search }) {
     });
   };
   const editDec = (menuItemId) => {
+    const menuItem = menuById[menuItemId];
+    if (menuItem && isWeighedItem(menuItem)) { openAmountPicker(menuItem, 'set'); return; }
     setEditItems(items => items
       .map(x => x.menuItemId === menuItemId ? { ...x, qty: x.qty - 1 } : x)
       .filter(x => x.qty > 0));
@@ -189,8 +259,8 @@ export default function OrdersScreen({ user, settings, search }) {
 
   const saveEdit = async () => {
     if (!selected || busy) return;
-    if (!editItems.length) { setError('An order needs at least one item'); return; }
-    if (editType === 'dine_in' && !editTable) { setError('Dine-in orders need a table'); setPickTable(true); return; }
+    if (!editItems.length) { setError(t('An order needs at least one item', lang)); return; }
+    if (editType === 'dine_in' && !editTable) { setError(t('Dine-in orders need a table', lang)); setPickTable(true); return; }
     setBusy(true);
     setError('');
     try {
@@ -199,8 +269,8 @@ export default function OrdersScreen({ user, settings, search }) {
         table_id:   editType === 'dine_in' ? (editTable?.id || null) : null,
         items:      editItems.map(it => ({ menu_item_id: it.menuItemId, quantity: it.qty })),
       });
-      if (!res.ok) { setError(res.error || 'Failed to save changes'); return; }
-      showToast('Order updated');
+      if (!res.ok) { setError(res.error || t('Failed to save changes', lang)); return; }
+      showToast(t('Order updated', lang));
       setEditing(false); setPickTable(false); setSnapshot(null);
       load();
     } finally { setBusy(false); }
@@ -215,7 +285,7 @@ export default function OrdersScreen({ user, settings, search }) {
 
   // Entries shape for PaymentModal (read-only steppers on existing orders)
   const payEntries = panelItems.map(it => ({
-    item: { id: it.menuItemId, name: it.name, price: it.price, unit: 'piece' },
+    item: { id: it.menuItemId, name: it.name, price: it.price, unit: menuById[it.menuItemId]?.unit || 'piece' },
     qty:  it.qty,
   }));
 
@@ -257,12 +327,12 @@ export default function OrdersScreen({ user, settings, search }) {
                 fontSize: 12, fontWeight: 800, boxShadow: active ? 'none' : T.cardShadow,
                 transition: 'background .15s, color .15s',
               }}>
-                {f.label}
+                {t(f.label, lang)}
               </button>
             );
           })}
           <div style={{ flex: 1 }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: T.muted }}>{filtered.length} active orders</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.muted }}>{tt(lang, '{n} active orders', '{n} ta faol buyurtma', { n: filtered.length })}</span>
         </div>
 
         {editing && pickTable ? (
@@ -270,20 +340,20 @@ export default function OrdersScreen({ user, settings, search }) {
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <div>
-                <span style={{ fontSize: 15, fontWeight: 800 }}>Choose a table for Order #{selected?.dailyNumber}</span>
-                <span style={{ fontSize: 12, color: T.muted, marginLeft: 10 }}>tap a table to assign it</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>{tt(lang, 'Choose a table for Order #{n}', '#{n}-buyurtma uchun stol tanlang', { n: selected?.dailyNumber })}</span>
+                <span style={{ fontSize: 12, color: T.muted, marginLeft: 10 }}>{t('tap a table to assign it', lang)}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 {[['Available', T.green], ['Occupied', T.coral], ['Reserved', T.amber], ['Needs Bill', T.blue]].map(([lbl, clr]) => (
                   <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: T.muted }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: clr }} />{lbl}
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: clr }} />{t(lbl, lang)}
                   </span>
                 ))}
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))', gap: 14 }}>
               {tables.map(tb => {
-                const sp = statusPill(tb.status || 'free');
+                const sp = statusPill(tb.status || 'free', lang);
                 const isSel = editTable?.id === tb.id;
                 return (
                   <button key={tb.id} onClick={() => { setEditTable(tb); setPickTable(false); }} style={{
@@ -291,10 +361,10 @@ export default function OrdersScreen({ user, settings, search }) {
                     border: isSel ? `2px solid ${T.green}` : '2px solid transparent',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 14.5, fontWeight: 800 }}>{tb.name || `Table ${tb.tableNumber}`}</span>
+                      <span style={{ fontSize: 14.5, fontWeight: 800 }}>{tb.name || tableFallbackLabel(tb.tableNumber, lang)}</span>
                       <span style={pill(sp)}>{sp.label}</span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: T.muted }}>{tb.capacity ? `${tb.capacity} seats` : ' '}</div>
+                    <div style={{ fontSize: 11.5, color: T.muted }}>{tb.capacity ? tt(lang, '{n} seats', "{n} o'rin", { n: tb.capacity }) : ' '}</div>
                   </button>
                 );
               })}
@@ -304,11 +374,11 @@ export default function OrdersScreen({ user, settings, search }) {
           /* ── Add-items menu (edit mode) ── */
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
             <div>
-              <span style={{ fontSize: 14, fontWeight: 800 }}>Add items to Order #{selected?.dailyNumber}</span>
-              <span style={{ fontSize: 11.5, color: T.muted, marginLeft: 8 }}>tap ADD to put an item on the order</span>
+              <span style={{ fontSize: 14, fontWeight: 800 }}>{tt(lang, 'Add items to Order #{n}', '#{n}-buyurtmaga mahsulot qo’shish', { n: selected?.dailyNumber })}</span>
+              <span style={{ fontSize: 11.5, color: T.muted, marginLeft: 8 }}>{t('tap ADD to put an item on the order', lang)}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-              <FilterPill label="All" active={!editCat} onClick={() => setEditCat(null)} />
+              <FilterPill label={t('All', lang)} active={!editCat} onClick={() => setEditCat(null)} />
               {categories.map(c => (
                 <FilterPill key={c.id} label={c.name} active={editCat === c.id} onClick={() => setEditCat(editCat === c.id ? null : c.id)} />
               ))}
@@ -322,14 +392,16 @@ export default function OrdersScreen({ user, settings, search }) {
                     <div key={m.id} style={{ ...card, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                        <div style={{ fontSize: 12.5, fontWeight: 800, color: T.greenDark, marginTop: 2 }}>{money(m.price)}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 800, color: T.greenDark, marginTop: 2 }}>
+                          {money(m.price)}{unitSuffix(m) ? ` / ${unitSuffix(m)}` : ''}
+                        </div>
                       </div>
                       <button onClick={() => editAdd(m)} style={{
                         border: 'none', borderRadius: T.rBtn, background: T.green, color: '#fff',
                         padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                       }}>
-                        <Plus size={14} strokeWidth={2.5} /> ADD
+                        <Plus size={14} strokeWidth={2.5} /> {t('ADD', lang)}
                       </button>
                     </div>
                   ))}
@@ -340,17 +412,17 @@ export default function OrdersScreen({ user, settings, search }) {
           /* ── Order cards grid ── */
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
             {filtered.length === 0 ? (
-              <div style={{ padding: 60, textAlign: 'center', color: T.muted, fontSize: 14 }}>No active orders</div>
+              <div style={{ padding: 60, textAlign: 'center', color: T.muted, fontSize: 14 }}>{t('No active orders', lang)}</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
                 {filtered.map(o => {
-                  const sp = statusPill(o.status);
+                  const sp = statusPill(o.status, lang);
                   const isSel = selectedId === o.id;
                   const waiter = staff[o.waitressId] || '—';
                   const count = (itemsByOrd[o.id] || []).length;
                   const place = o.orderType === 'dine_in'
-                    ? (tableLabelOf(o.tableId) || 'Dine In')
-                    : (o.orderType === 'to_go' ? 'Takeout' : 'Delivery');
+                    ? (tableLabelOf(o.tableId) || t('Dine In', lang))
+                    : (o.orderType === 'to_go' ? t('Takeout', lang) : t('Delivery', lang));
                   return (
                     <button key={o.id} onClick={() => { setSelectedId(o.id); setEditing(false); }} style={{
                       ...card, textAlign: 'left', padding: 16, cursor: 'pointer', fontFamily: T.font,
@@ -363,7 +435,7 @@ export default function OrdersScreen({ user, settings, search }) {
                       </div>
                       <div style={{ fontSize: 11.5, display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', gap: 8 }}>
                         <span style={{ color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{place}</span>
-                        <span style={{ color: T.faint, flexShrink: 0 }}>{timeAgo(o.createdAt)}</span>
+                        <span style={{ color: T.faint, flexShrink: 0 }}>{timeAgo(o.createdAt, lang)}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', alignItems: 'center', gap: 8 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
@@ -377,7 +449,7 @@ export default function OrdersScreen({ user, settings, search }) {
                             {waiter}
                           </span>
                         </span>
-                        <span style={{ fontSize: 11, color: T.faint, fontWeight: 700, flexShrink: 0 }}>{count} items</span>
+                        <span style={{ fontSize: 11, color: T.faint, fontWeight: 700, flexShrink: 0 }}>{tt(lang, '{n} items', '{n} ta mahsulot', { n: count })}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', alignItems: 'center' }}>
                         <span style={{ fontSize: 15.5, fontWeight: 800 }}>{money(o.totalAmount)}</span>
@@ -405,32 +477,32 @@ export default function OrdersScreen({ user, settings, search }) {
         {!selected ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.faint, gap: 8 }}>
             <Eye size={34} strokeWidth={1.5} />
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.muted }}>Select an order</div>
-            <div style={{ fontSize: 11.5 }}>Tap an order card to see its details</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.muted }}>{t('Select an order', lang)}</div>
+            <div style={{ fontSize: 11.5 }}>{t('Tap an order card to see its details', lang)}</div>
           </div>
         ) : (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontSize: 17, fontWeight: 800 }}>Order #{selected.dailyNumber || selected.id.slice(-4)}</span>
-              <span style={pill(statusPill(selected.status))}>{statusPill(selected.status).label}</span>
+              <span style={{ fontSize: 17, fontWeight: 800 }}>{tt(lang, 'Order #{n}', '#{n}-buyurtma', { n: selected.dailyNumber || selected.id.slice(-4) })}</span>
+              <span style={pill(statusPill(selected.status, lang))}>{statusPill(selected.status, lang).label}</span>
             </div>
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 12 }}>
               {(() => {
                 const type = editing ? editType : selected.orderType;
-                const typeLabel = type === 'dine_in' ? 'Dine In' : type === 'to_go' ? 'Takeout' : 'Delivery';
+                const typeLabel = t(type === 'dine_in' ? 'Dine In' : type === 'to_go' ? 'Takeout' : 'Delivery', lang);
                 if (type !== 'dine_in') return typeLabel;
                 const tableName = editing
-                  ? (editTable ? (editTable.name || `Table ${editTable.tableNumber}`) : 'No table')
-                  : (tableLabelOf(selected.tableId) || 'No table');
+                  ? (editTable ? (editTable.name || tableFallbackLabel(editTable.tableNumber, lang)) : t('No table', lang))
+                  : (tableLabelOf(selected.tableId) || t('No table', lang));
                 return `${tableName} · ${typeLabel}`;
               })()}
-              {' · '}{timeAgo(selected.createdAt)}
+              {' · '}{timeAgo(selected.createdAt, lang)}
             </div>
 
             {/* Edit-mode: order type + table controls */}
             {editing && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ ...uppercaseLabel, marginBottom: 6 }}>Order type</div>
+                <div style={{ ...uppercaseLabel, marginBottom: 6 }}>{t('Order type', lang)}</div>
                 <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                   {[['dine_in', 'Dine In'], ['to_go', 'Takeout'], ['delivery', 'Delivery']].map(([k, lbl]) => (
                     <button key={k} onClick={() => setEditType(k)} style={{
@@ -438,20 +510,26 @@ export default function OrdersScreen({ user, settings, search }) {
                       background: editType === k ? T.green : T.chipBg, color: editType === k ? '#fff' : T.muted,
                       fontSize: 11.5, fontWeight: 800,
                     }}>
-                      {lbl}
+                      {t(lbl, lang)}
                     </button>
                   ))}
                 </div>
                 {editType === 'dine_in' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ flex: 1, background: T.chipBg, borderRadius: T.rBtn, padding: '9px 12px', fontSize: 12.5, fontWeight: 800 }}>
-                      {editTable ? (editTable.name || `Table ${editTable.tableNumber}`) : 'No table'}
+                      {editTable ? (editTable.name || tableFallbackLabel(editTable.tableNumber, lang)) : t('No table', lang)}
                     </div>
                     <button onClick={() => setPickTable(v => !v)} style={{
-                      border: 'none', background: 'transparent', color: T.greenDark, fontSize: 11.5,
-                      fontWeight: 800, cursor: 'pointer', fontFamily: T.font, whiteSpace: 'nowrap',
-                    }}>
-                      Change on floor plan
+                      display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                      border: `1.5px solid ${T.greenTint}`, background: T.greenTint, color: T.greenDark,
+                      borderRadius: T.rBtn, padding: '9px 12px', fontSize: 11.5, fontWeight: 800,
+                      cursor: 'pointer', fontFamily: T.font, whiteSpace: 'nowrap', transition: 'background .15s',
+                    }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#D7F0E2'}
+                      onMouseLeave={e => e.currentTarget.style.background = T.greenTint}
+                    >
+                      <ArrowLeftRight size={13} strokeWidth={2.5} />
+                      {t('Change Table', lang)}
                     </button>
                   </div>
                 )}
@@ -468,9 +546,9 @@ export default function OrdersScreen({ user, settings, search }) {
               </span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 800 }}>{staff[selected.waitressId] || '—'}</div>
-                <div style={{ fontSize: 10, color: T.faint }}>Waiter</div>
+                <div style={{ fontSize: 10, color: T.faint }}>{t('Waiter', lang)}</div>
               </div>
-              <span style={{ fontSize: 11, color: T.faint, fontWeight: 700 }}>{panelItems.length} items</span>
+              <span style={{ fontSize: 11, color: T.faint, fontWeight: 700 }}>{tt(lang, '{n} items', '{n} ta mahsulot', { n: panelItems.length })}</span>
             </div>
 
             {/* Items */}
@@ -479,14 +557,14 @@ export default function OrdersScreen({ user, settings, search }) {
                 <div key={it.menuItemId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {it.name} <span style={{ color: T.faint, fontWeight: 600 }}>×{it.qty}</span>
+                      {it.name} <span style={{ color: T.faint, fontWeight: 600 }}>{formatQty(menuById[it.menuItemId], it.qty)}</span>
                     </div>
                   </div>
                   {editing && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                       <StepBtn onClick={() => editDec(it.menuItemId)}><Minus size={12} strokeWidth={2.5} /></StepBtn>
-                      <StepBtn primary onClick={() => editAdd({ id: it.menuItemId, name: it.name, price: it.price })}><Plus size={12} strokeWidth={2.5} /></StepBtn>
-                      <button onClick={() => editRemove(it.menuItemId)} title="Remove" style={{
+                      <StepBtn primary onClick={() => editAdd(menuById[it.menuItemId] || { id: it.menuItemId, name: it.name, price: it.price })}><Plus size={12} strokeWidth={2.5} /></StepBtn>
+                      <button onClick={() => editRemove(it.menuItemId)} title={t('Remove', lang)} style={{
                         width: 24, height: 24, borderRadius: 8, border: 'none', background: T.coralBg,
                         color: T.coral, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
@@ -504,17 +582,17 @@ export default function OrdersScreen({ user, settings, search }) {
             {/* Totals */}
             <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 10, marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600 }}>Sub Total</span>
+                <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600 }}>{t('Sub Total', lang)}</span>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>{money(panelSubtotal)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600 }}>Tax & Fees</span>
+                <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600 }}>{t('Tax & Fees', lang)}</span>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: T.muted }}>
                   {money(editing ? panelTax : Number(selected.taxAmount || 0))}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 800 }}>Total</span>
+                <span style={{ fontSize: 15, fontWeight: 800 }}>{t('Total', lang)}</span>
                 <span style={{ fontSize: 19, fontWeight: 800 }}>{money(panelTotal)}</span>
               </div>
             </div>
@@ -536,7 +614,7 @@ export default function OrdersScreen({ user, settings, search }) {
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1.5px solid ${T.coral}`,
                     background: T.surface, color: T.coral, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                   }}>
-                    Discard
+                    {t('Discard', lang)}
                   </button>
                   <button onClick={saveEdit} disabled={busy} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
@@ -544,23 +622,23 @@ export default function OrdersScreen({ user, settings, search }) {
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   }}>
                     {busy && <Loader2 size={14} style={{ animation: 'posspin 1s linear infinite' }} />}
-                    Done
+                    {t('Done', lang)}
                   </button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => showToast('Receipt printing comes with the History step', false)} style={{
+                  <button onClick={() => showToast(t('Receipt printing comes with the History step', lang), false)} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                     background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   }}>
-                    <Printer size={15} strokeWidth={1.8} /> Print
+                    <Printer size={15} strokeWidth={1.8} /> {t('Print', lang)}
                   </button>
                   <button onClick={startEdit} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                     background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                   }}>
-                    Edit
+                    {t('Edit', lang)}
                   </button>
                 </>
               )}
@@ -577,7 +655,7 @@ export default function OrdersScreen({ user, settings, search }) {
               onMouseEnter={e => { if (!editing) e.currentTarget.style.background = T.greenDark; }}
               onMouseLeave={e => e.currentTarget.style.background = T.green}
             >
-              Charge {money(panelTotal)}
+              {tt(lang, 'Charge {amount}', 'Hisob-kitob {amount}', { amount: money(panelTotal) })}
             </button>
           </>
         )}
@@ -591,13 +669,26 @@ export default function OrdersScreen({ user, settings, search }) {
           taxAmt={Number(selected.taxAmount || 0)}
           total={Number(selected.totalAmount || 0)}
           settings={settings}
-          formatQty={(_it, q) => `×${q}`}
+          lang={lang}
+          formatQty={formatQty}
           onQtyChange={() => {}} /* qty edits on existing orders go through Edit mode */
           onClose={() => setShowPayment(false)}
           onSubmit={submitPay}
-          onDone={() => { setShowPayment(false); setSelectedId(null); showToast('Payment complete'); load(); }}
+          onDone={() => { setShowPayment(false); setSelectedId(null); showToast(t('Payment complete', lang)); load(); }}
         />
       )}
+
+      {/* ══ Amount picker modal (weighed items, edit mode) ══ */}
+      <AmountPickerModal
+        picker={amountPicker}
+        symbol={symbol}
+        money={money}
+        lang={lang}
+        onQtyChange={onAmountQtyChange}
+        onPriceChange={onAmountPriceChange}
+        onConfirm={confirmAmountPicker}
+        onClose={() => setAmountPicker(null)}
+      />
     </div>
   );
 }

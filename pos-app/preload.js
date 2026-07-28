@@ -7,6 +7,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   getVersion: () => ipcRenderer.invoke('get-version'),
 
+  // Window controls — the window is frameless (main.js createWindow), so
+  // TitleBar.jsx's custom buttons call these instead of any native chrome.
+  windowMinimize:    () => ipcRenderer.invoke('window:minimize'),
+  windowMaximize:    () => ipcRenderer.invoke('window:maximize'),
+  windowClose:       () => ipcRenderer.invoke('window:close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  onWindowMaximizedChange: (cb) => {
+    const handler = (_event, isMax) => cb(isMax);
+    ipcRenderer.on('window:maximized-changed', handler);
+    return () => ipcRenderer.removeListener('window:maximized-changed', handler);
+  },
+
   // Auth — main process owns the token, renderer only ever gets user/restaurant info back.
   login:      (identifier, password) => ipcRenderer.invoke('auth:login', { identifier, password }),
   getSession: ()                     => ipcRenderer.invoke('auth:get-session'),
@@ -34,4 +46,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Read-only backend GET for data not in PowerSync (settings, shifts, loans,
   // history). Writes must NOT use this — see main.js api:get comment.
   apiGet: (path) => ipcRenderer.invoke('api:get', path),
+
+  // Generic authenticated write passthrough — Admin panel only (see main.js
+  // api:post comment for why this is separate from the cashier's dedicated
+  // per-action write handlers like ordersCreate/ordersPay above).
+  apiPost:   (path, data) => ipcRenderer.invoke('api:post',   { path, data }),
+  apiPut:    (path, data) => ipcRenderer.invoke('api:put',    { path, data }),
+  apiPatch:  (path, data) => ipcRenderer.invoke('api:patch',  { path, data }),
+  apiDelete: (path, data) => ipcRenderer.invoke('api:delete', { path, data }),
+
+  // Lightweight backend-reachability probe (GET /health, short timeout, no auth) —
+  // separate from apiGet since it's polled by the topbar sync badge alongside
+  // psStatus(). See main.js backend:health comment for why this exists.
+  backendHealth: () => ipcRenderer.invoke('backend:health'),
 });
