@@ -180,7 +180,16 @@ export const ordersAPI = {
   markLoanPaid: (id) => api.put(`/orders/${id}/loan/pay`),
   cancel: (id, reason) => api.put(`/orders/${id}/status`, { status: 'cancelled', cancellationReason: reason }),
   delete: (id) => api.delete(`/orders/${id}`),
-  addItems: (id, items) => api.post(`/orders/${id}/items`, { items }),
+  // `extra` (optional): merged into the body alongside `items` — added so
+  // callers can pass `{ clientPrintsLocally: true }` when they're about to
+  // print the kitchen ticket themselves right after this succeeds (pos-app's
+  // Admin screens, unlike the Cashier POS's dedicated `orders:create`/
+  // `orders:addItems` IPC handlers, route through this generic REST client,
+  // which never auto-injects that flag the way main.js's funnel does — see
+  // NewOrderModal.jsx/admin TablesScreen.jsx's handleAddFoodToOrder for the
+  // real call sites that need this). Backward-compatible: omitting `extra`
+  // behaves exactly as before.
+  addItems: (id, items, extra) => api.post(`/orders/${id}/items`, { items, ...extra }),
   markItemReady: (id, itemId) => api.put(`/orders/${id}/items/${itemId}/ready`),
   markItemServed: (id, itemId) => api.put(`/orders/${id}/items/${itemId}/serve`),
 };

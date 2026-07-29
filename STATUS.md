@@ -3,6 +3,291 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
+## 2026-07-29 (latest): Login screen — password show/hide + language toggle
+
+User flagged the Login screen (screenshot) as needing a password-visibility toggle and a
+language switcher — it had neither. Root cause for why it was missed until now: `Login.jsx` was
+written back in Phase 0 (the very first thing built in this project) and never touched again —
+it predates both of the app's two translation systems (Admin's context-based `LanguageContext.jsx`,
+Cashier's `lib/i18n.js` + PosShell's `lang` state) and has always been 100% hardcoded English with
+no i18n wiring of any kind, unlike every screen built since.
+
+Real design wrinkle worth knowing: Login runs before any role is known, so neither existing i18n
+system is mounted yet (`LanguageContext.jsx`'s Provider only wraps `AdminPanel.jsx`; PosShell's
+`lang` state only exists inside the Cashier shell). Rather than inventing a third system, Login
+now reuses `lib/i18n.js`'s existing `t(str, lang)` dictionary directly (added the ~9 new strings
+it needed) with its own local `lang` state — and on every toggle, writes BOTH `pos.lang` ('EN'/
+'UZ', PosShell's key) and `lang` ('en'/'uz', lowercase, Admin's key) to localStorage, so whichever
+language is picked at login carries into whichever shell the user lands in next, rather than
+surprising them with a different language after signing in. `initialLang()` reads whichever key
+already has a value from a previous session, defaulting to 'UZ' if neither is set.
+
+Added: a UZ/EN pill toggle (top-right of the login card, same segmented-pill visual style as
+PosShell's own sidebar toggle) and a password show/hide eye icon (lucide-react `Eye`/`EyeOff`,
+already a dependency) inside the password field.
+
+`Login.jsx` and `lib/i18n.js` esbuild-verified clean. **Not yet tested on a real machine** — next
+check is opening the login screen, confirming the eye icon toggles visibility correctly, toggling
+UZ/EN and confirming the labels/placeholder text switch, and confirming the chosen language is
+still in effect after logging in (both on the Cashier POS and the Admin panel).
+
+## 2026-07-29 (earlier): fixed untranslated strings user found live (Orders history table, Staff modal)
+
+User caught several English strings leaking through on the Uzbek UI via two screenshots (Admin
+Orders' paid-orders table/payment badges, Admin Staff's add-staff modal role/salary-type
+buttons). Root cause in every case: a value was rendered directly (or via `.replace('_',' ')`/
+title-casing) instead of through `t()` — these aren't missing i18n keys so much as call sites
+that were never wired up in the first place, likely because payment-method/role/salary-type
+values look like plain English words and are easy to miss versus an obviously-untranslated
+label. Fixed all found instances, not just the two shown:
+
+- **`OrdersScreen.jsx`** — new `paymentMethodLabel(method, t)` helper (mirrors the pattern
+  `LoansScreen.jsx`'s `PAY_METHODS` already used correctly) replaces six separate raw renders:
+  the paid-orders table's payment badge, the split-payment breakdown's per-part label, the order
+  detail panel's payment-method line, the split-payment method-picker chips (previously a
+  hardcoded `{key:'qr_code', label:'QR'}`-style array), and the payment form's method display
+  fallback. Also fixed `{itemCount} items` → `{itemCount} {t('common.items')}` in the same table
+  (the column header already said `t('common.items')` = "ta"; the row values didn't match).
+- **`StaffScreen.jsx`** — `roleLabel(r)` used to always return a raw English title-case
+  regardless of language (`new_cashier` → "New Cashier" even in Uzbek) since it algorithmically
+  transforms the role key rather than translating it; changed to `roleLabel(r, t)`, looking up
+  `roles.<key>` first and only falling back to the title-case transform if a key is somehow
+  missing. `roles.new_cashier`/`roles.new_waiter` didn't exist in either `en.json`/`uz.json` (the
+  other four roles did) — added both. Also fixed the salary-type pill buttons (`Hourly`/`Daily`/
+  `Weekly`/`Monthly`, previously `st.charAt(0).toUpperCase()...`) to reuse the
+  `admin.staff.salaryTypes.*` keys already correctly used two lines away for the rate label, plus
+  two more raw `salaryType` renders in the "new staff created" success card and the staff list
+  card.
+- **`InventoryScreen.jsx`** — supplier delivery-debt payment method buttons (`PAYMENT_METHODS =
+  ['Cash','Bank Transfer',...]`) were rendering the raw Title-Case array value. Fixed the
+  *display* only via a new `paymentMethodDisplay()` lookup — deliberately did NOT change the
+  array's own values, since those are the actual persisted `method` field on real payment
+  records; translating the stored value itself would be a data-model change, not a translation
+  fix.
+
+All 5 touched files (`OrdersScreen.jsx`, `StaffScreen.jsx`, `InventoryScreen.jsx`, `en.json`,
+`uz.json`) esbuild/JSON-verified clean. Not yet re-confirmed live in Uzbek on the real machine —
+next check is exactly the two screens the user screenshotted, switched to UZ.
+
+## 2026-07-29 (earlier): Printers tab restored in Admin Settings
+
+Task #46 done. The Printers tab (`pos-app/src/pages/admin/screens/SettingsScreen.jsx`) — deleted
+as dead code during the original port (task #29) because printing was out of scope at the time —
+is now restored, since a full kitchen-ticket print engine exists (tasks #41-45) and the ONE
+missing piece was a UI to actually enter/edit a printer's IP from inside pos-app (previously only
+possible via the old website's Settings page).
+
+**Faithful restoration, ported from `website/src/pages/admin/AdminRestaurantSettings.jsx`** — same
+fields, same layout, same behavior, no redesign: `PrinterCard` (name/IP/port + connection-status
+badge + kitchen-station toggle buttons, station toggles only shown for kitchen printers),
+`AddFormPanel` (shared draft-entry form for adding a receipt or kitchen printer — kept as a
+top-level component per the source's own comment, since defining it inside `PrintersPanel` would
+make React remount it every keystroke and drop input focus), `PrinterSetupGuide` (collapsible
+5-step walkthrough + compatible-printer list + troubleshooting box), and `PrintersPanel` itself
+(receipt-printer list/add-form, a divider, then kitchen-printer list/add-form — stacked
+vertically, matching the source's real layout). `printers` is back in `SECTIONS` in its original
+position (between `finance` and `receipt`, matching the website's own order) with the `Printer`
+icon. All 8 previously-dropped icons restored (`Printer`, `Wifi`, `Network`, `MonitorCheck`,
+`ChevronDown`, `ChevronUp`, `Plus`, `Trash2`) — each verified by grep to have a real call site in
+the restored code before adding it back, none re-added blindly.
+
+**Save path: no parallel mechanism.** `PrintersPanel` reads/writes `form.kitchenPrinters`/
+`form.receiptPrinters` through the exact same `form`/`set`/`handleSave` flow every other tab on
+this screen already uses (`set('kitchenPrinters')([...])`, then one shared
+`settingsAPI.update(form)` call on Save) — confirmed by direct review, not assumed.
+
+**One deliberate improvement, matching this project's established task #31 precedent:** the
+source's `loadStations` (feeding the kitchen-printer station picker) fetches its 3 merge sources
+via REST (`menuAPI.getStations()` + `menuAPI.getItems()`). This port fetches the same 3 sources
+locally via PowerSync instead, reusing `MenuScreen.jsx`'s own already-converted station-read
+pattern: `SELECT name FROM custom_stations ORDER BY created_at` (verbatim reuse) +
+`SELECT DISTINCT kitchen_station FROM menu_items WHERE kitchen_station IS NOT NULL AND
+kitchen_station <> ''` (replaces `menuAPI.getItems()` — only distinct non-empty station names
+were ever read off an item), merged with the same hardcoded preset list using the identical
+case-insensitive, first-occurrence-wins logic as the source. Safe because both `menu_items` and
+`custom_stations` are fully-synced PowerSync tables (already read locally elsewhere in this app)
+and this is a pure read with zero server-side business logic — unlike the outer `GET/PUT
+/api/settings` round-trip itself, which correctly stays on REST (per the existing, unchanged
+task #31 conclusion: the route's self-healing default-row auto-INSERT can't be replicated by a
+local SELECT). This deviation only replaces the ONE inner call feeding the station picker.
+`menuAPI` is NOT re-imported — its only potential remaining use is fully covered by the two local
+reads above.
+
+**i18n: no new keys needed.** All `settings.printers.*` keys (and `settings.sections.printers`)
+already existed, complete, in both `pos-app/src/i18n/en.json` and `uz.json` — they were carried
+over verbatim when the i18n dictionaries were first built (task #4) even though the Printers tab
+itself wasn't rendered at the time. Verified directly against `website/src/i18n/en.json`/`uz.json`
+to confirm wording matches; no drift found.
+
+Header comment in `SettingsScreen.jsx` was appended to (not rewritten) per RULES.md §0 — the
+original "PRINTING — entirely excluded" items 1-2 are kept for history with a new dated addendum
+explaining the restoration and superseding them.
+
+Esbuild-verified clean via the Linux scratch install (`--bundle --loader:.jsx=jsx --format=esm`,
+external react/react-dom/react-router-dom/lucide-react) — 43.5kb output, zero errors.
+
+**Not yet tested on a real machine — this is the single most important next step.** Nothing here
+could be verified beyond syntax/import-resolution (esbuild) and manual code review; no live
+Electron runtime, no real PowerSync-synced `menu_items`/`custom_stations` data, and no actual
+kitchen printer were available in this session. Next session should: open Settings → Printers on
+the real app, confirm the station picker populates with real synced stations (presets + any
+menu-item stations + any custom stations), add a kitchen printer with a real (or at least
+reachable) IP, Save, reload the screen and confirm it reads back correctly (round-trips through
+`settingsAPI.update`/`.get()`), and confirm `useSettings().kitchenPrinters` on the Cashier POS and
+other Admin screens picks up the newly-entered printer without needing anything else touched —
+then actually fire an order and confirm a real ticket prints to that printer's station.
+
+## 2026-07-29 (later): kitchen print calls wired into all real order-item write paths
+
+Following the new LAN print engine (`pos-app/printEngine.js`, `preload.js`'s `printKitchenTicket`,
+`useSettings.js`'s `kitchenPrinters`/`kitchenShow` — all built earlier the same day, tasks #41-43),
+this pass wires the actual print CALLS into every screen that creates or edits order items. **7
+real call sites found and wired, across 6 files** (task brief estimated "6 spots across 4 files" —
+the extra one is Admin Tables' own separate `handleAddFoodToOrder`, a genuinely distinct code path
+from `NewOrderModal.jsx`'s create flow, both real and independently reachable; see below).
+
+**Cashier POS (`pos-app/src/pages/pos/`):**
+- `MenuScreen.jsx` `handleFire` — two spots in one function: (1) brand-new order via
+  `ordersCreate` → print the full cart; (2) add-to-existing-order via `ordersAddItems` → print only
+  the cart being fired (the existing order's own items already printed when originally fired).
+  Cart items are `{item, qty}` where `item` is the full local `menu_items` row (camelized) — used
+  `item.name`/`item.unit`/`item.kitchenStation` directly, matched printEngine.js's expected shape
+  with no surprises. `res.data` from both IPC calls is the RAW backend order row (snake_case,
+  `daily_number` etc.) — confirmed `main.js`'s `request()` does no camelization on the way back (no
+  REST-response translation layer for pos-app's own IPC writes, unlike `client.js`'s `unwrap()`),
+  so `dailyNumber` is read as `res.data?.daily_number`, not `res.data?.dailyNumber`.
+- `OrdersScreen.jsx` `saveEdit` and `TablesScreen.jsx` `saveEdit` — edit-save diff logic. `orders:update`
+  (`PUT /:id`) has zero backend print trigger (confirmed by grep — only `POST /` and `POST /:id/items`
+  in `orders.js` call `sendKitchenPrintJobs`/`broadcast`), so 100% of the print signal for an edit-save
+  comes from these two client-side diffs. OrdersScreen.jsx already had an explicit `snapshot.items`
+  state (built in `startEdit`, used for its own Discard button) — reused directly as "old" quantities.
+  TablesScreen.jsx has NO such explicit snapshot (its own `startEdit` never built one) — reused
+  `itemsByOrd[selOrder.id]` instead, which stays frozen at the pre-edit state for the whole edit
+  session since both screens already pause polling while editing (`if (!editing) load()`) — this is
+  the screen's own existing "original vs current" mechanism, not a new parallel one. Diff logic (same
+  in both): `delta = newQty - (oldQty || 0)`, print only where `delta > 0` (brand-new item or a
+  genuine quantity increase), with `quantity` set to the DELTA, never the full new quantity — a
+  decreased/removed/unchanged item never reprints.
+
+**Admin (`pos-app/src/pages/admin/`) — real gap found and fixed: settings weren't plumbed in at
+all.** `AdminShell.jsx` never called `useSettings()` — added it (same hook the Cashier POS's
+`PosShell.jsx` already uses) and now passes `settings` down to every active screen exactly like
+`user`/`onLogout` already are (same "shared data as a prop" convention this file already
+established, no new plumbing pattern invented).
+- `NewOrderModal.jsx` (`handlePlaceOrder`'s create branch, the only branch AdminTables.jsx actually
+  uses — its `existingOrderId` branch is confirmed dead code, never invoked with a real id) — prints
+  the full cart after `ordersAPI.create(...)` succeeds. Added `settings` prop.
+- `admin/screens/TablesScreen.jsx` `handleAddFoodToOrder` — its OWN separate in-place add-items flow
+  (does NOT go through `NewOrderModal.jsx` at all) — prints only the items just added after
+  `ordersAPI.addItems(...)` succeeds. Added `settings` prop, threaded into `<NewOrderModal
+  settings={settings} />` too.
+- `admin/screens/OrdersScreen.jsx` `saveEditedOrder` — same diff requirement as the Cashier screens.
+  `editingOrder.items` (the pristine order object `openEditModal` was called with) serves as "old" —
+  confirmed `editFormData.items` is a separately-mapped copy, so none of the edit modal's add/
+  remove/qty handlers ever mutate `editingOrder.items` itself, making it a reliable frozen snapshot
+  with no new state needed. `editFormData` has no `orderType` field at all (this admin edit modal
+  can change table/waitress/guests/items/notes but NOT order type) — used `editingOrder.orderType`
+  unchanged for the print order object. Added `settings` prop.
+
+**Real correctness bug found and fixed before it could ship: Admin's two order-creating/item-adding
+writes would have double-printed every ticket.** `NewOrderModal.jsx`'s create call and Admin
+`TablesScreen.jsx`'s `handleAddFoodToOrder` both go through the GENERIC REST client
+(`ordersAPI.create`/`ordersAPI.addItems` → `api:post` IPC passthrough) — NOT the Cashier POS's
+dedicated `orders:create`/`orders:addItems` IPC handlers in `main.js`, which are the ONLY place
+`client_prints_locally: true` gets auto-injected. Without that flag, the backend would ALSO run its
+own broadcast/`sendKitchenPrintJobs` for these two admin-triggered writes (exactly as it always has,
+pre-dating this whole feature) — meaning every admin-created order or admin-added item would print
+TWICE once our new client-side print call was added on top. Fixed two ways: (1) `NewOrderModal.jsx`
+now sends `clientPrintsLocally: true` directly in the object passed to `ordersAPI.create(...)` —
+`client.js`'s `snakeizeKeys` converts it to `client_prints_locally` correctly (verified: `toSnake`
+only touches uppercase letters, so an already-lowercase key would pass through unchanged, and this
+one converts as expected); (2) `client.js`'s `ordersAPI.addItems(id, items, extra)` got a new,
+backward-compatible optional third parameter (merged into the POST body) since its old signature
+`(id, items)` had no way to smuggle the flag through — Admin `TablesScreen.jsx` now calls
+`ordersAPI.addItems(tableOrder.id, items, { clientPrintsLocally: true })`. Neither change touches
+the order-write logic itself, only ensures the existing "don't double-print" signal actually reaches
+the backend from these two call sites the way it already does for the Cashier POS's dedicated IPC
+methods. `PUT /:id` (`ordersAPI.update`, used by both edit-save flows and NewOrderModal's dead
+`existingOrderId` branch) needs no such flag — confirmed zero print-trigger code exists on that
+route at all, so there's no double-print risk there regardless of transport.
+
+**Error/warning UI — reused each screen's own existing pattern, invented nothing new:**
+- Cashier `pos/` screens: existing `showToast(msg, false)` toast.
+- Admin `OrdersScreen.jsx`: existing `useApi()` `error`/`setError` (a fixed bottom-right red toast
+  already used for other failures) — added `setError` to the destructure (it existed on the hook,
+  just wasn't pulled out before).
+- Admin `NewOrderModal.jsx`: reused its own existing inline `error`/`setError` box (already rendered
+  in the cart panel) — on a real print failure, the modal now stays open (instead of auto-closing)
+  so the warning is actually visible; the user closes it manually. Order creation itself is
+  unaffected either way — this only delays when the MODAL closes, never the write.
+- Admin `TablesScreen.jsx`: this file had NO existing toast/notification mechanism at all outside a
+  full-page blocking load-error state (wrong for a transient print warning) — added one small
+  `addFoodPrintWarning` string state, rendered as a small inline red banner using the exact same
+  visual language already used elsewhere in this same file (red-50/red-600/`AlertTriangle`, e.g. its
+  own delete-confirm dialog), not a new component or pattern. Same "stay open on failure" treatment
+  as NewOrderModal.
+
+**Every print call:** built strictly from state the screen already has in memory (no extra fetch),
+wrapped in try/catch (never throws, never affects the write that already succeeded), called only
+AFTER the write's own success is confirmed, silent on success, warns only when
+`result.failed?.length > 0` (an actually-configured printer that failed to respond) — never for the
+"nothing configured yet" case, which `printKitchenTicket` already returns `{ok:false}` for silently
+by design.
+
+**All 8 changed files esbuild-verified clean** (`--bundle --loader:.jsx=jsx --format=esm`, external
+react/react-dom/react-router-dom/lucide-react): `pos/MenuScreen.jsx`, `pos/OrdersScreen.jsx`,
+`pos/TablesScreen.jsx`, `admin/AdminShell.jsx`, `api/client.js`, `admin/screens/NewOrderModal.jsx`,
+`admin/screens/TablesScreen.jsx`, `admin/screens/OrdersScreen.jsx`.
+
+**Every order-write call itself (`ordersCreate`/`ordersAddItems`/`ordersUpdate` in the Cashier POS,
+`ordersAPI.create`/`addItems`/`update` in Admin) is untouched in shape and logic** — confirmed by
+direct grep/diff review — except the two deliberate, documented `clientPrintsLocally: true`
+additions described above, which are a required part of making printing itself work correctly
+without duplicating tickets, not a change to the orders themselves.
+
+**Not yet tested on a real machine with an actual printer — this is the single most important next
+step before this feature can be trusted.** Nothing in this pass could be verified beyond
+syntax/import-resolution (esbuild) and manual code review; no live kitchen printer, no real
+PowerSync-synced order data, and no actual Electron runtime were available in this session. Next
+session should: configure at least one real (or emulated ESC/POS-over-TCP) kitchen printer in
+Restaurant Settings via the website, then exercise all 7 spots on the real app — Fire a new dine-in/
+takeout/delivery order from Menu, add to an occupied table's order from Menu, edit-save on both
+Orders and Tables (verify a removed/decreased item does NOT reprint), place a new order from Admin
+Tables' "+ New Order", add food to an occupied table from Admin Tables' own Add Food sheet, and
+edit-save from Admin Orders — confirm one ticket per station per action (no duplicates), correct
+item/qty/notes on the ticket, and that a deliberately-unreachable printer IP shows the new warning
+UI without needing a printer to exist for the day-to-day empty-config case.
+
+## 2026-07-29: real-machine testing confirmed, both Dashboard console issues resolved
+
+Task #31 (Admin → local PowerSync reads) is now **fully done and verified** — user confirmed all
+9 converted screens work correctly on the real machine ("I have checked all looks right"). The
+original goal (Admin panel should genuinely be faster than the old Electron app, not just in
+theory) is now actually delivered, not just built.
+
+Both issues found during that testing pass are resolved:
+
+- **Key-prop warning** (`DashboardScreen.jsx`) — fixed. Root cause: `GET
+  /shifts/admin/staff-status` never returns a plain `id` field (only `user_id`/`shift_id`,
+  aliased to dodge an ambiguous-column SQL error), so `staff.id` was always `undefined`. Now
+  keyed on `staff.userId`. Unrelated to this project's PowerSync work — a pre-existing bug that
+  just surfaced now.
+- **Image CSP errors** — turned out to be misdiagnosed last session (attributed to Dashboard,
+  which renders no images at all; the console errors were residual from an earlier MenuScreen
+  view in the same SPA session). Real location: `MenuScreen.jsx`'s `resolveImgUrl()`. Checked
+  live before touching anything — the `-pego` backend 404s on these files (different Render
+  account/disk, never had them) and the old pre-migration backend 503s (dead/suspended service,
+  per the 2026-07-06 migration). The photos are genuinely gone, not just misrouted — no code fix
+  restores them. Found 14 affected menu items (not just the 2 in the screenshot) via a direct DB
+  query, gave the user the choice of clearing the stale URLs vs. manual re-upload; user chose to
+  clear. Ran the `UPDATE ... SET image_url = NULL` directly via Supabase MCP, confirmed 14 rows
+  affected. Those items now show the normal placeholder; a fresh upload for any of them will
+  overwrite `image_url` with a working `-pego` URL with no further fix needed.
+
+No open items from task #31 remain. Next work is whatever the user brings next session.
+
+---
+
 ## Task #31 COMPLETE (2026-07-28): Dashboard, Restaurant Settings, Profile — final three screens evaluated
 
 All 9 Admin screens have now been individually evaluated for task #31 (Tables, Loans, Menu,

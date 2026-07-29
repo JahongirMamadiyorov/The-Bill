@@ -4,6 +4,7 @@ import {
   Users, Settings, User, LogOut, ChevronLeft, ChevronRight, Languages,
 } from 'lucide-react';
 import { useTranslation } from '../../context/LanguageContext.jsx';
+import { useSettings } from '../pos/useSettings.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin panel shell — sidebar + topbar, faithfully matching
@@ -44,7 +45,16 @@ import { useTranslation } from '../../context/LanguageContext.jsx';
 //
 // Deliberately NOT ported from Layout.jsx: useKitchenPrint and the
 // settingsAPI.get() call that prefetches kitchenPrinters — both exist only
-// to support printing, which is explicitly out of scope for this phase.
+// to support printing, which was out of scope for the earlier port phase.
+//
+// 5. `settings` (added when kitchen printing was wired in): now calls the
+//    same `useSettings()` hook the Cashier POS shell (PosShell.jsx) already
+//    uses, and passes it down to every active screen the same way `user`/
+//    `onLogout` already are — so any Admin screen that fires or diffs a
+//    kitchen ticket has `settings.kitchenPrinters`/`settings.kitchenShow`
+//    available without fetching anything itself. Follows the exact existing
+//    "pass shared data down as a prop" convention this file already
+//    established, not a new plumbing mechanism.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
@@ -66,6 +76,7 @@ const RC = {
 
 export default function AdminShell({ user, onLogout, screens = {} }) {
   const { t, lang, switchLang } = useTranslation();
+  const settings = useSettings();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [nav, setNav] = useState('dashboard');
   // See header comment #3 — deep-link target order id for OrdersScreen.jsx.
@@ -192,7 +203,7 @@ export default function AdminShell({ user, onLogout, screens = {} }) {
 
       <main className="flex-1 overflow-hidden bg-gray-50">
         {Screen
-          ? <Screen user={user} navigate={goTo} openOrderId={openOrderId} clearOpenOrderId={() => setOpenOrderId(null)} onLogout={onLogout} />
+          ? <Screen user={user} settings={settings} navigate={goTo} openOrderId={openOrderId} clearOpenOrderId={() => setOpenOrderId(null)} onLogout={onLogout} />
           : <Placeholder label={t(NAV_ITEMS.find(n => n.key === nav)?.labelKey || nav)} />}
       </main>
     </div>

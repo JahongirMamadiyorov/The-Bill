@@ -333,6 +333,17 @@ export default function InventoryScreen() {
   const [expandedOutputItems, setExpandedOutputItems] = useState(new Set()); // expanded stock output items
   const [pendingStatusChange, setPendingStatusChange] = useState(null); // { delivId, newStatus } — awaiting confirm
   const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Mobile Payment', 'Check', 'Other'];
+  // Display-only translation for the Title-Case values above — the stored
+  // `method` value itself is left exactly as-is (not switched to lowercase
+  // i18n-style keys), since it's already persisted this way on real supplier
+  // delivery-debt payment records; changing the array's own values would
+  // change what gets saved, which is out of scope for a translation fix.
+  // Fixed 2026-07-29, same bug family as OrdersScreen.jsx's paymentMethodLabel.
+  const paymentMethodDisplay = (m) => ({
+    'Cash': t('paymentMethods.cash'), 'Bank Transfer': t('paymentMethods.bankTransfer'),
+    'Card': t('paymentMethods.card'), 'Mobile Payment': t('paymentMethods.mobilePayment'),
+    'Check': t('paymentMethods.check'), 'Other': t('common.other'),
+  }[m] || m);
 
   // ── Prompt modal — replaces window.prompt(), see this file's header comment ──
   const [promptModal, setPromptModal] = useState(null); // { title, label, type, placeholder, confirmLabel, onSubmit }
@@ -2283,7 +2294,7 @@ export default function InventoryScreen() {
                       {PAYMENT_METHODS.map(m => (
                         <button key={m} onClick={() => setPaymentForm(f => ({ ...f, method: m }))}
                           className={`px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${paymentForm.method === m ? 'bg-green-50 text-green-700 border-green-300' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-                          {m}
+                          {paymentMethodDisplay(m)}
                         </button>
                       ))}
                     </div>

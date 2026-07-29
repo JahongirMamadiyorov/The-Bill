@@ -206,8 +206,13 @@ const elapsedStr = (from) => {
 
 const ROLES = ['waitress', 'kitchen', 'cashier', 'cleaner', 'new_cashier', 'new_waiter'];
 
-// Convert role key to display label: new_cashier → "New Cashier"
-const roleLabel = (r) => r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+// Convert role key to display label: new_cashier → "New Cashier".
+// Fixed 2026-07-29: this used to always return the raw English title-case
+// regardless of language — now looks up `roles.<key>` (same dictionary
+// OrdersScreen.jsx's `t('roles.waitress')` column header already uses) and
+// only falls back to the title-case transform if a key is somehow missing,
+// so this never regresses to a blank/broken label.
+const roleLabel = (r, t) => t(`roles.${r}`, r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
 const SALARY_TYPES = ['hourly', 'daily', 'weekly', 'monthly'];
 
 const getKitchenStations = (t) => [
@@ -980,7 +985,7 @@ const AdminStaffScreen = () => {
         {['All', 'waitress', 'kitchen', 'cashier', 'new_cashier', 'new_waiter'].map(role => (
           <button key={role} onClick={() => setSelectedRole(role)}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedRole === role ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {role === 'All' ? t('common.all') : roleLabel(role)} ({roleCounts[role] || 0})
+            {role === 'All' ? t('common.all') : roleLabel(role, t)} ({roleCounts[role] || 0})
           </button>
         ))}
       </div>
@@ -1018,7 +1023,7 @@ const AdminStaffScreen = () => {
                   <p>{t('common.email')}: <span className="text-gray-700">{m.email}</span></p>
                   {m.phone && <p>{t('common.phone')}: <span className="text-gray-700">{formatPhoneDisplay(m.phone)}</span></p>}
                   {(m.salary > 0) && (
-                    <p>{t('common.amount')}: <span className="text-gray-700 font-medium">{money(m.salary)} / {m.salaryType || m.salary_type || 'monthly'}</span></p>
+                    <p>{t('common.amount')}: <span className="text-gray-700 font-medium">{money(m.salary)} / {t(`admin.staff.salaryTypes.${m.salaryType || m.salary_type || 'monthly'}`)}</span></p>
                   )}
                   {(m.shiftStart || m.shift_start) && (
                     <p>{t('admin.staff.shift')}: <span className="text-gray-700">{m.shiftStart || m.shift_start} - {m.shiftEnd || m.shift_end}</span></p>
@@ -1636,7 +1641,7 @@ const AdminStaffScreen = () => {
                       ? 'bg-blue-50 border-blue-500 text-blue-700'
                       : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
                   }`}>
-                  {roleLabel(r)}
+                  {roleLabel(r, t)}
                 </button>
               ))}
             </div>
@@ -1767,7 +1772,7 @@ const AdminStaffScreen = () => {
                       ? 'bg-blue-50 border-blue-500 text-blue-700'
                       : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
                   }`}>
-                  {st.charAt(0).toUpperCase() + st.slice(1)}
+                  {t(`admin.staff.salaryTypes.${st}`)}
                 </button>
               ))}
             </div>
@@ -1875,11 +1880,11 @@ const AdminStaffScreen = () => {
               </div>
               <div className="flex justify-between py-2.5 px-3 bg-gray-50 rounded-lg">
                 <span className="text-xs text-gray-500 font-medium">{t('common.role')}</span>
-                <span className="text-sm font-semibold text-gray-900 capitalize">{newStaffInfo.role}</span>
+                <span className="text-sm font-semibold text-gray-900">{roleLabel(newStaffInfo.role, t)}</span>
               </div>
               <div className="flex justify-between py-2.5 px-3 bg-gray-50 rounded-lg">
                 <span className="text-xs text-gray-500 font-medium">{t('common.amount')}</span>
-                <span className="text-sm font-semibold text-gray-900">{money(newStaffInfo.salary)} / {newStaffInfo.salaryType}</span>
+                <span className="text-sm font-semibold text-gray-900">{money(newStaffInfo.salary)} / {t(`admin.staff.salaryTypes.${newStaffInfo.salaryType}`)}</span>
               </div>
               <div className="flex justify-between py-2.5 px-3 bg-gray-50 rounded-lg">
                 <span className="text-xs text-gray-500 font-medium">{t('admin.staff.shift')}</span>

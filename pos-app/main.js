@@ -26,8 +26,9 @@ const https  = require('https');
 const http   = require('http');
 const Store  = require('electron-store');
 
-const { buildSchema } = require('./powersync/schema');
-const { Connector }   = require('./powersync/connector');
+const { buildSchema }       = require('./powersync/schema');
+const { Connector }         = require('./powersync/connector');
+const { printKitchenTicket } = require('./printEngine');
 // @powersync/node is a pure ESM package (no CommonJS support) — it can't be `require()`d from
 // this file. Node allows dynamic `import()` from CommonJS code though, so it's loaded lazily
 // the first time it's actually needed (see getPowerSync() below), not at the top of the file.
@@ -362,8 +363,12 @@ async function submitOrderWrite(method, path_, body) {
   }
 }
 
+// `client_prints_locally: true` tells the backend NOT to also broadcast/attempt
+// a kitchen print for this order — pos-app prints it itself right after this
+// call succeeds (see the `print:kitchenTicket` IPC handler below and each
+// screen's post-write print call). See orders.js for the backend-side half.
 ipcMain.handle('orders:create', async (_event, payload) =>
-  submitOrderWrite('POST', '/api/orders', payload));
+  submitOrderWrite('POST', '/api/orders', { ...payload, client_prints_locally: true }));
 
 ipcMain.handle('orders:pay', async (_event, { id, data }) =>
   submitOrderWrite('PUT', `/api/orders/${id}/pay`, data));
@@ -385,7 +390,26 @@ ipcMain.handle('orders:refund', async (_event, { id, data }) =>
 // the kitchen (see orders.js POST /:id/items) — send only the NEW items here,
 // not the full list (unlike orders:update, which replaces the whole list).
 ipcMain.handle('orders:addItems', async (_event, { id, data }) =>
-  submitOrderWrite('POST', `/api/orders/${id}/items`, data));
+  submitOrderWrite('POST', `/api/orders/${id}/items`, { ...data, client_prints_locally: true }));
+
+// ── IPC: Kitchen ticket printing (direct LAN, see printEngine.js) ──────────────
+// Called by each screen AFTER an order write above has already succeeded —
+// this never blocks or risks the order itself, it only affects whether/how
+// well the kitchen finds out about it. The renderer already has printers/show
+// flags loaded (via useSettings.js, which reads restaurant_settings once on
+// mount) and passes them straight through here — this handler does NOT fetch
+// settings itself, so printing has zero extra network round-trip on top of
+// the actual LAN TCP send to the printer(s).
+ipcMain.handle('print:kitchenTicket', async (_event, { order, items, printers, show }) => {
+  try {
+    return await printKitchenTicket({ order, items, printers, show });
+  } catch (err) {
+    // printKitchenTicket() is designed to never throw — this catch only
+    // guards against a truly unexpected bug so a print attempt can never
+    // crash the app or the IPC bridge.
+    return { ok: false, error: err.message || 'Unexpected print error' };
+  }
+});
 
 // Receivables — collect a loan payment. PATCH /api/loans/:id/pay is a
 // pre-existing backend endpoint (loans.js), unrelated to order writes, but

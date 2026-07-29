@@ -1244,7 +1244,13 @@ export default function DashboardScreen({ navigate, user }) {
                 {Array.isArray(staffStatus) && staffStatus.length > 0 ? (
                   <div className="space-y-3">
                     {staffStatus.map((staff) => (
-                      <div key={staff.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                      // `staff.id` doesn't exist — the backend route (GET /shifts/admin/staff-status)
+                      // only returns `user_id`/`shift_id` (aliased to dodge an ambiguous-column error
+                      // from its join), camelized to `userId`/`shiftId` by the REST client. `staff.id`
+                      // was always `undefined` for every row, which is what triggered React's
+                      // "each child in a list should have a unique key" warning — every row shared the
+                      // same undefined key. `userId` is unique per row (one row per staff member).
+                      <div key={staff.userId} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">

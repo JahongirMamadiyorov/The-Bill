@@ -153,7 +153,7 @@ const getTableName = (table) =>
   table.name || (table.tableNumber ? `Table ${table.tableNumber}` : 'Table');
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function TablesScreen({ navigate }) {
+export default function TablesScreen({ navigate, settings }) {
 
   const { call }   = useApi();
   const { t } = useTranslation();
@@ -202,6 +202,13 @@ export default function TablesScreen({ navigate }) {
   const [addFoodCat,        setAddFoodCat]        = useState(null);
   const [addFoodCart,       setAddFoodCart]       = useState({});
   const [addFoodSaving,     setAddFoodSaving]     = useState(false);
+  // Kitchen-print failure warning for the Add Food sheet — this screen has no
+  // existing toast/notification mechanism (its `error` state above is only
+  // ever used for a full-page blocking load failure), so this is a small,
+  // sheet-scoped warning using the same red-alert visual language already
+  // used elsewhere in this file (e.g. the delete-confirm dialog), not a new
+  // UI pattern.
+  const [addFoodPrintWarning, setAddFoodPrintWarning] = useState('');
 
   // polling ref
   const pollRef = useRef(null);
@@ -456,6 +463,7 @@ export default function TablesScreen({ navigate }) {
     setOrderViewOpen(false);
     setAddFoodOpen(false);
     setAddFoodCart({});
+    setAddFoodPrintWarning('');
   }, [selectedTable?.id, selectedTable?.status, fetchTableOrder]);
 
   // ── Poll the active order every 1s while order view is open ─────────────────
@@ -481,16 +489,57 @@ export default function TablesScreen({ navigate }) {
   const handleAddFoodToOrder = async () => {
     if (!tableOrder?.id || Object.keys(addFoodCart).length === 0) return;
     setAddFoodSaving(true);
+    setAddFoodPrintWarning('');
     try {
       const items = Object.values(addFoodCart).map(({ item, qty }) => ({
         menuItemId: item.id,
         quantity:   qty,
         unitPrice:  parseFloat(item.price || 0),
       }));
-      await ordersAPI.addItems(tableOrder.id, items);
+      // `clientPrintsLocally: true` — this screen is about to print the
+      // kitchen ticket itself (below), same reasoning as NewOrderModal.jsx's
+      // create call: this generic REST client (`ordersAPI.addItems` → api:post
+      // passthrough) does NOT auto-inject the flag the Cashier POS's dedicated
+      // `orders:addItems` IPC handler does, so it must be set explicitly here
+      // or the backend would ALSO broadcast/attempt its own print and every
+      // ticket added from here would print twice.
+      await ordersAPI.addItems(tableOrder.id, items, { clientPrintsLocally: true });
       await fetchTableOrder(selectedTable.id, true);
-      setAddFoodCart({});
-      setAddFoodOpen(false);
+
+      // ── Kitchen ticket for ONLY the items just added — never the whole
+      // existing order (already printed when originally fired). Best-effort,
+      // never blocks/affects the add-items write that already succeeded.
+      // Silent on success; on a real printer failure, keep the sheet open
+      // (instead of the usual auto-close) so the warning below is visible.
+      let printFailed = false;
+      try {
+        const printItems = Object.values(addFoodCart).map(({ item, qty }) => ({
+          name: item.name, quantity: qty, unit: item.unit,
+          notes: null, kitchenStation: item.kitchenStation,
+        }));
+        const printRes = await window.electronAPI.printKitchenTicket({
+          order: {
+            dailyNumber: tableOrder.dailyNumber,
+            tableName: getTableName(selectedTable),
+            orderType: tableOrder.orderType || 'dine_in',
+            customerName: tableOrder.customerName || null,
+            customerPhone: tableOrder.customerPhone || null,
+            deliveryAddress: tableOrder.deliveryAddress || null,
+          },
+          items: printItems,
+          printers: settings?.kitchenPrinters,
+          show: settings?.kitchenShow,
+        });
+        if (printRes?.failed?.length > 0) {
+          printFailed = true;
+          setAddFoodPrintWarning(t('admin.tables.kitchenPrintWarning', 'Items added, but some kitchen printers did not respond — check the ticket manually'));
+        }
+      } catch { /* printing is best-effort — never affects the write that already succeeded */ }
+
+      if (!printFailed) {
+        setAddFoodCart({});
+        setAddFoodOpen(false);
+      }
     } catch (err) {
       console.error('Failed to add items:', err);
     } finally {
@@ -1626,6 +1675,7 @@ export default function TablesScreen({ navigate }) {
         <NewOrderModal
           initialTable={newOrderTable}
           onClose={() => setNewOrderTable(null)}
+          settings={settings}
         />
       )}
 
@@ -1843,7 +1893,7 @@ export default function TablesScreen({ navigate }) {
                   <span className="text-lg font-bold text-gray-900">{formatPrice(tableOrder.totalAmount)}</span>
                 </div>
                 <button
-                  onClick={() => { setAddFoodOpen(true); fetchMenuForAddFood(); }}
+                  onClick={() => { setAddFoodOpen(true); setAddFoodPrintWarning(''); fetchMenuForAddFood(); }}
                   className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors"
                 >
                   <Plus size={18} />
@@ -1864,7 +1914,7 @@ export default function TablesScreen({ navigate }) {
             {/* Header */}
             <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-gray-100">
               <button
-                onClick={() => { setAddFoodOpen(false); setAddFoodCart({}); }}
+                onClick={() => { setAddFoodOpen(false); setAddFoodCart({}); setAddFoodPrintWarning(''); }}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
                 <ArrowLeft size={18} className="text-gray-600" />
@@ -1951,6 +2001,12 @@ export default function TablesScreen({ navigate }) {
 
             {/* Add to Order button */}
             <div className="border-t border-gray-100 px-4 pb-6 pt-3">
+              {addFoodPrintWarning && (
+                <div className="flex items-center gap-2 text-red-600 text-xs font-medium bg-red-50 rounded-lg px-3 py-2 mb-3">
+                  <AlertTriangle size={14} />
+                  {addFoodPrintWarning}
+                </div>
+              )}
               <button
                 onClick={handleAddFoodToOrder}
                 disabled={Object.keys(addFoodCart).length === 0 || addFoodSaving}

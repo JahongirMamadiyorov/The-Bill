@@ -169,7 +169,9 @@
     "kitchenStaff": "Oshxona xodimi",
     "staff": "Xodim",
     "manager": "Menejer",
-    "cleaner": "Tozalovchi"
+    "cleaner": "Tozalovchi",
+    "new_cashier": "Yangi kassir",
+    "new_waiter": "Yangi ofitsiant"
   },
 
   "periods": {

@@ -235,9 +235,26 @@ const getNextStatusLabel = (t) => ({
 
 // deleteReasons and cancelReasons loaded from i18n
 
-export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrderId }) {
+// Translated payment-method label for a stored `order.paymentMethod`/
+// `sp.method` value (lowercase snake_case: cash/card/qr_code/loan/split).
+// Fixed 2026-07-29: this screen used to render these raw ('cash', 'qr_code',
+// or a hardcoded English word) regardless of language — see the paid-orders
+// table, the split-payment breakdown, and the payment-method filter chips.
+// `paymentMethods.*` already exists in i18n (used correctly by
+// LoansScreen.jsx's PAY_METHODS) — 'split' has no entry there since it isn't
+// a real payment method so much as "paid via several", reuses the existing
+// `cashier.orders.split` key instead. Falls back to the raw value for
+// anything unrecognized rather than showing blank.
+const paymentMethodLabel = (method, t) => {
+  if (!method) return t('paymentMethods.cash');
+  if (method === 'split') return t('cashier.orders.split', 'Split');
+  const key = method === 'qr_code' ? 'qrCode' : method;
+  return t(`paymentMethods.${key}`, method);
+};
+
+export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrderId, settings }) {
   const { t } = useTranslation();
-  const { call, loading, error } = useApi();
+  const { call, loading, error, setError } = useApi();
   const [activeOrders, setActiveOrders] = useState([]);
   const [paidOrders, setPaidOrders] = useState([]);
   const [cancelledOrders, setCancelledOrders] = useState([]);
@@ -656,6 +673,50 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
         items: editFormData.items,
         notes: editFormData.notes,
       });
+
+      // ── Kitchen ticket for what's NEW or INCREASED only ──────────────────
+      // ordersAPI.update (PUT /orders/:id) has no backend print trigger at
+      // all (unlike create/addItems) — this is the only print signal an
+      // edit-save ever gets. Diff `editingOrder.items` (the pristine pre-edit
+      // list — openEditModal() built `editFormData.items` as a separate
+      // mapped copy, so `editingOrder.items` itself was never mutated by any
+      // of the edit-modal's add/remove/qty handlers) against
+      // `editFormData.items` (about to be saved, just sent above) by
+      // menuItemId; only a positive delta (brand-new item, or an existing
+      // one whose qty went up) gets printed — never reprint something
+      // already on the order unchanged or decreased. Best-effort, never
+      // blocks/affects the save that already succeeded.
+      try {
+        const oldQtyByItem = Object.fromEntries(
+          (editingOrder.items || []).map(it => [it.menuItemId || it.id, Number(it.quantity || 1)])
+        );
+        const diffItems = editFormData.items
+          .map(it => ({ it, delta: Number(it.quantity || 1) - (oldQtyByItem[it.menuItemId] || 0) }))
+          .filter(({ delta }) => delta > 0)
+          .map(({ it, delta }) => {
+            const mi = allMenuItems.find(m => m.id === it.menuItemId);
+            return { name: it.name, quantity: delta, unit: mi?.unit || it.unit, notes: null, kitchenStation: mi?.kitchenStation };
+          });
+        if (diffItems.length > 0) {
+          const printRes = await window.electronAPI.printKitchenTicket({
+            order: {
+              dailyNumber: editingOrder.dailyNumber,
+              tableName: editingOrder.orderType === 'dine_in' && editFormData.tableId ? getTableNumber(editFormData.tableId) : null,
+              orderType: editingOrder.orderType,
+              customerName: editingOrder.customerName || null,
+              customerPhone: editingOrder.customerPhone || null,
+              deliveryAddress: editingOrder.deliveryAddress || null,
+            },
+            items: diffItems,
+            printers: settings?.kitchenPrinters,
+            show: settings?.kitchenShow,
+          });
+          if (printRes?.failed?.length > 0) {
+            setError(t('admin.orders.kitchenPrintWarning', 'Order saved, but some kitchen printers did not respond — check the ticket manually'));
+          }
+        }
+      } catch { /* printing is best-effort — never affects the save that already succeeded */ }
+
       setEditingOrder(null);
       await fetchActiveOrders();
     } catch (err) {
@@ -1175,7 +1236,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                             {order.tableId ? `${t('admin.orders.tablePrefix')} ${getTableNumber(order.tableId)}` : <span className="text-gray-400">--</span>}
                           </td>
                           <td className="px-5 py-3.5">
-                            <span className="text-sm text-gray-600">{itemCount} items</span>
+                            <span className="text-sm text-gray-600">{itemCount} {t('common.items')}</span>
                           </td>
                           <td className="px-5 py-3.5">
                             <span className="text-sm font-bold text-green-600">{money(order.totalAmount || 0)}</span>
@@ -1189,7 +1250,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                                 order.paymentMethod === 'qr_code'? 'bg-cyan-100 text-cyan-700' :
                                 isLoan                           ? 'bg-amber-100 text-amber-700' :
                                 'bg-gray-100 text-gray-700'
-                              }`}>{(order.paymentMethod || 'cash').replace('_', ' ')}</span>
+                              }`}>{paymentMethodLabel(order.paymentMethod, t)}</span>
                               {/* Loan repayment status */}
                               {isLoan && (
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${
@@ -1372,7 +1433,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                         <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">{t('cashier.orders.splitBill')}</span>
                       </div>
                       {selectedOrder.splitPayments.map((sp, i) => {
-                        const methodLabel = { cash: 'Cash', card: 'Card', qr_code: 'QR Code', loan: 'Loan' }[sp.method] || sp.method;
+                        const methodLabel = paymentMethodLabel(sp.method, t);
                         const methodColor = { cash: 'text-green-700 bg-green-100', card: 'text-blue-700 bg-blue-100', qr_code: 'text-purple-700 bg-purple-100', loan: 'text-amber-700 bg-amber-100' }[sp.method] || 'text-gray-700 bg-gray-100';
                         return (
                           <div key={i} className="px-4 py-3 border-b border-gray-100 last:border-0">
@@ -1415,7 +1476,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                         <div>
                           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('cashier.orders.paymentMethod')}</div>
                           <div className={`font-bold text-sm capitalize mt-0.5 ${selectedOrder.paymentMethod === 'loan' ? 'text-amber-700' : 'text-gray-900'}`}>
-                            {selectedOrder.paymentMethod?.replace('_', ' ')}
+                            {paymentMethodLabel(selectedOrder.paymentMethod, t)}
                           </div>
                         </div>
                       </div>
@@ -1973,12 +2034,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">so'm</span>
                             </div>
                             <div className="flex gap-1.5">
-                              {[
-                                { key: 'cash', label: 'Cash' },
-                                { key: 'card', label: 'Card' },
-                                { key: 'qr_code', label: 'QR' },
-                                { key: 'loan', label: 'Loan' },
-                              ].map(({ key, label }) => (
+                              {['cash', 'card', 'qr_code', 'loan'].map((key) => (
                                 <button
                                   key={key}
                                   onClick={() => {
@@ -1992,7 +2048,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                                       : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'
                                   }`}
                                 >
-                                  {label}
+                                  {paymentMethodLabel(key, t)}
                                 </button>
                               ))}
                             </div>
@@ -2120,7 +2176,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                     <div className="bg-white rounded-xl p-4 border border-gray-200 flex items-center gap-3">
                       {(() => { const m = METHODS.find(m => m.key === pf.paymentMethod); return m ? <m.Icon size={20} className="text-blue-600" /> : null; })()}
                       <div className="flex-1">
-                        <span className="text-sm font-bold text-gray-900 capitalize">{pf.paymentMethod?.replace('_', ' ') || 'Cash'}</span>
+                        <span className="text-sm font-bold text-gray-900">{paymentMethodLabel(pf.paymentMethod, t)}</span>
                         {pf.splitWays && <span className="text-xs text-gray-400 ml-2">· Split {pf.splitWays} ways</span>}
                       </div>
                     </div>

@@ -19,6 +19,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const UZ = {
+  // ── Login screen (Login.jsx) — the one screen that runs before any role is
+  // known, so it can't use either the Admin panel's context-based i18n
+  // (LanguageContext.jsx) or rely on PosShell's `lang` state existing yet.
+  // Uses this same dictionary/`t()` directly instead, with its own local
+  // `lang` state seeded from whichever of 'pos.lang'/'lang' localStorage keys
+  // already has a value (see Login.jsx), so returning users see the language
+  // they last used rather than always restarting at the default.
+  'Restaurant Management System — POS': 'Restoran boshqaruv tizimi — POS',
+  'Email, Phone, or Username': 'Email, telefon yoki foydalanuvchi nomi',
+  'Password': 'Parol',
+  'Sign In': 'Kirish',
+  'Signing in…': 'Kirilmoqda…',
+  'Enter your email/phone/username and password.': 'Email/telefon/foydalanuvchi nomi va parolni kiriting.',
+  'Login failed.': 'Kirish amalga oshmadi.',
+  'Show password': 'Parolni ko‘rsatish',
+  'Hide password': 'Parolni yashirish',
+
   // ── Shell / nav (PosShell.jsx) ──────────────────────────────────────────
   'Menu': 'Menyu',
   'Orders': 'Buyurtmalar',

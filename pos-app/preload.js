@@ -43,6 +43,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shiftsClockIn:  () => ipcRenderer.invoke('shifts:clockIn'),
   shiftsClockOut: () => ipcRenderer.invoke('shifts:clockOut'),
 
+  // Kitchen ticket printing — direct LAN TCP from THIS terminal to the printer,
+  // no cloud relay (see main.js/printEngine.js). Call this AFTER an order write
+  // above has already succeeded; `printers`/`show` come from useSettings().
+  // Never throws — inspect the returned `failed` array to warn the user.
+  printKitchenTicket: (payload) => ipcRenderer.invoke('print:kitchenTicket', payload),
+
   // Read-only backend GET for data not in PowerSync (settings, shifts, loans,
   // history). Writes must NOT use this — see main.js api:get comment.
   apiGet: (path) => ipcRenderer.invoke('api:get', path),

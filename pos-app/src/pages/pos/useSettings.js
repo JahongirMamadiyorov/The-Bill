@@ -18,6 +18,22 @@ const DEFAULTS = {
   serviceChargeRate: 0,
   serviceChargeEnabled: false,
   receiptShowServiceCharge: true,
+  // Kitchen printing (see pos-app/printEngine.js) — printers is the raw JSONB
+  // array as stored (each entry already flat/lowercase: {id,name,ip,port,
+  // stations}, no snake_case translation needed, see AdminRestaurantSettings.jsx
+  // on the website, which is what actually writes these). `show` mirrors only
+  // the flags kitchenPrint.js's ticket builder actually wires up today
+  // (tableName/orderNumber/customerName/orderType) — `kitchen_show_notes` and
+  // `kitchen_show_qty_unit` exist as DB columns but are dead/unused even in
+  // the backend's own ticket builder, so they're deliberately not exposed
+  // here either — this is parity with current real behavior, not an omission.
+  kitchenPrinters: [],
+  kitchenShow: {
+    tableName: true,
+    orderNumber: true,
+    customerName: true,
+    orderType: true,
+  },
 };
 
 function translate(row) {
@@ -30,6 +46,13 @@ function translate(row) {
     serviceChargeRate:        Number(row.service_charge_rate || 0),
     serviceChargeEnabled:     row.service_charge_enabled === true,
     receiptShowServiceCharge: row.receipt_show_service_charge !== false,
+    kitchenPrinters: Array.isArray(row.kitchen_printers) ? row.kitchen_printers : [],
+    kitchenShow: {
+      tableName:    row.kitchen_show_table_name    !== false,
+      orderNumber:  row.kitchen_show_order_number  !== false,
+      customerName: row.kitchen_show_customer_name !== false,
+      orderType:    row.kitchen_show_order_type    !== false,
+    },
   };
 }
 

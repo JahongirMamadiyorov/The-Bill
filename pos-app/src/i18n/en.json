@@ -169,7 +169,9 @@
     "kitchenStaff": "Kitchen Staff",
     "staff": "Staff",
     "manager": "Manager",
-    "cleaner": "Cleaner"
+    "cleaner": "Cleaner",
+    "new_cashier": "New Cashier",
+    "new_waiter": "New Waiter"
   },
 
   "periods": {

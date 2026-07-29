@@ -741,3 +741,80 @@ see above) — root-caused entirely from code + the user's screenshots:
   - **Still outstanding, same as every prior task #31 session**: none of these conversions —
     across any of the 9 screens — have been tested on the real machine yet. This is the single
     most important next step before task #31 can be considered shippable.
+
+## Kitchen printing (built 2026-07-29) — architecture, gotchas, still-untested
+
+- **Direct LAN print, not cloud relay**: `pos-app/printEngine.js` (Electron main process, raw `net`
+  TCP to each printer's IP:port, default 9100) is the actual print engine — a deliberate port of
+  `restaurant-app/backend/src/utils/kitchenPrint.js`'s ticket format/station-routing logic, not a
+  redesign; keep the two in sync if the ticket layout ever changes. Exposed to the renderer via
+  `preload.js`'s `printKitchenTicket` → IPC `print:kitchenTicket`. Never throws; returns
+  `{ok:false, error:'No kitchen printers configured'}` silently when nothing's set up (not an error
+  worth surfacing), or `{ok:true, printed:[...], failed:[...]}` — only `failed.length > 0` (an
+  actually-configured printer that didn't respond) is worth a user-facing warning.
+- **`client_prints_locally` (backend flag, `restaurant-app/backend/src/routes/orders.js`)** — tells
+  `POST /api/orders` and `POST /api/orders/:id/items` to skip their own broadcast/`sendKitchenPrintJobs`
+  attempt, since pos-app is about to print the ticket itself over LAN. **This flag is ONLY
+  auto-injected by `main.js`'s dedicated `orders:create`/`orders:addItems` IPC handlers** (the
+  Cashier POS's funnel functions) — it is NOT auto-injected for Admin screens' writes, which go
+  through the GENERIC REST client (`client.js`'s `ordersAPI.create`/`addItems` → `api:post` IPC
+  passthrough). This was a real, easy-to-miss double-print bug: wiring a client-side print call onto
+  an Admin write that never sets this flag makes the backend ALSO print the same ticket. Fixed by
+  having `NewOrderModal.jsx` send `clientPrintsLocally: true` directly in its create payload (client.js's
+  `toSnake()` converts it to `client_prints_locally` correctly) and by adding an optional third `extra`
+  param to `client.js`'s `ordersAPI.addItems(id, items, extra)` so Admin `TablesScreen.jsx`'s
+  `handleAddFoodToOrder` can pass `{ clientPrintsLocally: true }` too. **If any future Admin write
+  ever triggers its own client-side print after a `ordersAPI.create`/`addItems` call, it must also
+  set this flag explicitly — it will NOT get it for free the way the Cashier POS's dedicated IPC
+  methods do.** `PUT /api/orders/:id` (`ordersAPI.update`/`ordersUpdate`) needs no such flag —
+  confirmed by grep that this route has zero print-trigger code at all, unlike the other two.
+- **`orders:update`/`PUT /:id` is the only order-write with NO backend print trigger ever, old system
+  or new** — so every edit-save screen (Cashier Orders/Tables, Admin Orders) must diff OLD vs NEW
+  items client-side itself and print only positive deltas (brand-new items or quantity increases),
+  never the full new list — reprinting an unchanged/decreased item would be wrong. Each screen
+  already had its own "track original vs current" state for its own Discard/UI purposes — reused
+  directly rather than building a second parallel snapshot: Cashier `OrdersScreen.jsx`'s explicit
+  `snapshot.items`; Cashier `TablesScreen.jsx`'s `itemsByOrd[selOrder.id]` (frozen while editing since
+  polling pauses — this screen never had an explicit snapshot, unlike its Orders sibling); Admin
+  `OrdersScreen.jsx`'s `editingOrder.items` (the pristine object passed to `openEditModal`, never
+  mutated since `editFormData.items` is a separate mapped copy).
+- **`res.data` from the Cashier POS's dedicated order-write IPC calls (`ordersCreate`/`ordersAddItems`/
+  `ordersUpdate`) is the RAW backend row — snake_case, e.g. `daily_number` not `dailyNumber`.**
+  `main.js`'s `request()` helper does a plain `JSON.parse()` with no camelization at all, unlike
+  `client.js`'s REST wrapper (`unwrap()` → `camelizeKeys()`) used by the Admin panel. Don't assume
+  camelCase on an IPC order-write's response the way you would on an Admin `ordersAPI.*` call.
+- **`AdminShell.jsx` didn't plumb `settings` (currency/tax/kitchen printers) into any Admin screen at
+  all before this session** — fixed by adding the same `useSettings()` call `PosShell.jsx` (Cashier)
+  already makes, passed down to every screen the same way `user`/`onLogout` already are. Any future
+  Admin screen needing `settings.kitchenPrinters`/`.kitchenShow` (or currency/tax) already has it via
+  its own `settings` prop — no new fetch needed.
+- **Admin `TablesScreen.jsx` has TWO independently-reachable order-item-adding flows, not one** —
+  `NewOrderModal.jsx`'s create branch (new order) and this screen's own separate `handleAddFoodToOrder`
+  (add items to an already-occupied table's order, its own sheet, does not go through
+  `NewOrderModal.jsx`). Both needed their own print wiring; don't assume fixing one covers the other.
+  `NewOrderModal.jsx`'s `existingOrderId`/add-to-existing-order branch is confirmed DEAD CODE today —
+  `TablesScreen.jsx` (its only caller anywhere in pos-app) never passes `existingOrderId`, always
+  opens a brand-new order — don't wire printing into that branch without first confirming a real
+  caller exists, or you're maintaining unreachable code.
+- **No printer hardware available in this sandbox for any of this** — every spot above is
+  esbuild-verified (syntax/imports only) and manually reviewed, never run against a real or emulated
+  ESC/POS TCP printer. Real-machine testing with an actual (or at least reachable-IP) kitchen printer
+  is the standing next step before this feature can be trusted — see STATUS.md's checklist.
+- **Printers tab restored in Admin Settings (2026-07-29, task #46)** — the whole-panel deletion done
+  during the original port (task #29, "printing out of scope") is no longer accurate; the tab is
+  back in `pos-app/src/pages/admin/screens/SettingsScreen.jsx`, faithfully ported from
+  `website/src/pages/admin/AdminRestaurantSettings.jsx` (`PrinterCard`/`AddFormPanel`/
+  `PrinterSetupGuide`/`PrintersPanel`, `printers` back in `SECTIONS` between `finance`/`receipt`).
+  If a future session needs to touch this screen, don't reflexively assume the Printers tab still
+  doesn't exist — check first. The one deviation from the source: the kitchen-station picker's
+  `loadStations` now reads locally (`SELECT name FROM custom_stations ORDER BY created_at` +
+  `SELECT DISTINCT kitchen_station FROM menu_items WHERE kitchen_station IS NOT NULL AND
+  kitchen_station <> ''`) instead of `menuAPI.getStations()`/`getItems()` over REST — same
+  case-insensitive merge logic, same result, just sourced locally per the established task #31
+  precedent. The outer `GET/PUT /api/settings` read/write itself is UNCHANGED and correctly still
+  on REST (self-healing default-row INSERT, per the existing task #31 conclusion) — only the one
+  inner station-picker call moved. All `settings.printers.*` i18n keys already existed in
+  `pos-app/src/i18n/en.json`/`uz.json` before this session (carried over unused since task #4) — no
+  new keys were needed. Not yet tested on a real machine — see STATUS.md's checklist (enter a real
+  printer IP, confirm it round-trips through `settingsAPI.update`, confirm `useSettings().
+  kitchenPrinters` picks up the change on the Cashier POS and other Admin screens).

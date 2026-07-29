@@ -74,7 +74,7 @@ const getOrderTypes = (t) => [
   { key: 'delivery', label: t('admin.newOrder.delivery'), Icon: Truck },
 ];
 
-export default function NewOrderModal({ initialTable = null, existingOrderId = null, existingOrder = null, onClose }) {
+export default function NewOrderModal({ initialTable = null, existingOrderId = null, existingOrder = null, onClose, settings }) {
   const { t } = useTranslation();
   const preTable = initialTable || null;
 
@@ -288,6 +288,10 @@ export default function NewOrderModal({ initialTable = null, existingOrderId = n
         // Use PUT /orders/:id with merged items (existing + new) instead of
         // POST /orders/:id/items, because PUT always works across all order
         // statuses (including bill_requested) without needing a backend restart.
+        // (Not reachable from AdminTables today — it never passes
+        // existingOrderId, always opens a brand-new order — so no kitchen
+        // print is wired here: PUT /:id has no backend print trigger either
+        // way, and this branch is preserved as-is for a future caller.)
         let mergedItems = orderItems;
         try {
           const fresh = await ordersAPI.getById(existingOrderId);
@@ -306,15 +310,60 @@ export default function NewOrderModal({ initialTable = null, existingOrderId = n
       } else {
         // ── Create new order ──
         const dbOrderType = orderType === 'to_go' ? 'takeaway' : orderType;
-        await ordersAPI.create({
-          tableId:         orderType === 'dine_in' ? selectedTable?.id : null,
-          items:           orderItems,
-          orderType:       dbOrderType,
-          guestCount:      orderType === 'dine_in' ? guests : null,
-          customerName:    orderType !== 'dine_in' ? customerName || null : null,
-          customerPhone:   orderType !== 'dine_in' ? customerPhone || null : null,
-          deliveryAddress: orderType === 'delivery' ? deliveryAddress || null : null,
+        // `clientPrintsLocally: true` — this Admin modal is about to print the
+        // kitchen ticket itself (below) over direct LAN TCP, same as the
+        // Cashier POS's dedicated `orders:create` IPC handler already does.
+        // Unlike that handler, this screen calls the generic REST client
+        // (`ordersAPI.create` → api:post passthrough), which does NOT
+        // auto-inject this flag — so it must be set explicitly here, or the
+        // backend would ALSO broadcast/attempt its own print and every
+        // admin-created ticket would print twice.
+        const created = await ordersAPI.create({
+          tableId:            orderType === 'dine_in' ? selectedTable?.id : null,
+          items:              orderItems,
+          orderType:          dbOrderType,
+          guestCount:         orderType === 'dine_in' ? guests : null,
+          customerName:       orderType !== 'dine_in' ? customerName || null : null,
+          customerPhone:      orderType !== 'dine_in' ? customerPhone || null : null,
+          deliveryAddress:    orderType === 'delivery' ? deliveryAddress || null : null,
+          clientPrintsLocally: true,
         });
+
+        // ── Kitchen ticket for the full cart — best-effort, never blocks or
+        // gates the order that already succeeded above. Silent on success;
+        // only warns (via this modal's own existing error box) if a
+        // CONFIGURED printer actually failed to respond — not simply because
+        // nothing is configured yet (printKitchenTicket returns ok:false for
+        // that case, silently, by design).
+        try {
+          const printItems = cartEntries.map(({ item, qty }) => ({
+            name: item.name, quantity: qty, unit: item.unit,
+            notes: null, kitchenStation: item.kitchenStation,
+          }));
+          const printRes = await window.electronAPI.printKitchenTicket({
+            order: {
+              dailyNumber: created?.dailyNumber,
+              tableName: orderType === 'dine_in'
+                ? (selectedTable?.name || (selectedTable ? `Table ${selectedTable.tableNumber}` : null))
+                : null,
+              orderType: dbOrderType,
+              customerName:    orderType !== 'dine_in' ? (customerName || null) : null,
+              customerPhone:   orderType !== 'dine_in' ? (customerPhone || null) : null,
+              deliveryAddress: orderType === 'delivery' ? (deliveryAddress || null) : null,
+            },
+            items: printItems,
+            printers: settings?.kitchenPrinters,
+            show: settings?.kitchenShow,
+          });
+          if (printRes?.failed?.length > 0) {
+            // Order already placed successfully — only warn about the print,
+            // and keep the modal open (instead of auto-closing) so the
+            // warning is actually visible; the user closes it manually.
+            setError(t('admin.newOrder.kitchenPrintWarning', 'Order placed, but some kitchen printers did not respond — check the ticket manually'));
+            setPlacing(false);
+            return;
+          }
+        } catch { /* printing is best-effort — never affects the order that already succeeded */ }
       }
 
       onClose?.();

@@ -302,11 +302,29 @@ export default function MenuScreen({ user, settings, search, lang }) {
     return true;
   };
 
+  // Kitchen ticket print — best-effort, called AFTER the order write's own
+  // success is already confirmed. Never throws, never gates/blocks the order
+  // flow — only warns (via the existing toast) when a CONFIGURED printer
+  // actually failed to respond (printRes.failed), not when there's simply
+  // nothing configured yet (printKitchenTicket returns ok:false for that,
+  // silently, by design — see printEngine.js).
+  const printTicket = async (order, printItems) => {
+    try {
+      const res = await window.electronAPI.printKitchenTicket({
+        order, items: printItems, printers: settings.kitchenPrinters, show: settings.kitchenShow,
+      });
+      if (res?.failed?.length > 0) {
+        showToast(t('Some kitchen printers did not respond — check the ticket manually', lang), false);
+      }
+    } catch { /* printing is best-effort — never affects the order flow */ }
+  };
+
   const handleFire = async () => {
     if (!cartEntries.length || submitting) return;
     setError('');
     setSubmitting(true);
     try {
+      const tableName = selTable ? (selTable.name || tableFallbackLabel(selTable.tableNumber, lang)) : null;
       if (existingOrder) {
         // Adding to an already-existing order (occupied table picked while
         // building this cart) — append only the NEW items, never the full
@@ -316,6 +334,19 @@ export default function MenuScreen({ user, settings, search, lang }) {
         });
         if (!res.ok) { setError(res.error || t('Failed to add items to the order', lang)); return; }
         showToast(tt(lang, 'Added to Order #{n}', '#{n}-buyurtmaga qo’shildi', { n: existingOrder.dailyNumber || existingOrder.id.slice(-4) }));
+        // Print ONLY the items just added — the rest of the order already
+        // printed when it was originally fired.
+        await printTicket({
+          dailyNumber: res.data?.daily_number ?? existingOrder.dailyNumber,
+          tableName,
+          orderType: existingOrder.orderType || orderType,
+          customerName: custName || null,
+          customerPhone: custPhone || null,
+          deliveryAddress: custAddr || null,
+        }, cartEntries.map(e => ({
+          name: e.item.name, quantity: e.qty, unit: e.item.unit,
+          notes: e.item.notes || null, kitchenStation: e.item.kitchenStation,
+        })));
         clearOrder();
         return;
       }
@@ -323,6 +354,18 @@ export default function MenuScreen({ user, settings, search, lang }) {
       const res = await window.electronAPI.ordersCreate(buildOrderPayload());
       if (!res.ok) { setError(res.error || t('Failed to send order', lang)); return; }
       showToast(t('Order sent to kitchen', lang));
+      // Print the full cart — this IS the whole order, nothing printed yet.
+      await printTicket({
+        dailyNumber: res.data?.daily_number,
+        tableName,
+        orderType,
+        customerName: custName || null,
+        customerPhone: custPhone || null,
+        deliveryAddress: custAddr || null,
+      }, cartEntries.map(e => ({
+        name: e.item.name, quantity: e.qty, unit: e.item.unit,
+        notes: e.item.notes || null, kitchenStation: e.item.kitchenStation,
+      })));
       clearOrder();
     } finally { setSubmitting(false); }
   };

@@ -257,6 +257,16 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
     setBusy(true);
     setError('');
     try {
+      // Old (pre-edit) quantities, captured BEFORE the write — itemsByOrd is
+      // this screen's own already-existing "original" source (polling is
+      // paused while editing, see the `if (!editing) load()` interval below,
+      // so it stays frozen at the pre-edit state for the whole edit session;
+      // this screen never built a separate `snapshot` state the way
+      // OrdersScreen.jsx did, so this is the equivalent existing mechanism,
+      // not a new parallel one).
+      const oldQtyByItem = Object.fromEntries(
+        (itemsByOrd[selOrder.id] || []).map(it => [it.menuItemId, Number(it.quantity || 1)])
+      );
       const res = await window.electronAPI.ordersUpdate(selOrder.id, {
         order_type: editType,
         table_id:   editType === 'dine_in' ? (editTable?.id || null) : null,
@@ -264,6 +274,40 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
       });
       if (!res.ok) { setError(res.error || t('Failed to save changes', lang)); return; }
       showToast(t('Order updated', lang));
+      // ── Kitchen ticket for what's NEW or INCREASED only ──────────────────
+      // orders:update (PUT /orders/:id) has no backend print trigger at all
+      // (unlike create/addItems) — this is the only print signal an edit-save
+      // ever gets. Only a positive delta (brand-new item, or an existing one
+      // whose qty went up) gets printed — never reprint something already on
+      // the order unchanged or decreased. Best-effort, never blocks/affects
+      // the save that already succeeded.
+      try {
+        const diffItems = editItems
+          .map(it => ({ it, delta: it.qty - (oldQtyByItem[it.menuItemId] || 0) }))
+          .filter(({ delta }) => delta > 0)
+          .map(({ it, delta }) => {
+            const mi = menuById[it.menuItemId];
+            return { name: it.name, quantity: delta, unit: mi?.unit, notes: null, kitchenStation: mi?.kitchenStation };
+          });
+        if (diffItems.length > 0) {
+          const printRes = await window.electronAPI.printKitchenTicket({
+            order: {
+              dailyNumber: selOrder.dailyNumber,
+              tableName: editType === 'dine_in' ? (editTable ? (editTable.name || tableFallbackLabel(editTable.tableNumber, lang)) : null) : null,
+              orderType: editType,
+              customerName: selOrder.customerName || null,
+              customerPhone: selOrder.customerPhone || null,
+              deliveryAddress: selOrder.deliveryAddress || null,
+            },
+            items: diffItems,
+            printers: settings.kitchenPrinters,
+            show: settings.kitchenShow,
+          });
+          if (printRes?.failed?.length > 0) {
+            showToast(t('Some kitchen printers did not respond — check the ticket manually', lang), false);
+          }
+        }
+      } catch { /* printing is best-effort — never affects the save that already succeeded */ }
       setEditing(false);
       setPickTable(false);
       // Follow the order to its (possibly new) table, or deselect if it left

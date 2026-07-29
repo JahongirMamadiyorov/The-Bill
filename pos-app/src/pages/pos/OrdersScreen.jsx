@@ -271,6 +271,42 @@ export default function OrdersScreen({ user, settings, search, lang }) {
       });
       if (!res.ok) { setError(res.error || t('Failed to save changes', lang)); return; }
       showToast(t('Order updated', lang));
+      // ── Kitchen ticket for what's NEW or INCREASED only ──────────────────
+      // orders:update (PUT /orders/:id) has no backend print trigger at all
+      // (unlike create/addItems) — this is the only print signal an edit-save
+      // ever gets. Diff snapshot.items (pre-edit, captured in startEdit) vs
+      // editItems (about to be saved) by menuItemId; only a positive delta
+      // (brand-new item, or an existing one whose qty went up) gets printed —
+      // never reprint something already on the order unchanged or decreased.
+      // Best-effort, never blocks/affects the save that already succeeded.
+      try {
+        const oldQtyByItem = Object.fromEntries((snapshot?.items || []).map(it => [it.menuItemId, it.qty]));
+        const diffItems = editItems
+          .map(it => ({ it, delta: it.qty - (oldQtyByItem[it.menuItemId] || 0) }))
+          .filter(({ delta }) => delta > 0)
+          .map(({ it, delta }) => {
+            const mi = menuById[it.menuItemId];
+            return { name: it.name, quantity: delta, unit: mi?.unit, notes: null, kitchenStation: mi?.kitchenStation };
+          });
+        if (diffItems.length > 0) {
+          const printRes = await window.electronAPI.printKitchenTicket({
+            order: {
+              dailyNumber: selected.dailyNumber,
+              tableName: editType === 'dine_in' ? (editTable ? (editTable.name || tableFallbackLabel(editTable.tableNumber, lang)) : null) : null,
+              orderType: editType,
+              customerName: selected.customerName || null,
+              customerPhone: selected.customerPhone || null,
+              deliveryAddress: selected.deliveryAddress || null,
+            },
+            items: diffItems,
+            printers: settings.kitchenPrinters,
+            show: settings.kitchenShow,
+          });
+          if (printRes?.failed?.length > 0) {
+            showToast(t('Some kitchen printers did not respond — check the ticket manually', lang), false);
+          }
+        }
+      } catch { /* printing is best-effort — never affects the save that already succeeded */ }
       setEditing(false); setPickTable(false); setSnapshot(null);
       load();
     } finally { setBusy(false); }
