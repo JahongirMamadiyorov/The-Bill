@@ -28,6 +28,22 @@ project. It is only ever added to, never silently changed — see Rule 0 below.
 5. Work smart, do not guess — verify against the actual code/data/dashboard state rather than
    assuming.
 
+## 1a. Debugging/fix-process rule (added 2026-07-30, after the Windows packaging saga)
+
+- When troubleshooting a crash/bug that has already had one unsuccessful fix attempt, **present
+  ranked options and get the user's explicit choice before trying another speculative fix** —
+  do not just try the next idea unilaterally. This was said explicitly and firmly by the project
+  owner mid-session ("Stop doing things yourself Claude, tell me options to fix it first then I
+  will choose what needs to be done!") after an unprompted `compression: "store"` change didn't
+  fix the NSIS installer crash. Applies for the rest of this project, not just that incident.
+- Before proposing a fix for a packaging/runtime crash, get the REAL error first — a double-
+  clicked packaged Electron app has no attached console, so `console.error`/`console.log` from
+  the main process is invisible until the app is launched from a terminal
+  (`& "path\to\App.exe"` in PowerShell) or DevTools is opened in the renderer (`Ctrl+Shift+I`,
+  works even in a production build unless explicitly disabled). Guessing at a second fix before
+  getting this is how the 2026-07-30 session burned through 5 rounds of near-misses — each real
+  error message pointed at a different, previously-invisible bug.
+
 ## 2. Infrastructure facts
 
 - Database: Supabase, paid plan. Project "The-Bill", ref `uubfvjcwrumfijjqtjjb`, region

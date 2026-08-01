@@ -38,12 +38,20 @@
     "appId": "com.thebill.pos",
     "productName": "The Bill POS",
     "asar": true,
+    "compression": "store",
     "files": [
       "main.js",
       "preload.js",
+      "printEngine.js",
+      "powersyncWorker.mjs",
+      "powersync/**/*",
       "dist/**/*",
       "build/**/*",
       "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/@powersync/node/**"
     ],
     "directories": {
       "buildResources": "build",
@@ -51,7 +59,8 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "zip",  "arch": ["x64"] }
       ],
       "icon": "build/icon.ico"
     },

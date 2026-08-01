@@ -3,7 +3,209 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-## 2026-07-29 (latest): Login screen — password show/hide + language toggle
+## 2026-07-31 (LATEST, later): PowerSync failure diagnosed — sync-rules limit + the real
+## cross-restaurant root cause
+
+The badge's new event log produced the actual error in one rebuild:
+`[PSYNC_S2305] Too many parameter query results (limit of 1000)`.
+
+- **DB FIXED, sync-rules deploy pending — S2305.** Root-caused from the real YAML: three of the
+  ~23 stream queries reached `restaurant_id` via an INNER JOIN to a parent, and PowerSync compiles
+  each such join into a parameter query capped at 1000 rows. `order_items` JOIN `orders` returned
+  **3,433** for Do'stlar 2 (vs 62 on the dev machine — a data-volume failure, never machine-
+  specific, and the dev machine can never reproduce it). `delivery_items` and
+  `menu_item_ingredients` had the identical shape and would have broken at 1,000 too.
+  **Fix applied to production Supabase** (migration `denormalize_restaurant_id_for_powersync_s2305`):
+  `restaurant_id` added + backfilled + indexed on all three, with a BEFORE INSERT/UPDATE trigger
+  per table so no backend insert path can miss it (backend code unchanged by design). Verified:
+  0 NULLs, 0 parent mismatches.
+  **REMAINING: the user must paste the three rewritten queries into the PowerSync dashboard and
+  deploy** — each becomes a plain `WHERE restaurant_id = auth.parameter('restaurant_id')`, keeping
+  the synthetic `menu_item_id || ':' || ingredient_id as id` for the composite-key table.
+- **FIXED — the 2026-07-30 cross-restaurant leak, root cause finally confirmed.** It was two code
+  bugs, not the cloned disk image MEMORY.md had guessed: (1) `auth:logout` called `disconnect()`
+  instead of `disconnectAndClear()`, so the local SQLite kept every synced row forever, and every
+  screen reads locally since task #31; (2) `App.jsx`'s `handleLogout` never called the logout IPC
+  at all, so in-app logouts left the session in electron-store too. Proof: an affected machine's
+  dump reported `Last synced` from the PREVIOUS DAY on a "fresh" install.
+  Fix: new `psOwner` marker + `ensureLocalDataBelongsToCurrentUser()` before every connect
+  (missing marker counts as a mismatch, so existing machines get flushed once), `auth:logout` now
+  clears, and `handleLogout` awaits the IPC on every path.
+  Files: `main.js`, `powersync/connector.js`, `src/App.jsx`, `src/pages/pos/PosShell.jsx`,
+  `src/lib/i18n.js`.
+
+**Next step, in this order:** (1) deploy the rewritten sync rules in the PowerSync dashboard —
+the database side is already done, so they will validate; (2) rebuild the app; (3) verify on a
+real machine: the badge should reach green Online on a Do'stlar 2 terminal (it never could
+before), then log out and confirm the local DB is emptied, log in as a different restaurant on
+the same machine and confirm no trace of the previous one, and confirm the one-off re-sync fires
+on the first launch after this update.
+
+## 2026-07-31: packaging CLOSED — zip build verified working on a real machine
+
+**The Windows packaging saga is over.** All five fixes from the 2026-07-29/30 sessions were
+rebuilt and tested: the zip build launches, the topbar shows green **Online** (which requires
+PowerSync connected AND synced AND backend reachable — so the native sync extension genuinely
+loads now), the Cashier Menu renders real data from local PowerSync SQLite, and the "Continue
+as {user} / Not you? Log out" resume screen works. The pre-build worry about spawning an ESM
+worker from inside `app.asar` did not materialize.
+
+- **Still open, permanently:** the NSIS installer crash (`nsis7z.dll`, 0xC0000005). Researched
+  to a dead end 2026-07-30 — known unfixed electron-builder bug. **Distribute the `.zip`.**
+- **New this session:** the topbar badge is now self-diagnosing. Clicking it opens a panel
+  breaking "Offline" into its three real checks (PowerSync connected · Local data synced ·
+  Backend reachable), showing the actual error string `main.js` now retains (`psLastError` —
+  previously console-only, i.e. invisible on a packaged app), last-synced/last-checked times,
+  a Re-check button, and a Copy details button producing a pasteable plain-text dump. This
+  exists so the *other restaurants'* machines can be diagnosed remotely, which was impossible
+  during the 2026-07-30 incident. The Online/Offline decision itself is unchanged.
+  Files: `main.js`, `src/pages/pos/PosShell.jsx`, `src/lib/i18n.js` (12 new UZ strings).
+  All verified (`node --check`, esbuild, i18n duplicate-key check, lucide icon existence).
+
+**Next step:** rebuild, click the pill, confirm the three rows / Copy details / Uzbek reading.
+Then the actually valuable test — get the new zip onto a machine that shows Offline and read
+which leg the panel says is failing. Note Render is free tier (~50s cold start), so a healthy
+machine legitimately shows Offline for the first minute after launch; the panel now makes that
+distinguishable from a real failure.
+
+Still untested from earlier sessions (unchanged): Printers tab in Admin Settings, the 7 kitchen
+print call sites, Login screen show/hide + language toggle.
+
+## 2026-07-29: first Windows packaging attempt — two real bugs found, one still open
+
+User built the first-ever packaged Windows installer (`npm run build:win`) and hit a real,
+reproducible crash: `The Bill POS Setup 0.1.0.exe` crashes every single time with
+`STATUS_ACCESS_VIOLATION` (`0xC0000005`) in `nsis7z.dll` (electron-builder's bundled NSIS 7z
+plugin), confirmed via Event Viewer — same DLL version/timestamp, same fault offset, across
+multiple rebuilds (cache cleared, `compression: "store"` added). Ruled out via direct testing:
+antivirus real-time protection off (still crashed), a different machine/account (still crashed),
+missing VC++ redistributables (already present). **Root cause of the NSIS crash itself is still
+unresolved** — it now looks like a genuine incompatibility between this environment and the
+specific `nsis7z.dll` build electron-builder bundles, not a corrupted download or a config
+mistake on our end.
+
+**Two separate, real bugs found and fixed while chasing this, both unrelated to the NSIS crash:**
+
+1. **The packaged app itself was broken independent of the installer** — testing the raw
+   unpacked folder directly (bypassing the installer entirely) surfaced `Error: Cannot find
+   module './powersync/schema'` at startup. Root cause: `package.json`'s `build.files` array is
+   an explicit allowlist of what electron-builder copies into the packaged app, and it never
+   included the `powersync/` directory (`schema.js`/`connector.js`, real files `main.js`
+   requires) — only `main.js`, `preload.js`, `dist/**/*`, `build/**/*`, `node_modules/**/*`. This
+   never mattered in dev (`npm run dev` reads files straight off disk, no allowlist involved) and
+   apparently was never caught because this is the first time the app was ever packaged at all.
+   **Fixed:** added `"powersync/**/*"` to the `files` array.
+   - **Same bug, round 2:** after rebuilding with that fix, both the zip and the installer got
+     one step further and then crashed with `Error: Cannot find module './printEngine'` —
+     `printEngine.js` (the kitchen print engine, `main.js` line 31) is a root-level file, same
+     situation as `powersync/`, also missing from `files`. Fixed by adding `"printEngine.js"`
+     explicitly. **This time the entire dependency graph was traced by hand** (every relative
+     `require()` in `main.js`, `preload.js`, `printEngine.js`, `powersync/schema.js`,
+     `powersync/connector.js`, plus every `path.join(__dirname, ...)` file read) to rule out a
+     third round of this — nothing else local is missing from `files` as of this fix.
+   - **Round 3, a different bug class:** with both module-not-found bugs fixed, the packaged app
+     (zip) now actually launches and renders the full UI — but the topbar shows "Offline" and
+     Orders shows "Failed to load orders" despite real internet access. Root cause (confirmed
+     against electron-builder's own troubleshooting docs, not guessed): `asar: true` is set with
+     no `asarUnpack` at all, and `better-sqlite3` (PowerSync's local SQLite storage engine —
+     confirmed the actual native `.node` binary exists at
+     `node_modules/better-sqlite3/build/Release/better_sqlite3.node`) is a native module. Native
+     `.node` binaries cannot be loaded from inside an asar archive — this silently breaks
+     PowerSync's local database entirely (topbar's "Online" pill requires PowerSync connected
+     AND synced AND backend reachable — see `PosShell.jsx` — so PowerSync alone failing is enough
+     to show "Offline" even with a live backend/internet connection; Orders'/Menu's "Failed to
+     load orders/menu data" is their local PowerSync read throwing). **Fixed:** added
+     `"asarUnpack": ["node_modules/better-sqlite3/**"]`.
+   - **Round 4, same bug, a second native binary:** after rebuilding, still Offline / still
+     failing to load local data. Found the real remaining cause by actually inspecting
+     `node_modules` rather than assuming one native module was the whole story:
+     `@powersync/node` ships its OWN native SQLite extension (`node_modules/@powersync/node/lib/
+     powersync_x64.dll` etc., one per platform/arch — this is PowerSync's Rust-compiled
+     "powersync-sqlite-core" loadable extension, separate from better-sqlite3). It's loaded via
+     SQLite's native `sqlite3_load_extension` C API using a real filesystem path — asar's virtual
+     filesystem doesn't work for that either, same underlying problem as better-sqlite3, just a
+     second, different package. **Fixed:** added `"node_modules/@powersync/node/**"` to
+     `asarUnpack` alongside better-sqlite3. Also did a full sweep of every `.dll`/`.node` file
+     across all of `node_modules` to check for a third one — the rest (rollup/tailwindcss/
+     lightningcss `.node` files, electron's own bundled `.dll`s) are Vite build-toolchain or
+     Electron's own runtime, not something our packaged app's own code loads, so nothing else
+     needs unpacking. Not yet rebuilt/tested.
+   - **Round 5, the real remaining cause — asarUnpack alone wasn't enough.** After rebuilding
+     with round 4's fix, still Offline, but now with NO thrown error (progress — the crash
+     itself was gone). User ran the packaged exe from a PowerShell terminal per request (needed
+     because a double-clicked packaged app has no attached console — `main.js`'s own
+     `console.error('[powersync] connect failed', ...)` was invisible until this), which
+     surfaced the real error for the first time:
+     `SqliteError: The specified module could not be found` at `Database.loadExtension`, called
+     from `@powersync/node`'s own `BetterSqliteWorker.js` → `SqliteWorker.js`. Root cause,
+     confirmed by reading `@powersync/node`'s actual source in `node_modules`: its default
+     worker computes the path to its native sync extension (`powersync_x64.dll`) via
+     `import.meta.url` relative to ITS OWN location — correct in dev, but once running from
+     inside `app.asar`, that computed string literally contains `.asar` and points at a virtual
+     path. `loadExtension()` is a native call (better-sqlite3's C++ addon calling Windows
+     `LoadLibrary` directly) that bypasses Electron's asar-aware `fs` shim entirely, so it fails
+     even though the REAL file already exists on disk at the parallel `app.asar.unpacked`
+     location thanks to round 4's `asarUnpack` fix. Confirmed better-sqlite3 itself was NOT the
+     problem (it loads fine — the crash is specifically at the `loadExtension()` call, one line
+     later). Cross-checked against PowerSync's own official Electron demo
+     (`powersync-ja/powersync-js/demos/example-electron-node`) and their Node SDK docs
+     (`database.openWorker` override, documented for a different use case — custom SQLite
+     ciphers — but the same mechanism applies here) to confirm this is the sanctioned way to fix
+     it, not a guess. **Fixed:** new `pos-app/powersyncWorker.mjs` (a custom worker replacing
+     the library's default one) plus `main.js`'s `getPowerSync()` now computes the correct real
+     path itself (`app.isPackaged` ? `process.resourcesPath/app.asar.unpacked/node_modules/
+     @powersync/node/lib/<file>` : the plain dev `node_modules` path) and hands it to the custom
+     worker via `workerData` (a JS function can't cross the `worker_threads` boundary, only
+     data can). Added `powersyncWorker.mjs` to `package.json`'s `files` allowlist too. All
+     changes syntax-verified (`node --check`, JSON-validated). Not yet rebuilt/tested.
+   - **Cross-restaurant data-visibility incident, same day.** User distributed the built
+     package to other test restaurants. Reports: some machines showed "Offline" permanently
+     despite real internet, AND — more seriously — showed the user's OWN restaurant's menu/
+     cashier panel on a machine before anyone had logged in. Investigated the backend's
+     `/api/auth/powersync-token` route (`restaurant-app/backend/src/routes/auth.js`) directly —
+     confirmed it correctly scopes the PowerSync JWT's `restaurant_id` claim to
+     `req.user.restaurant_id` (the actually-authenticated user), not hardcoded — rules out a
+     backend multi-tenant leak. Confirmed `electron-store`'s actual source
+     (`node_modules/electron-store/index.js`) always defaults to `app.getPath('userData')`, a
+     genuinely OS-per-user path — rules out the session file being bundled inside the
+     distributed package (also confirmed by hand: no stray `.db`/session file found inside the
+     extracted app folder on an affected machine). **Root cause of WHY a saved session was
+     present on a supposedly-fresh machine could not be confirmed** (most likely explanation:
+     a cloned machine/disk image or reused device carried over the developer's own
+     `%APPDATA%\The Bill POS` folder — operational, not a code bug — but this was never
+     directly verified). Given the user could not get further diagnostic access, shipped a
+     defensive mitigation instead of leaving it unaddressed: **`App.jsx` now shows an explicit
+     "Continue as {user} / Not you? Log out" confirmation screen** every time the app launches
+     with a session restored from disk (a fresh login never needs to reconfirm — see
+     `resumeConfirmed` state). This does not explain or fix how a foreign session could end up
+     on a machine — it makes it impossible for that to go unnoticed/silently continue. New i18n
+     keys added (`en.json`/`uz.json` not touched — reuses `lib/i18n.js` directly, same reasoning
+     as `Login.jsx`, since neither role-scoped i18n system is mounted at this point either).
+     `App.jsx`/`lib/i18n.js` esbuild-verified clean (via a Linux-native `esbuild@0.24.0` through
+     `npx`, since the project's own installed `esbuild` binary is Windows-only and can't run in
+     this sandbox). **Not yet tested on a real machine.**
+   - **Also investigated, separately: the still-open NSIS installer crash (`nsis7z.dll`,
+     0xC0000005).** Researched properly rather than guessing further — this is a known,
+     long-standing, never-fixed electron-builder/NSIS bug (old-style plugin DLLs like
+     `System.dll`/`nsis7z.dll` crashing from fragile raw-stack-based plugin calling conventions,
+     reported since 2017: electron-builder issues #1475/#2518/#2751/#3545/#7921). Ruled out the
+     other known electron-builder NSIS bug (>2GB installers get silently malformed, #8399) — our
+     installer is only ~90MB, zip ~350MB, nowhere near that threshold. No confirmed fix exists
+     anywhere for the nsis7z crash itself; the `zip` target remains the practical workaround.
+2. **Added a `zip` Windows target alongside `nsis`** in `build.win.target` — produces a plain zip
+   of the packaged app with zero NSIS involvement, guaranteed to sidestep the `nsis7z.dll` crash
+   entirely (no installer UX — no shortcuts, manual extract-and-run — but immediately testable
+   while the NSIS mystery stays open).
+
+**Next step:** rebuild, then test the new `.zip` target first (should now actually launch, since
+the missing-`powersync`-files bug — the thing that made even the raw unpacked folder fail — is
+fixed). If the app runs correctly from the zip, that confirms the packaging itself is sound and
+isolates the remaining problem entirely to the NSIS installer wrapper. Remaining options for the
+NSIS crash specifically, not yet tried: pin a different `electron-builder` version (currently
+`^26.0.0`, resolved to `26.15.3`) and rebuild, since the crashing DLL is bundled by electron-
+builder itself, not something in this project's own code.
+
+## 2026-07-29 (earlier): Login screen — password show/hide + language toggle
 
 User flagged the Login screen (screenshot) as needing a password-visibility toggle and a
 language switcher — it had neither. Root cause for why it was missed until now: `Login.jsx` was

@@ -36,6 +36,13 @@ const UZ = {
   'Show password': 'Parolni ko‘rsatish',
   'Hide password': 'Parolni yashirish',
 
+  // ── Session resume confirmation (App.jsx SessionResume) — shown once per
+  // app launch when a saved session is restored from disk, before any screen
+  // renders. Same "runs before any role/shell exists" situation as Login.
+  'A saved session was found on this device': 'Ushbu qurilmada saqlangan sessiya topildi',
+  'Continue as': 'Davom etish:',
+  'Not you? Log out': 'Bu siz emasmisiz? Chiqish',
+
   // ── Shell / nav (PosShell.jsx) ──────────────────────────────────────────
   'Menu': 'Menyu',
   'Orders': 'Buyurtmalar',
@@ -57,6 +64,25 @@ const UZ = {
   'Online': 'Onlayn',
   'Syncing…': 'Sinxronlanmoqda…',
   'Offline': 'Oflayn',
+
+  // ── Connection details panel (PosShell.jsx, topbar badge → click) ──────────
+  // Added 2026-07-31 so a machine that says "Oflayn" can say WHICH of the three
+  // checks failed — the badge alone made remote machines undiagnosable.
+  'Click for connection details': 'Ulanish tafsilotlari uchun bosing',
+  'Connection details': 'Ulanish tafsilotlari',
+  'PowerSync connected': 'PowerSync ulangan',
+  'Local data synced': 'Mahalliy maʼlumot sinxronlangan',
+  'Backend reachable': 'Server bilan aloqa bor',
+  'Backend': 'Server',
+  'Last synced': 'Oxirgi sinxronlash',
+  'Last checked': 'Oxirgi tekshiruv',
+  'Never': 'Hech qachon',
+  'Re-check now': 'Qayta tekshirish',
+  'Copy details': 'Nusxa olish',
+  'Copied': 'Nusxalandi',
+  'Recent events': 'Soʻnggi hodisalar',
+  // ('Close' is NOT re-added here — it already exists further down in this same
+  //  dictionary; a duplicate key would silently win/lose depending on order.)
   'Cashier': 'Kassir',
   'Staff': 'Xodim',
   'coming in a later build step': 'keyingi bosqichda qo’shiladi',

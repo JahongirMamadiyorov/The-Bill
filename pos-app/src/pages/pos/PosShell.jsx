@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   LayoutGrid, ClipboardList, Clock, HandCoins, User,
   Search, Bell, Globe, ChevronsLeft, ChevronsRight, LogOut, Wifi, WifiOff, RefreshCw,
+  CheckCircle2, XCircle, Loader, Copy, Check, X,
 } from 'lucide-react';
 import { T, card, initials } from './tokens.js';
 import { TableIcon } from './icons.jsx';
@@ -31,6 +32,173 @@ function Placeholder({ label, lang }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Connection details panel (topbar badge → click). Added 2026-07-31.
+//
+// Why this exists: the badge collapses THREE independent checks (PowerSync
+// connected · local data synced · Express backend reachable) into a single
+// word, so a machine reporting "Offline" told us nothing about which one
+// actually failed. That's exactly what made the other restaurants' machines
+// undiagnosable — no terminal, no DevTools, no access to the machine at all.
+// This panel breaks the three apart, shows the real error string main.js now
+// keeps (see psLastError there), and offers a Copy button so a remote user can
+// paste the whole state into a message instead of describing it.
+//
+// Purely diagnostic — it reads the same `sync` state the badge already had and
+// changes nothing about how Online/Syncing/Offline is decided.
+// ─────────────────────────────────────────────────────────────────────────────
+function StatusRow({ label, ok, pending }) {
+  const color = ok ? T.greenDark : pending ? T.amber : T.coral;
+  const Icon  = ok ? CheckCircle2 : pending ? Loader : XCircle;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0',
+      borderBottom: `1px solid ${T.line}`,
+    }}>
+      <Icon size={15} strokeWidth={2} color={color} />
+      <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, flex: 1 }}>{label}</span>
+    </div>
+  );
+}
+
+// Plain-text dump for the Copy button — deliberately English-only and
+// unformatted: it's meant to be pasted back to whoever is supporting the
+// machine, not read on screen (the panel above already does that, translated).
+function syncDetailsText(sync, user, restaurant) {
+  return [
+    `The Bill POS — connection details`,
+    `Time:            ${new Date().toISOString()}`,
+    `Restaurant:      ${restaurant?.name || '—'} (id ${restaurant?.id ?? '—'})`,
+    `User:            ${user?.name || '—'} (${user?.role || '—'})`,
+    `PowerSync connected: ${sync.connected ? 'yes' : sync.connecting ? 'connecting' : 'no'}`,
+    `Local data synced:   ${sync.hasSynced ? 'yes' : 'no'}`,
+    `Backend reachable:   ${sync.backendUp ? 'yes' : 'no'}`,
+    `Last synced:     ${sync.lastSyncedAt || 'never'}`,
+    `Last checked:    ${sync.checkedAt ? sync.checkedAt.toISOString() : '—'}`,
+    `PowerSync error: ${sync.psError || 'none'}`,
+    `Backend error:   ${sync.backendError || 'none'}`,
+    ``,
+    `Connection event log (oldest first) — main.js pushPsEvent:`,
+    ...((sync.events && sync.events.length)
+      ? sync.events.map(e => `  ${e.at}  ${e.kind}${e.detail ? '  ' + e.detail : ''}`)
+      : ['  (no events recorded)']),
+  ].join('\n');
+}
+
+// Returns a Promise<boolean> so the button only shows "Copied" when it actually
+// copied. navigator.clipboard.writeText REJECTS (async) rather than throwing, so a
+// plain try/catch around it would silently miss the failure — and it does genuinely
+// fail in Electron when the document isn't focused. The hidden-textarea +
+// execCommand path is the fallback for exactly that case.
+async function copySyncDetails(sync, user, restaurant) {
+  const text = syncDetailsText(sync, user, restaurant);
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      // Both paths blocked — not fatal, the panel already shows the same errors
+      // on screen, they just have to be read out instead of pasted.
+      return false;
+    }
+  }
+}
+
+function SyncDetailsPanel({ sync, lang, copied, onCopy, onRecheck, onClose }) {
+  const fmt = (iso) => {
+    if (!iso) return t('Never', lang);
+    const d = new Date(iso);
+    return isNaN(d) ? String(iso) : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+  const btn = {
+    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: '8px 10px', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
+    background: T.surface, color: T.ink, fontFamily: T.font, fontSize: 11.5,
+    fontWeight: 700, cursor: 'pointer',
+  };
+  return (
+    <div style={{
+      position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 60,
+      width: 296, background: T.surface, borderRadius: T.rCard,
+      boxShadow: T.modalShadow, padding: 14, fontFamily: T.font, textAlign: 'left',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: T.ink, flex: 1 }}>
+          {t('Connection details', lang)}
+        </span>
+        <button onClick={onClose} title={t('Close', lang)} style={{
+          border: 'none', background: 'transparent', cursor: 'pointer', padding: 2,
+          display: 'flex', alignItems: 'center',
+        }}>
+          <X size={14} strokeWidth={2} color={T.muted} />
+        </button>
+      </div>
+
+      <StatusRow label={t('PowerSync connected', lang)} ok={sync.connected} pending={sync.connecting} />
+      <StatusRow label={t('Local data synced', lang)}   ok={sync.hasSynced}  pending={sync.connected && !sync.hasSynced} />
+      <StatusRow label={t('Backend reachable', lang)}   ok={sync.backendUp} />
+
+      {(sync.psError || sync.backendError) && (
+        <div style={{
+          marginTop: 10, padding: '8px 10px', borderRadius: T.rBtn,
+          background: T.coralBg, color: T.coral, fontSize: 11, lineHeight: 1.45,
+          wordBreak: 'break-word',
+        }}>
+          {sync.psError && <div><b>PowerSync:</b> {sync.psError}</div>}
+          {sync.backendError && <div><b>{t('Backend', lang)}:</b> {sync.backendError}</div>}
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, fontSize: 10.5, color: T.muted, lineHeight: 1.6 }}>
+        <div>{t('Last synced', lang)}: {fmt(sync.lastSyncedAt)}</div>
+        <div>{t('Last checked', lang)}: {sync.checkedAt ? fmt(sync.checkedAt.toISOString()) : '—'}</div>
+      </div>
+
+      {/* Last few connection events, newest first — the whole point is answering
+          "what happened between connecting and now", which no other part of this
+          panel can show. Full log goes out via Copy details. */}
+      {sync.events?.length > 0 && (
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${T.line}` }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: T.faint, marginBottom: 4 }}>
+            {t('Recent events', lang)}
+          </div>
+          {sync.events.slice(-4).reverse().map((e, i) => (
+            <div key={`${e.at}-${i}`} style={{
+              fontSize: 10, lineHeight: 1.5, color: e.kind.includes('fail') || e.kind.includes('error') || e.kind === 'disconnected' ? T.coral : T.muted,
+              wordBreak: 'break-word',
+            }}>
+              {fmt(e.at)} · <b>{e.kind}</b>{e.detail ? ` — ${e.detail}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button onClick={onRecheck} style={btn}>
+          <RefreshCw size={13} strokeWidth={2} color={T.muted} />
+          {t('Re-check now', lang)}
+        </button>
+        <button onClick={onCopy} style={btn}>
+          {copied
+            ? <Check size={13} strokeWidth={2} color={T.greenDark} />
+            : <Copy size={13} strokeWidth={2} color={T.muted} />}
+          {t(copied ? 'Copied' : 'Copy details', lang)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PosShell({ session, onLogout, screens = {} }) {
   const user       = session?.user || {};
   const restaurant = session?.restaurant || {};
@@ -41,7 +209,12 @@ export default function PosShell({ session, onLogout, screens = {} }) {
   const [lang, setLang]         = useState(() => localStorage.getItem('pos.lang') || 'EN');
   const [search, setSearch]     = useState('');
   const [clockIn, setClockIn]   = useState(null); // "06:33 AM" from /shifts/active
-  const [sync, setSync]         = useState({ connected: false, hasSynced: false, backendUp: false, checkedAt: null });
+  const [sync, setSync]         = useState({
+    connected: false, hasSynced: false, backendUp: false, checkedAt: null,
+    connecting: false, lastSyncedAt: null, psError: null, backendError: null, events: [],
+  });
+  const [syncOpen, setSyncOpen] = useState(false); // badge details panel
+  const [copied, setCopied]     = useState(false);
 
   useEffect(() => { localStorage.setItem('pos.sidebarCollapsed', collapsed ? '1' : '0'); }, [collapsed]);
   useEffect(() => { localStorage.setItem('pos.lang', lang); }, [lang]);
@@ -64,13 +237,26 @@ export default function PosShell({ session, onLogout, screens = {} }) {
         window.electronAPI.backendHealth(),
       ]);
       setSync({
-        connected:  !!s?.connected,
-        hasSynced:  !!s?.hasSynced,
-        backendUp:  !!health?.ok,
-        checkedAt:  new Date(),
+        connected:    !!s?.connected,
+        hasSynced:    !!s?.hasSynced,
+        backendUp:    !!health?.ok,
+        checkedAt:    new Date(),
+        // Diagnostics only — none of these affect the green/amber/red decision
+        // below, they exist purely so the details panel can say WHICH leg failed.
+        connecting:   !!s?.connecting,
+        lastSyncedAt: s?.lastSyncedAt || null,
+        psError:      s?.error || null,
+        backendError: health?.error || null,
+        events:       Array.isArray(s?.events) ? s.events : [],
       });
-    } catch {
-      setSync({ connected: false, hasSynced: false, backendUp: false, checkedAt: new Date() });
+    } catch (err) {
+      setSync({
+        connected: false, hasSynced: false, backendUp: false, checkedAt: new Date(),
+        connecting: false, lastSyncedAt: null,
+        // The IPC call itself failed — worth showing, it's a different failure
+        // mode from "PowerSync reported an error" and would otherwise look identical.
+        psError: err?.message || 'Status check failed', backendError: null, events: [],
+      });
     }
   };
   useEffect(() => {
@@ -242,20 +428,36 @@ export default function PosShell({ session, onLogout, screens = {} }) {
             const isSyncing = sync.connected && !sync.hasSynced;
             const color = isOnline ? T.greenDark : isSyncing ? T.amber : T.coral;
             return (
-              <button onClick={checkSync} title="Click to re-check now" style={{
-                display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
-                background: T.surface, boxShadow: T.cardShadow, borderRadius: T.rPill,
-                padding: '7px 12px', fontFamily: T.font,
-              }}>
-                {isOnline
-                  ? <Wifi size={14} strokeWidth={2} color={color} />
-                  : isSyncing
-                    ? <RefreshCw size={14} strokeWidth={2} color={color} />
-                    : <WifiOff size={14} strokeWidth={2} color={color} />}
-                <span style={{ fontSize: 11, fontWeight: 800, color }}>
-                  {t(isOnline ? 'Online' : isSyncing ? 'Syncing…' : 'Offline', lang)}
-                </span>
-              </button>
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => { setCopied(false); setSyncOpen(o => !o); checkSync(); }}
+                  title={t('Click for connection details', lang)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
+                    background: T.surface, boxShadow: T.cardShadow, borderRadius: T.rPill,
+                    padding: '7px 12px', fontFamily: T.font,
+                  }}
+                >
+                  {isOnline
+                    ? <Wifi size={14} strokeWidth={2} color={color} />
+                    : isSyncing
+                      ? <RefreshCw size={14} strokeWidth={2} color={color} />
+                      : <WifiOff size={14} strokeWidth={2} color={color} />}
+                  <span style={{ fontSize: 11, fontWeight: 800, color }}>
+                    {t(isOnline ? 'Online' : isSyncing ? 'Syncing…' : 'Offline', lang)}
+                  </span>
+                </button>
+                {syncOpen && (
+                  <SyncDetailsPanel
+                    sync={sync}
+                    lang={lang}
+                    copied={copied}
+                    onCopy={() => { copySyncDetails(sync, user, restaurant).then(setCopied); }}
+                    onRecheck={() => { setCopied(false); checkSync(); }}
+                    onClose={() => setSyncOpen(false)}
+                  />
+                )}
+              </div>
             );
           })()}
 

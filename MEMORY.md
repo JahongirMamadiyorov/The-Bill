@@ -818,3 +818,222 @@ see above) — root-caused entirely from code + the user's screenshots:
   new keys were needed. Not yet tested on a real machine — see STATUS.md's checklist (enter a real
   printer IP, confirm it round-trips through `settingsAPI.update`, confirm `useSettings().
   kitchenPrinters` picks up the change on the Cashier POS and other Admin screens).
+
+## Windows packaging (electron-builder) — gotchas learned the hard way, 2026-07-30
+
+**VERIFIED 2026-07-31: all five fixes below are confirmed correct against a real packaged
+build** — the zip launches, the topbar goes green "Online" (which requires the native PowerSync
+sync extension to have actually loaded), and local PowerSync reads return real menu data. This
+section is now settled knowledge, not a set of hypotheses. The NSIS crash (last bullet) remains
+unfixed and unfixable on our side.
+
+This was the app's first-ever `npm run build:win`. Five real, distinct bugs surfaced in
+sequence, each one only visible after the previous was fixed — **if a future session touches
+`pos-app/package.json`'s `build` config or adds a new native/root-level dependency, read this
+whole section first**, don't rediscover these one crash at a time again.
+
+- **`build.files` is an explicit ALLOWLIST, not an exclude-list.** Anything not matching one of
+  its globs is silently omitted from the packaged app, even if it's a real file that `main.js`
+  `require()`s and that works fine in `npm run dev` (dev reads straight off disk, no allowlist
+  involved). Hit this twice in a row: `powersync/**/*` (the whole directory) and then
+  `printEngine.js` (a single root-level file sitting right next to `main.js`) were both missing,
+  producing two separate "Cannot find module" crashes back to back. **Whenever a new top-level
+  `.js` file is added to `pos-app/` that `main.js`/`preload.js` requires, or a new subdirectory
+  of main-process code is added, it MUST be added to `package.json`'s `build.files` array or the
+  packaged app will silently ship without it.** Current full list, keep it in sync:
+  `main.js`, `preload.js`, `printEngine.js`, `powersyncWorker.mjs`, `powersync/**/*`,
+  `dist/**/*`, `build/**/*`, `node_modules/**/*`.
+- **Native (non-JS) files need `asarUnpack`, and there can be more than one package involved.**
+  `asar: true` with no `asarUnpack` breaks any native binary a package tries to load, because
+  native code (native Node addons, or raw OS calls like `LoadLibrary`) can't read from inside the
+  virtual `.asar` archive — only Electron's own patched `fs`/`require` understand `.asar` paths.
+  Two separate native dependencies needed this here: `better-sqlite3` (its own compiled
+  `.node` addon) and, less obviously, `@powersync/node` itself (it ships its own separate native
+  SQLite extension per platform — `powersync_x64.dll` on Windows — completely independent of
+  better-sqlite3). **Don't assume unpacking one native dependency is enough — check the actual
+  `node_modules` tree by hand (`find node_modules -iname "*.node" -o -iname "*.dll"`) for every
+  native binary any runtime dependency ships, not just the obvious one.** Current
+  `asarUnpack`: `node_modules/better-sqlite3/**`, `node_modules/@powersync/node/**`.
+- **`asarUnpack` alone can still not be enough — the code computing a native file's path also
+  matters, not just whether the file physically exists unpacked.** This was the trickiest of the
+  five bugs: even after `@powersync/node`'s DLL was correctly unpacked to a real, on-disk
+  `app.asar.unpacked/node_modules/@powersync/node/lib/powersync_x64.dll`, PowerSync's own
+  default worker (`@powersync/node/lib/db/DefaultWorker.js` → `SqliteWorker.js`) still failed
+  with `SqliteError: The specified module could not be found`, because it computes that path via
+  `import.meta.url` relative to its OWN location — which, since that JS file is (correctly, and
+  unavoidably) still loaded from inside `app.asar`, literally contains `.asar` in the string. The
+  native `loadExtension()` call (better-sqlite3's C++ addon calling Windows `LoadLibrary`
+  directly) has zero awareness of asar and can't resolve that path, even though the real file
+  exists one directory over. **Fixed via `@powersync/node`'s documented `database.openWorker`
+  override** (see PowerSync's own Node SDK docs, "Encryption and Custom SQLite Drivers" section,
+  and their official Electron demo at `powersync-ja/powersync-js/demos/example-electron-node`):
+  `pos-app/powersyncWorker.mjs` is a small custom worker (must be `.mjs` — `@powersync/node` is
+  pure ESM, `pos-app` itself is CommonJS) that receives the CORRECT path via `workerData` (a JS
+  function can't cross the `worker_threads` boundary, only serializable data can) computed in
+  `main.js`'s `resolvePowerSyncExtensionPath()` using `app.isPackaged` +
+  `process.resourcesPath` (both always reliable regardless of asar). **This is the general
+  pattern for ANY future native asset a dependency needs to locate relative to its own module
+  location inside an asar-packaged app — asarUnpack fixes where the file physically lives, but
+  a package's own `import.meta.url`/`__dirname`-relative path computation needs a matching
+  override, or it'll keep computing the pre-asar path.**
+- **The NSIS installer crash (`nsis7z.dll`, exception `0xC0000005`/`STATUS_ACCESS_VIOLATION`,
+  same fault offset every time) is a known, long-standing, UNFIXED electron-builder/NSIS bug —
+  not something in this project's code or config.** Confirmed via extensive testing (fresh
+  electron-builder cache, `compression: "store"`, antivirus off, different machine/account — none
+  helped, identical crash every time) and via research: reported against electron-builder
+  repeatedly since 2017 (issues #1475, #2518, #2751, #3545, #7921 on
+  `electron-userland/electron-builder`), root-caused by one contributor in WinDBG to the old
+  (2011-era) NSIS plugin ABI's fragile raw-stack calling convention — anything hooking Windows
+  APIs process-wide (AV, but also RGB/overlay/remote-access software) can trigger it. Ruled out
+  the *other* known electron-builder NSIS bug (installers >2GB get silently malformed, #8399) —
+  this app's installer is ~90MB, nowhere near that threshold. **No confirmed fix exists anywhere
+  for this specific crash. Do not spend further time trying to fix the NSIS installer itself
+  without the user's explicit go-ahead to try pinning a different electron-builder version (the
+  one remaining untested option) — the standing, working solution is the `zip` target
+  (`build.win.target` now includes both `nsis` and `zip`) as the actual distribution method:
+  extract and run `The Bill POS.exe` directly, skip the installer entirely.**
+
+## Cross-restaurant session-visibility incident — ROOT CAUSE FOUND 2026-07-31, was a code bug
+
+**SUPERSEDES the "root cause never confirmed / probably a cloned disk image" conclusion below.
+It was not operational and needed no cloned machine — it was two real code bugs.** Kept below
+per RULES.md §0 (never rewrite history) but do not act on that guess.
+
+1. **The local PowerSync SQLite database was never cleared, ever.** `auth:logout` called
+   `psDb.disconnect()`, not `disconnectAndClear()` — PowerSync's own type docs for that method
+   say verbatim *"Use this when logging out."* `disconnectAndClear` appeared NOWHERE in `pos-app`.
+   Every row ever synced stayed in `%APPDATA%\The Bill POS\the-bill-pos.db`, and since every
+   Admin/Cashier screen reads from that local copy (task #31), the next login on that Windows
+   account saw the previous restaurant's menu/orders/tables.
+2. **Worse: the normal Logout button never even reached the main process.** `App.jsx`'s
+   `handleLogout` did nothing but `setSession(null)` + `setResumeConfirmed(false)` — it never
+   called `window.electronAPI.logout()`. Every in-app logout path (POS shell, Admin, Kitchen,
+   Waiter) therefore left the saved session in `electron-store` too, so the app would resume as
+   that same user on the next launch. ONLY `SessionResume`'s "Not you? Log out" called the IPC.
+
+**Confirming evidence** (from a real machine's Copy details dump, 2026-07-31): a freshly
+downloaded install reported `Last synced: 2026-07-30T14:33:07Z` — the previous day. A genuinely
+fresh install cannot have that.
+
+**Fixed 2026-07-31:** `auth:logout` now calls `disconnectAndClear()` and deletes a new `psOwner`
+marker; `App.jsx`'s `handleLogout` now awaits the logout IPC on every path; and
+`ensureLocalDataBelongsToCurrentUser()` runs before every `connect()`, wiping the local DB
+whenever the logged-in user/restaurant doesn't match `psOwner`. **A MISSING marker is treated as
+a mismatch on purpose** — on the first launch after this fix no machine has one, which is exactly
+how machines already holding foreign data get flushed. Costs one extra full re-sync that once.
+
+**General rule going forward: local PowerSync data is per-user-per-restaurant and must be
+cleared on any change of either. Never assume the local DB belongs to whoever is logged in
+now — check `psOwner`.**
+
+## Cross-restaurant session-visibility incident (2026-07-30) — mitigated, root cause unconfirmed
+
+After distributing the built package to other test restaurants, some machines showed (a) the
+sync badge permanently "Offline" despite real internet, and (b) — the serious one — the
+developer's OWN restaurant's cashier panel/menu, on a machine before anyone had logged in there.
+Investigated and ruled out two real candidate bugs directly (not assumed): `restaurant-app/
+backend/src/routes/auth.js`'s `GET /api/auth/powersync-token` correctly scopes the PowerSync
+JWT's `restaurant_id` claim to `req.user.restaurant_id` (the actually-authenticated user, not
+hardcoded) — not a backend multi-tenant leak. `electron-store`'s actual installed source
+(`node_modules/electron-store/index.js`) confirmed it always defaults to `app.getPath
+('userData')`, a genuinely OS-per-user-account path — not something the distributed zip/
+installer itself could be carrying (also confirmed by hand: no stray session/db file found
+inside the extracted app folder on an affected machine).
+
+**Root cause was never actually confirmed** — the user could not check the affected machine's
+`%APPDATA%\The Bill POS` folder before this was written up. Most likely explanation based on the
+evidence gathered: a cloned machine/disk image, or a physical device reused between demos,
+carrying over the developer's own `%APPDATA%` folder — an operational/deployment issue, not a
+code bug. **If a future session gets access to check this, the concrete next diagnostic step is:
+on an affected machine, check whether `%APPDATA%\The Bill POS\config.json` (electron-store's
+session file) predates this app ever being run there (Properties → Created date) — that would
+confirm the "carried-over profile" theory conclusively.**
+
+Regardless of root cause, shipped a defensive mitigation given the safety stakes (this is other
+businesses' operational data): `pos-app/src/App.jsx` now shows an explicit **"Continue as
+[name] / Not you? Log out"** confirmation screen every time the app launches with a session
+restored from disk (`resumeConfirmed` state, resets to `false` only on a fresh disk-restored
+session — a session that was just created via an actual login in `Login.jsx` does NOT need to
+reconfirm, see `handleLoggedIn`). **This does not explain or prevent how a foreign session could
+end up on a machine — it makes it impossible for that to go unnoticed or silently continue
+without a human confirming.** If the real root cause is ever confirmed, this screen is still
+worth keeping as a general safety net for a shared-terminal, multi-tenant product — don't remove
+it as part of whatever the eventual root-cause fix turns out to be, unless explicitly asked to.
+
+## Diagnosing a remote machine (added 2026-07-31) — the badge tells you which leg failed
+
+The single hardest part of the 2026-07-30 incident was that other restaurants' machines could
+only report **"it says Offline"** — no terminal, no DevTools, no physical access. Three genuinely
+different failures all produced that identical word. Since 2026-07-31 the badge is
+self-diagnosing; use it before theorizing about anything.
+
+- **The topbar pill requires all three of `connected && hasSynced && backendUp`** (see
+  `PosShell.jsx`'s `checkSync`, polled every 5s) — PowerSync connected, local data synced, AND the
+  Express backend reachable. These are genuinely separate services: PowerSync can be perfectly
+  healthy while Render is down, and vice versa. **"Offline" therefore never means one specific
+  thing** — always find out which of the three before doing anything else.
+- **Ask the user to click the pill and hit "Copy details"**, then paste the block back. It
+  contains all three checks individually, the real PowerSync error string, the backend error
+  string, last-synced and last-checked timestamps, plus which restaurant/user the machine is
+  logged in as (which would have immediately settled the cross-restaurant question in the
+  incident below). The text is deliberately English-only and unformatted — it's for pasting to
+  support, not for reading on screen.
+- **`main.js` keeps the PowerSync open/connect error in `psLastError`** and returns it through
+  the `powersync:status` IPC handler. Before this, that error went only to `console.error`, which
+  on a double-clicked packaged app goes nowhere at all — that is the specific reason the round-5
+  extension-path bug took a PowerShell launch to find. **If a new failure mode is added anywhere
+  in the PowerSync open/connect path, make sure it lands in `psLastError` too, or it will be
+  invisible on exactly the machines that need diagnosing.**
+- **Render is on the FREE tier (~50s cold start after 15 min idle — see RULES.md §2).** A
+  completely healthy machine will legitimately show "Offline" for up to a minute after launch,
+  because `backendUp` is false while Render wakes. **Do not treat a fresh-launch Offline as a bug
+  until the panel shows PowerSync connected/synced green and only "Backend reachable" red, and it
+  stays that way past a minute.** This is the most likely benign explanation for a report from a
+  machine that "sometimes" shows Offline.
+
+## PowerSync sync-rules limits — PSYNC_S2305, hit for real 2026-07-31
+
+`[PSYNC_S2305] Too many parameter query results (limit of 1000)` — **a parameter query in the
+sync rules returned more than 1000 rows, so PowerSync refuses to sync that client at all.** The
+client connects, gets a valid token, then immediately errors and sits disconnected while still
+reporting `hasSynced: true` from its stale local data.
+
+**This is a DATA-VOLUME failure, not a per-machine one, and that is the trap.** It looked like
+"the app is broken on other restaurants' computers" for two days. Real numbers at the time it
+was diagnosed:
+
+| Restaurant | orders | notifications | stock_movements |
+|---|---|---|---|
+| Do'stlar 2 (broken) | 3,433 | 7,031 | 3,333 |
+| The Bill Premium (dev machine, fine) | 62 | 84 | 56 |
+| Do'stlar1 | 8 | 2 | 0 |
+| The Bill Express | 0 | 0 | 0 |
+
+The developer's own restaurant was ~50x smaller than the live one, so it never crossed the
+limit — **the dev machine could not reproduce it and never will.** Any restaurant crossing
+~1000 rows in whatever table the parameter query walks breaks the same way.
+
+- **THE CONCRETE CAUSE HERE, confirmed from the real YAML 2026-07-31: an `INNER JOIN` in a Sync
+  Streams query compiles into a parameter query.** The rules had
+  `SELECT order_items.* FROM order_items INNER JOIN orders ON ... WHERE orders.restaurant_id =
+  auth.parameter('restaurant_id')` — that join produced one parameter row per order, 3,433 of
+  them, over the 1000 cap. **Any synced child table that reaches `restaurant_id` through its
+  parent instead of holding its own is a time bomb that detonates at 1,000 parent rows.**
+- **The fix pattern: denormalize `restaurant_id` onto the child table** so the query becomes a
+  plain `WHERE restaurant_id = auth.parameter('restaurant_id')` with no join and no parameter
+  query at all. Applied 2026-07-31 to `order_items`, `delivery_items` and
+  `menu_item_ingredients` (migration `denormalize_restaurant_id_for_powersync_s2305`) — column +
+  backfill + index + a `BEFORE INSERT OR UPDATE` trigger per table that fills it from the parent.
+  **The trigger is deliberate: it means no backend insert site needs editing, and a future insert
+  path physically cannot forget the column** — a miss would otherwise create rows that silently
+  sync to nobody. **If a new child table is ever added to the sync rules, give it its own
+  `restaurant_id` + trigger from day one rather than joining to a parent.**
+- Parameter queries are meant to return a small set of bucket keys (a restaurant id, a user id),
+  NOT one row per order. The data query is what should do the bulk row selection.
+- **When a machine reports sync problems, check row counts for THAT restaurant first** — a
+  Supabase count query is faster than any client-side debugging, and this class of bug is
+  invisible on a low-volume account.
+- Related standing constraint (from Phase 0, 2026-07-06): `column = (SELECT ...)` scalar
+  subqueries are not supported in Sync Streams queries, which is why the `restaurant_id` claim
+  is baked into the PowerSync JWT (`routes/auth.js`, 60m TTL) and read via
+  `auth.parameter('restaurant_id')` instead.

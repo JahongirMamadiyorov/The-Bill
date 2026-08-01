@@ -25,6 +25,8 @@ const fs     = require('fs');
 const https  = require('https');
 const http   = require('http');
 const Store  = require('electron-store');
+const { Worker }       = require('worker_threads');
+const { pathToFileURL } = require('url');
 
 const { buildSchema }       = require('./powersync/schema');
 const { Connector }         = require('./powersync/connector');
@@ -114,28 +116,186 @@ function createWindow() {
 // and Node APIs that the sandboxed renderer deliberately doesn't have access to.
 let psDb = null;
 
+// PowerSync's own default worker (@powersync/node/lib/db/DefaultWorker.js) computes the
+// path to its native sync extension (.dll on Windows) relative to ITS OWN location inside
+// node_modules via `import.meta.url`. That's correct in dev, but once this app is packaged
+// into app.asar, that computed path literally contains ".asar" and points at a virtual
+// location that only Electron's asar-aware `fs`/`require` know how to read — the extension
+// is loaded via better-sqlite3's `loadExtension()`, which is a native call straight to
+// Windows' own LoadLibrary and completely bypasses that shim, so it fails with
+// "The specified module could not be found" even though electron-builder's `asarUnpack`
+// (package.json build.asarUnpack) DOES correctly copy the real .dll out to a parallel,
+// real `app.asar.unpacked` folder on disk. Confirmed via the real crash log — better-sqlite3
+// itself loads fine (asarUnpack already fixes that one); only the powersync extension's
+// OWN internal path computation is wrong.
+//
+// Fix: spin up our own worker (powersyncWorker.mjs, project root — see package.json
+// `files`/`asarUnpack`) instead of the library's default one, and hand it the CORRECT path
+// as plain data via `workerData` (a JS function can't cross the worker_threads boundary,
+// only serializable data can — this is why the path is computed here in the main process,
+// not inside the worker script itself).
+function resolvePowerSyncExtensionPath(extensionFilename) {
+  if (app.isPackaged) {
+    return path.join(
+      process.resourcesPath, 'app.asar.unpacked',
+      'node_modules', '@powersync', 'node', 'lib', extensionFilename
+    );
+  }
+  // Dev: no asar involved at all, plain node_modules on disk, same dir main.js already lives in.
+  return path.join(__dirname, 'node_modules', '@powersync', 'node', 'lib', extensionFilename);
+}
+
 async function getPowerSync() {
   if (!psDb) {
     const { PowerSyncDatabase, column, Schema, Table } = await import('@powersync/node');
+    const { getPowerSyncExtensionFilename } = await import('@powersync/node/worker.js');
     const schema = buildSchema({ column, Schema, Table });
+    const extensionPath = resolvePowerSyncExtensionPath(getPowerSyncExtensionFilename());
+
     psDb = new PowerSyncDatabase({
       schema,
       database: {
         dbFilename: 'the-bill-pos.db',
         dbLocation: app.getPath('userData'),
+        // Replaces the library's default worker (see comment above) with our own —
+        // ignores the `url` arg (would be the library's own broken DefaultWorker.js path)
+        // and spawns powersyncWorker.mjs instead, passing the pre-computed correct path.
+        openWorker: (_url, options) => new Worker(
+          pathToFileURL(path.join(__dirname, 'powersyncWorker.mjs')),
+          { ...options, workerData: { extensionPath } }
+        ),
       },
     });
+    // Attached HERE, inside the `if (!psDb)` guard, rather than in connectPowerSync():
+    // that function runs on both app start and login, so registering there would add a
+    // duplicate listener (and duplicate every logged event) on the second call.
+    watchPowerSyncStatus(psDb);
   }
   return psDb;
 }
 
+// Last PowerSync open/connect failure, kept so the renderer can SHOW it (see the
+// topbar badge's details panel in PosShell.jsx). Added 2026-07-31: the packaged-app
+// failures on other restaurants' machines were undiagnosable precisely because this
+// error only ever went to console.error — invisible on a double-clicked app, and we
+// have no terminal access to those machines. Cleared on the next successful connect.
+let psLastError = null;
+
+// Rolling log of PowerSync connection events (added 2026-07-31). A machine was found
+// sitting at connected:false / hasSynced:true / error:none — i.e. it connected fine,
+// dropped some time later, and left NO trace of why, because nothing was watching
+// anything after the initial connect() call returned. This buffer records every status
+// transition and every token fetch so the "what happened between then and now" question
+// is answerable — including from a remote machine, since it rides along in the badge's
+// Copy details dump. Capped so a terminal running for days can't grow it without bound.
+const PS_EVENT_LIMIT = 40;
+const psEvents = [];
+
+function pushPsEvent(kind, detail) {
+  const entry = { at: new Date().toISOString(), kind, detail: detail || '' };
+  psEvents.push(entry);
+  if (psEvents.length > PS_EVENT_LIMIT) psEvents.shift();
+  // Also to stdout — visible when the packaged app is launched from a terminal
+  // (per RULES.md §1a, that's the only way to see main-process output).
+  console.log(`[powersync] ${kind}${detail ? ': ' + detail : ''}`);
+}
+
+// Watches the SDK's own status stream and records only REAL transitions of the two
+// fields that matter. statusChanged fires often (download progress, etc.), so logging
+// every call would bury the signal — this logs a connect/disconnect or a sync
+// completion, plus any download/upload error the moment it appears.
+let psPrev = { connected: null, hasSynced: null, error: null };
+
+function watchPowerSyncStatus(db) {
+  db.registerListener({
+    statusChanged: (status) => {
+      const flow = status?.dataFlowStatus || {};
+      const err  = flow.downloadError?.message || flow.uploadError?.message || null;
+      const connected = !!status?.connected;
+      const hasSynced = !!status?.hasSynced;
+
+      if (psPrev.connected !== connected) {
+        pushPsEvent(connected ? 'connected' : 'disconnected',
+          connected ? '' : `lastSyncedAt=${status?.lastSyncedAt ? new Date(status.lastSyncedAt).toISOString() : 'never'}`);
+      }
+      if (psPrev.hasSynced !== hasSynced && hasSynced) pushPsEvent('first-sync-complete', '');
+      if (err && err !== psPrev.error) pushPsEvent('sync-error', err);
+
+      psPrev = { connected, hasSynced, error: err };
+    },
+  });
+}
+
+// ── Local-data ownership guard (added 2026-07-31) ──────────────────────────────
+// The local PowerSync SQLite file lives in app.getPath('userData') and PERSISTS
+// across logouts, logins and app restarts. Nothing in this app ever cleared it:
+// auth:logout only called disconnect(), never disconnectAndClear() (PowerSync's own
+// docs for that method literally say "Use this when logging out"). Because every
+// Admin/Cashier screen reads from that local copy, a machine that had ever synced
+// restaurant A kept showing A's menu/orders to whoever used it next — which is the
+// 2026-07-30 "another restaurant's data appeared on a machine" incident. That was
+// recorded in MEMORY.md as "probably a cloned disk image, unconfirmed"; it needs no
+// cloned disk at all, just the same Windows account used by two different logins.
+// Confirmed from a real machine's diagnostic dump on 2026-07-31: a supposedly fresh
+// install reported lastSyncedAt from the PREVIOUS day.
+//
+// `psOwner` records which user/restaurant the local database currently holds data
+// for. Any mismatch — or no marker at all — wipes it before syncing.
+async function ensureLocalDataBelongsToCurrentUser(db) {
+  const session = store.get('session') || null;
+  const current = {
+    userId:       session?.user?.id || null,
+    restaurantId: session?.user?.restaurant_id || session?.restaurant?.id || null,
+  };
+  // Not logged in — nothing to compare against, and connect() would fail anyway.
+  if (!current.userId) return;
+
+  const owner = store.get('psOwner') || null;
+  const sameOwner = !!owner
+    && owner.userId === current.userId
+    && owner.restaurantId === current.restaurantId;
+
+  if (!sameOwner) {
+    // A MISSING marker is treated exactly like a mismatched one, deliberately. On the
+    // first launch after this fix every machine has no marker but may well have another
+    // restaurant's rows sitting in local SQLite — precisely the machines this is meant to
+    // protect. The cost is one extra full re-sync on that first launch; the alternative
+    // is trusting data whose owner we cannot establish.
+    pushPsEvent('local-data-cleared', owner
+      ? `previous owner user=${owner.userId} restaurant=${owner.restaurantId}`
+      : 'no ownership marker (first run after this fix, or data predating it)');
+    try {
+      await db.disconnectAndClear();
+    } catch (err) {
+      // Don't abort the connect: syncing with stale local rows is bad, but a terminal
+      // that refuses to start is worse. The failure is recorded and will show up in the
+      // badge's Copy details dump.
+      pushPsEvent('local-data-clear-failed', err?.message || String(err));
+    }
+  }
+  store.set('psOwner', current);
+}
+
 async function connectPowerSync() {
-  const db = await getPowerSync();
-  const connector = new Connector(() => store.get('session')?.token || null);
+  // getPowerSync() is INSIDE the try (it was outside before): opening the database is
+  // exactly where the native-extension load happens, so a failure there is the single
+  // most important error to capture — and un-awaited callers would otherwise turn it
+  // into a silent unhandled rejection.
   try {
+    const db = await getPowerSync();
+    // Must run BEFORE connect() — clearing after a sync has started would race the
+    // incoming data and could wipe rows that legitimately belong to the new user.
+    await ensureLocalDataBelongsToCurrentUser(db);
+    pushPsEvent('connect-called', '');
+    const connector = new Connector(
+      () => store.get('session')?.token || null,
+      pushPsEvent,
+    );
     await db.connect(connector);
+    psLastError = null;
   } catch (err) {
-    console.error('[powersync] connect failed:', err.message);
+    psLastError = err?.message || String(err);
+    pushPsEvent('connect-failed', psLastError);
   }
 }
 
@@ -308,8 +468,15 @@ ipcMain.handle('auth:get-session', () => {
 
 ipcMain.handle('auth:logout', async () => {
   store.delete('session');
+  // Drop the ownership marker too, so the next login can never match it and is always
+  // forced through a clean re-sync (see ensureLocalDataBelongsToCurrentUser).
+  store.delete('psOwner');
   if (psDb) {
-    try { await psDb.disconnect(); } catch (err) { console.warn('[powersync] disconnect error:', err.message); }
+    // disconnectAndClear(), NOT disconnect() — this is the actual fix for the
+    // cross-restaurant data-visibility bug. disconnect() left every synced row on
+    // disk for the next person to use this machine; the tables are now emptied.
+    try { await psDb.disconnectAndClear(); }
+    catch (err) { console.warn('[powersync] disconnectAndClear error:', err.message); }
   }
   return { ok: true };
 });
@@ -522,8 +689,30 @@ ipcMain.handle('powersync:get', async (_event, { sql, params }) => {
   return db.get(sql, params || []);
 });
 
+// Returns MORE than the connected/hasSynced pair the topbar badge needs for its
+// green/amber/red decision — the extra fields (connecting, lastSyncedAt, error) exist
+// so the badge's details panel can tell a remote user WHICH leg is broken instead of
+// just saying "Offline". Field names verified against @powersync/common's real
+// SyncStatus class (connected/connecting/lastSyncedAt/hasSynced/dataFlowStatus), not
+// assumed. lastSyncedAt is serialized to an ISO string rather than sent as a Date.
 ipcMain.handle('powersync:status', async () => {
-  if (!psDb) return { connected: false, hasSynced: false };
+  if (!psDb) {
+    return {
+      connected: false, connecting: false, hasSynced: false, lastSyncedAt: null,
+      error: psLastError, events: psEvents.slice(-PS_EVENT_LIMIT),
+    };
+  }
   const status = psDb.currentStatus;
-  return { connected: !!status?.connected, hasSynced: !!status?.hasSynced };
+  const flow   = status?.dataFlowStatus || {};
+  return {
+    connected:    !!status?.connected,
+    connecting:   !!status?.connecting,
+    hasSynced:    !!status?.hasSynced,
+    lastSyncedAt: status?.lastSyncedAt ? new Date(status.lastSyncedAt).toISOString() : null,
+    // psLastError (open/connect) takes priority; download/upload errors are the
+    // "connected once, failing now" case. Both are plain strings — an Error object
+    // does not survive the IPC boundary intact.
+    error: psLastError || flow.downloadError?.message || flow.uploadError?.message || null,
+    events: psEvents.slice(-PS_EVENT_LIMIT),
+  };
 });
