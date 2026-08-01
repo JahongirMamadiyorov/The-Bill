@@ -1,0 +1,132 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PowerSync Sync Streams config — SOURCE OF TRUTH, keep this file in sync with
+# the PowerSync dashboard by hand (the dashboard is the thing that actually runs;
+# this file exists so the rules are readable/reviewable in the repo instead of
+# living only in a web UI, which cost a whole debugging session on 2026-07-31).
+#
+# ── Why the `with:` CTE block exists (added 2026-08-01) ──────────────────────
+# PowerSync service regression, reported as powersync-ja/powersync-service#611
+# (since the 2026-04-21 system update): a stream with `auto_subscribe: true` and
+# NO `with:` block counts the TOTAL DATA ROWS of its queries as "parameter query
+# results", which are hard-capped at 1000. This restaurant has ~26,000
+# order_items rows, so the stream failed outright with:
+#   [PSYNC_S2001] / [PSYNC_S2305] Too many parameter query results (limit of 1000)
+# and the client could not sync AT ALL. Wrapping the stream in a trivial one-row
+# CTE collapses that count to 1. This is the workaround documented in that issue.
+#
+# Do NOT "simplify" this back to `WHERE restaurant_id = auth.parameter(...)`
+# without the CTE — that is precisely the shape that breaks.
+#
+# ── Why every query filters restaurant_id DIRECTLY ──────────────────────────
+# Three tables (order_items, delivery_items, menu_item_ingredients) used to reach
+# restaurant_id via an INNER JOIN to their parent. PowerSync compiles such a join
+# into a real parameter query (one row per parent row), which independently blew
+# the same 1000 cap — order_items JOIN orders returned 3,433. Migration
+# `denormalize_restaurant_id_for_powersync_s2305` (2026-07-31) gave all three
+# their own restaurant_id column, backfilled, indexed, and kept correct by a
+# BEFORE INSERT/UPDATE trigger per table.
+#
+# That also matters for the CTE workaround above: issue #611 notes that using the
+# CTE name inside a NESTED SUBQUERY re-triggers the row-counting bug. Because no
+# query here needs a subquery or join any more, the workaround applies cleanly.
+#
+# RULE FOR FUTURE TABLES: any new child table added below must have its OWN
+# restaurant_id column (+ trigger) and filter directly. Never join to a parent.
+# ─────────────────────────────────────────────────────────────────────────────
+
+config:
+  edition: 3
+
+streams:
+  restaurant_scope:
+    auto_subscribe: true
+
+    # One row, always: the caller's own restaurant id, taken from the custom
+    # claim minted into the PowerSync JWT by the backend's
+    # GET /api/auth/powersync-token (60m TTL). Scalar subqueries are not
+    # supported in Sync Streams, which is why the claim exists at all.
+    # SYNTAX NOTE (got this wrong once, 2026-08-01): the value here is a SCALAR
+    # string, not a YAML list. Writing it as `- SELECT ...` fails validation with
+    # "Expected a scalar value here." and then every query that references the CTE
+    # reports "Column not found." — because the CTE never got defined at all, so the
+    # name falls through to being parsed as a column.
+    #
+    # The short-hand `IN restaurant_scope_ids` below is only legal because this CTE
+    # returns EXACTLY ONE column; it is equivalent to `IN (SELECT * FROM
+    # restaurant_scope_ids)`. If a second column is ever added here, every query
+    # must switch to explicit subquery form.
+    with:
+      restaurant_scope_ids: SELECT id FROM restaurants WHERE id = auth.parameter('restaurant_id')
+
+    queries:
+      - SELECT * FROM restaurants WHERE id IN restaurant_scope_ids
+
+      # Explicit column list, never SELECT * — this table has password_hash and
+      # (later) pin_hash on it, which must never reach a local SQLite file.
+      - SELECT id, restaurant_id, name, email, phone, role, is_active, salary, salary_type, shift_start, shift_end, kitchen_station, commission_rate, created_at, updated_at
+          FROM users WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM restaurant_tables WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id::text as id, restaurant_id, name FROM table_sections
+          WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM categories WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM menu_items WHERE restaurant_id IN restaurant_scope_ids
+
+      # Composite-key table: PowerSync requires a single `id`, so one is
+      # synthesised from the two key columns. Keep that. The INNER JOIN to
+      # menu_items it used to need is gone (see header).
+      - SELECT menu_item_id || ':' || ingredient_id as id,
+               menu_item_id, ingredient_id, quantity_used
+          FROM menu_item_ingredients
+          WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id::text as id, restaurant_id, name FROM custom_stations
+          WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM orders WHERE restaurant_id IN restaurant_scope_ids
+
+      # Was: INNER JOIN orders — the query that produced 3,433 parameter rows.
+      - SELECT * FROM order_items WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM customers WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM notifications WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT * FROM waitress_permissions WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id::text as id, restaurant_id, restaurant_name, receipt_header, service_charge_rate,
+               service_charge_enabled, address, phone, logo_url, currency_symbol, receipt_footer,
+               printer_ip, printer_port, kitchen_printer_ip, kitchen_printer_port, tax_rate,
+               tax_enabled, kitchen_printers, receipt_printers
+          FROM restaurant_settings
+          WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, name, category, sku_code, unit, purchase_unit, quantity_in_stock, min_stock_level, low_stock_alert, cost_per_unit, supplier_id, created_at, updated_at
+          FROM warehouse_items WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, name, phone, email, address, contact_name, payment_terms, category, created_at
+          FROM suppliers WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, item_id, quantity_remaining, cost_price, expiry_date, received_at
+          FROM stock_batches WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, item_id, type, quantity, user_id, reason, notes, cost_per_unit, created_at
+          FROM stock_movements WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, supplier_name, supplier_id, total, status, payment_status, notes, timestamp, paid_at, payment_method, payment_note, payment_due_date, created_at, updated_at
+          FROM supplier_deliveries WHERE restaurant_id IN restaurant_scope_ids
+
+      # Was: INNER JOIN supplier_deliveries.
+      - SELECT * FROM delivery_items WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, order_id, customer_name, customer_phone, due_date, amount, status, paid_at, payment_method, notes, created_at, updated_at
+          FROM loans WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, user_id, clock_in, clock_out, hourly_rate, scheduled_start_time, status, note, shift_date, created_at
+          FROM shifts WHERE restaurant_id IN restaurant_scope_ids
+
+      - SELECT id, restaurant_id, user_id, amount, payment_method, payment_date, note, recorded_by, created_at, updated_at
+          FROM staff_payments WHERE restaurant_id IN restaurant_scope_ids

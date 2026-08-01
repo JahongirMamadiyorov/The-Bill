@@ -1030,6 +1030,35 @@ limit — **the dev machine could not reproduce it and never will.** Any restaur
   `restaurant_id` + trigger from day one rather than joining to a parent.**
 - Parameter queries are meant to return a small set of bucket keys (a restaurant id, a user id),
   NOT one row per order. The data query is what should do the bulk row selection.
+- **THE 1000 LIMIT IS ON BUCKETS PER USER, NOT ON SYNCABLE ROWS.** One bucket per unique value of
+  a filter expression; the rows inside buckets are effectively unlimited (people sync millions).
+  A natural but wrong instinct is to "split 2,500 orders into 3 batches" — chunking by filter
+  value creates MORE buckets, moving toward the limit, not away from it. There is no
+  partial/paged sync mechanism to reach for here.
+- **SECOND, SEPARATE CAUSE OF S2305 — a PowerSync SERVICE regression, hit 2026-08-01:**
+  `powersync-ja/powersync-service#611`. Since the **2026-04-21** system update, a stream with
+  `auto_subscribe: true` and **no `with:` block** counts the TOTAL DATA ROWS of its queries as
+  parameter query results. Our single `restaurant_scope` stream was exactly that shape, and
+  ~26,000 `order_items` rows blew the cap on their own. **This is why S2305 survived the
+  denormalization fix above — after that migration every query filtered `restaurant_id` directly
+  with zero joins, and the count still exceeded 1000, which is only possible if data rows are
+  being counted.** Workaround (from the issue): wrap the stream in a trivial one-row CTE and use
+  `WHERE restaurant_id IN <cte_name>` everywhere; that collapses the count to 1. **Do not
+  "simplify" the `with:` block away.** The issue also warns that referencing the CTE inside a
+  NESTED SUBQUERY re-triggers the row counting — which is why the denormalization migration was a
+  prerequisite for the workaround, not a detour.
+- **CTE syntax gotcha, got it wrong once on 2026-08-01:** in a `with:` block the value is a
+  **scalar string** (`cte_name: SELECT ...`), NOT a YAML list. Writing `cte_name:` followed by
+  `- SELECT ...` fails dashboard validation with `Expected a scalar value here.` followed by one
+  `Column not found.` per query — because the CTE never gets defined, so its name falls through
+  and is parsed as a column. The short-hand `IN cte_name` is only legal when the CTE returns
+  **exactly one column** (it means `IN (SELECT * FROM cte_name)`); with more columns, use explicit
+  subquery or INNER JOIN form. CTE names must not shadow a real table name, and CTEs cannot
+  reference other CTEs.
+- **The sync rules are now versioned at `pos-app/powersync/sync-rules.yaml`** (added 2026-08-01).
+  They previously lived ONLY in the PowerSync dashboard, which cost a full round-trip mid-debug to
+  get them. The dashboard is still what actually runs — **this file must be updated by hand
+  whenever the dashboard is**, or it becomes a lie.
 - **When a machine reports sync problems, check row counts for THAT restaurant first** — a
   Supabase count query is faster than any client-side debugging, and this class of bug is
   invisible on a low-volume account.

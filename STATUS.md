@@ -3,7 +3,71 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-## 2026-07-31 (LATEST, later): PowerSync failure diagnosed — sync-rules limit + the real
+## 2026-08-01 (LATEST): PowerSync WORKING — S2305 resolved, data leak fixed and verified
+
+**Both problems are closed and confirmed on a real machine.** The Do'stlar 2 terminal — the
+restaurant that had never once synced — now works.
+
+- **S2305 RESOLVED.** Two independent causes, peeled back in order: (1) three sync-rules queries
+  reached `restaurant_id` via INNER JOIN, which PowerSync compiles into real parameter queries
+  (3,433 rows for this restaurant) — fixed by denormalizing `restaurant_id` onto `order_items`,
+  `delivery_items`, `menu_item_ingredients` (migration + backfill + index + trigger); (2) the
+  actual final blocker, a PowerSync SERVICE regression (`powersync-service#611`, since 2026-04-21)
+  that counts DATA ROWS as parameter results for `auto_subscribe` streams with no CTE — fixed by
+  the one-row CTE workaround now deployed. **Cause (1) was a prerequisite for (2)**, since #611
+  re-triggers on CTEs referenced inside nested subqueries.
+- **Cross-restaurant data leak FIXED AND VERIFIED.** Root cause was two code bugs, not the cloned
+  disk image previously guessed: `auth:logout` called `disconnect()` instead of
+  `disconnectAndClear()`, and `App.jsx`'s `handleLogout` never reached the main process at all.
+  Confirmed live: the affected terminal logged `local-data-cleared`, reported `Last synced: Never`
+  and showed an empty Menu — stale data genuinely gone.
+- **Sync rules are now versioned** at `pos-app/powersync/sync-rules.yaml` (previously dashboard-
+  only). The dashboard is still what runs — keep both in sync by hand.
+
+**MUST CHECK NEXT SESSION:** `local-data-cleared` must NOT fire on a clean launch with no logout.
+If it does, the `psOwner` marker isn't persisting and every terminal re-downloads everything on
+every start. This could not be tested until sync succeeded once, which only just happened.
+
+**Offered, not built:** retry-with-backoff in `request()` for transient TLS/cold-start login
+failures; `electronLanguages: ["en-US"]` to cut ~40MB of unused Chromium locales; scoping synced
+orders by age (26,000 order_items per terminal is heavy — performance, not a limit).
+
+**Still untested from earlier sessions:** Printers tab in Admin Settings, the 7 kitchen print call
+sites, Login screen show/hide + language toggle.
+
+## 2026-08-01 (earlier): S2305 is a PowerSync SERVICE regression; leak fix confirmed working
+
+- **DONE + VERIFIED ON A REAL MACHINE — the cross-restaurant data leak.** A Do'stlar 2 terminal
+  logged `local-data-cleared`, reported `Last synced: Never` and showed an empty Menu — the
+  previous day's stale data was genuinely wiped. The 2026-07-30 incident is closed: root cause
+  found (logout never cleared local data; `handleLogout` never even reached the main process),
+  fixed, and confirmed live.
+- **OPEN — S2305, and it is NOT our sync rules.** It survived the denormalization migration AND
+  the rules deploy. Cause found by research: `powersync-ja/powersync-service#611` — since the
+  **2026-04-21** system update, a stream with `auto_subscribe: true` and **no `with:` block**
+  counts TOTAL DATA ROWS as parameter query results (cap 1000). Our stream is that shape;
+  this restaurant has ~26,000 `order_items`. Proof it's the regression: every query now filters
+  `restaurant_id` directly with zero joins/subqueries and the count still exceeded 1000.
+  **Workaround written and handed over: `pos-app/powersync/sync-rules.yaml`** — a one-row CTE
+  (`with: restaurant_scope_ids`) plus `WHERE restaurant_id IN restaurant_scope_ids` everywhere.
+  **REMAINING: user pastes that file into the PowerSync dashboard, validates, deploys.**
+  Note the 2026-07-31 migration was a prerequisite, not a detour — issue #611 says referencing the
+  CTE inside a nested subquery re-triggers the bug, so the workaround would not have applied
+  cleanly to the old JOIN-based queries.
+- **Clarification worth keeping:** the 1000 limit is on BUCKETS per user, not on syncable rows.
+  Splitting orders into batches cannot fix it — that creates more buckets, not fewer.
+- **Sync rules are now versioned in the repo** (`pos-app/powersync/sync-rules.yaml`). They used to
+  exist only in the dashboard. The dashboard is still what runs — keep both in sync by hand.
+- **Transient, not a bug:** "Client network socket disconnected before secure TLS connection was
+  established" at the login screen is Render free-tier cold start (backend confirmed healthy via
+  a direct `/health` fetch). `request()` has a 15s timeout and no retry, so one dropped handshake
+  = a hard login failure. Offered retry-with-backoff; not yet built.
+- **Watch after the next deploy:** `local-data-cleared` fired 3x in one session, each "no
+  ownership marker". Consistent with logging out between attempts (logout deletes it by design),
+  but after a normal launch with no logout it must NOT fire again — otherwise every terminal
+  re-downloads everything on every start. Undiagnosable until sync completes once.
+
+## 2026-07-31: PowerSync failure diagnosed — sync-rules limit + the real
 ## cross-restaurant root cause
 
 The badge's new event log produced the actual error in one rebuild:

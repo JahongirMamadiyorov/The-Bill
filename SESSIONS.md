@@ -2999,3 +2999,100 @@ is an `integer` and its query doesn't `id::text as id` the way `table_sections`/
 
 **Still to do:** user deploys the sync rules, then rebuilds and verifies both this and the
 local-data leak fix on a real machine.
+
+## 2026-08-01 — S2305 traced to a PowerSync SERVICE regression, not our rules; leak fix confirmed
+## working on a real machine
+
+**The leak fix is verified in production.** A Do'stlar 2 terminal running the new build logged
+`local-data-cleared — no ownership marker`, reported `Last synced: Never`, and showed an empty
+Menu — i.e. the previous day's stale Do'stlar 2 data (`lastSyncedAt=2026-07-31T10:57:34Z`) was
+genuinely wiped rather than silently reused. That closes the 2026-07-30 cross-restaurant incident
+end to end: root cause found, fixed, and confirmed on a real machine.
+
+**The TLS error seen at the login screen was transient, and the event log proved it** rather than
+leaving it a mystery: one `token-fail — Client network socket disconnected before secure TLS
+connection was established` at 09:36, then clean `token-ok` at 09:41 and 09:44. Cause is Render's
+free tier cold-starting (accepts the TCP connection, drops it mid-TLS-handshake while waking);
+confirmed the backend itself was healthy by fetching `/health` directly and getting
+`{"status":"ok"}`. `request()` in `main.js` has a 15s timeout and NO retry, so a single dropped
+handshake surfaces as a hard login failure — offered to add retry-with-backoff, not yet done.
+
+**S2305 SURVIVED the denormalization migration + rules deploy — because the real cause is a
+PowerSync service regression, not our sync rules.** Found via research (not guessed):
+`powersync-ja/powersync-service#611` — since the **2026-04-21** system update, a stream with
+`auto_subscribe: true` and **no `with:` block** counts the TOTAL DATA ROWS of its queries as
+"parameter query results", which are capped at 1000. Our `restaurant_scope` stream is exactly
+that shape, and this restaurant has ~26,000 `order_items` rows. The proof it's the regression and
+not our rules: after the migration every query filters `restaurant_id` directly with zero joins
+and zero subqueries, and the count STILL exceeded 1000 — which is only possible if data rows are
+being counted.
+
+**Also clarified a real misconception worth recording:** the 1000 limit is on BUCKETS per user
+(one per unique filter value), NOT on how many rows can sync — data rows are effectively
+unlimited. So "split 2,500 orders into 3 batches" cannot work as a fix; chunking by filter value
+creates MORE buckets, i.e. pushes toward the limit rather than away from it.
+
+**Applied the workaround documented in that issue:** wrap the stream in a trivial one-row CTE
+(`with: restaurant_scope_ids: SELECT id FROM restaurants WHERE id = auth.parameter('restaurant_id')`)
+and change every query to `WHERE restaurant_id IN restaurant_scope_ids`. This collapses the
+counted result to 1.
+
+**The 2026-07-31 migration turns out to have been a prerequisite, not a detour.** Issue #611 notes
+that referencing the CTE name inside a NESTED SUBQUERY re-triggers the row-counting bug — so the
+workaround would NOT have applied cleanly to the original JOIN-based queries. Because
+`order_items`/`delivery_items`/`menu_item_ingredients` now carry their own `restaurant_id`, every
+query is a direct filter and the CTE form is clean.
+
+**Sync rules are now versioned in the repo** at `pos-app/powersync/sync-rules.yaml`, with a header
+explaining the regression, why the `with:` block must not be "simplified" away, and the standing
+rule that any new child table gets its own `restaurant_id` + trigger rather than a join to a
+parent. They previously existed ONLY in the PowerSync dashboard, which is why diagnosing this
+needed a round-trip to ask the user to paste them. The dashboard remains what actually runs —
+this file must be kept in sync by hand.
+
+**Next:** user deploys the CTE version, then confirms a Do'stlar 2 terminal reaches green Online.
+One thing to watch after that: `local-data-cleared` fired 3x in one session, each "no ownership
+marker" — consistent with logging out between attempts (logout deletes the marker by design), but
+after a normal launch with no logout it must NOT clear again, or every terminal re-downloads
+everything on every start. Can't be distinguished until sync completes at least once.
+
+### RESOLVED — sync confirmed working after the CTE deploy (2026-08-01)
+
+First paste of the CTE version failed dashboard validation with `Expected a scalar value here.`
+plus 24x `Column not found.` — **my YAML error, not a service or config problem**: a `with:` block
+takes a SCALAR string (`cte_name: SELECT ...`), and I had written it as a YAML list
+(`cte_name:` / `- SELECT ...`). The CTE therefore never got defined, so every reference to
+`restaurant_scope_ids` fell through and was parsed as a column name — which is exactly what those
+24 errors were. Confirmed the correct syntax against PowerSync's own CTE docs (also confirming the
+short-hand `IN cte_name` is legal only for a single-column CTE, which ours is) rather than trying
+another variation blind. Fixed, re-verified by parsing the YAML and asserting the CTE is a string
+and all 23 queries reference it, then re-pasted.
+
+**User confirmed: working.** The Do'stlar 2 terminal now syncs — the restaurant that had never
+once been able to.
+
+Full chain of what was actually wrong, in the order it had to be peeled back:
+1. Packaging (5 bugs, 2026-07-29/30) — fixed and verified earlier this session.
+2. The badge collapsed three checks into one word, making everything undiagnosable — fixed.
+3. Nothing recorded PowerSync events after the initial connect, and the SDK swallows
+   `fetchCredentials` errors — fixed with the event log, which is what produced the real error.
+4. Three sync-rules queries reached `restaurant_id` via INNER JOIN, compiling into real parameter
+   queries (3,433 rows) — fixed by denormalizing `restaurant_id` onto the child tables.
+5. The actual final blocker: a PowerSync SERVICE regression (#611) counting data rows as parameter
+   results for `auto_subscribe` streams without a CTE — fixed with the one-row CTE workaround.
+   Step 4 was a prerequisite for step 5, not a detour.
+6. Separately, and most seriously: the cross-restaurant data leak (logout never cleared local data;
+   `handleLogout` never reached the main process) — fixed and verified live.
+
+**Still open / next session:**
+- **Watch that `local-data-cleared` stops firing.** It must not appear on a clean launch with no
+  logout, or every terminal re-downloads everything every start. Could not be checked until sync
+  succeeded at least once, which has only just happened.
+- Offered but not built: retry-with-backoff in `main.js`'s `request()` for transient TLS/cold-start
+  failures (currently one dropped handshake = a hard login failure with a scary TLS message).
+- Offered but not built: `electronLanguages: ["en-US"]` to drop ~40MB of unused Chromium locale
+  files from the package.
+- Untested from earlier sessions, unrelated to today: Printers tab in Admin Settings, the 7 kitchen
+  print call sites, Login screen show/hide + language toggle.
+- Consider scoping synced orders/order_items by age (e.g. last 90 days) — 26,000 order_items per
+  terminal is heavy for local DB size and first-sync time. Performance, not a limit problem.
