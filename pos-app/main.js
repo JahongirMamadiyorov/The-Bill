@@ -30,7 +30,7 @@ const { pathToFileURL } = require('url');
 
 const { buildSchema }       = require('./powersync/schema');
 const { Connector }         = require('./powersync/connector');
-const { printKitchenTicket } = require('./printEngine');
+const { printKitchenTicket, printReceipt } = require('./printEngine');
 // @powersync/node is a pure ESM package (no CommonJS support) — it can't be `require()`d from
 // this file. Node allows dynamic `import()` from CommonJS code though, so it's loaded lazily
 // the first time it's actually needed (see getPowerSync() below), not at the top of the file.
@@ -574,6 +574,20 @@ ipcMain.handle('print:kitchenTicket', async (_event, { order, items, printers, s
     // printKitchenTicket() is designed to never throw — this catch only
     // guards against a truly unexpected bug so a print attempt can never
     // crash the app or the IPC bridge.
+    return { ok: false, error: err.message || 'Unexpected print error' };
+  }
+});
+
+// ── IPC: Customer receipt printing (direct LAN, see printEngine.js) ───────────
+// Same shape and same guarantees as the kitchen handler above: the renderer
+// passes the already-assembled receipt (see src/lib/receipt.js) plus the
+// receipt printer list from useSettings.js, so there is no settings fetch and
+// no cloud round-trip — just the LAN TCP send. Unlike the website, which posts
+// to the backend's POST /api/print/receipt and has Render open the socket.
+ipcMain.handle('print:receipt', async (_event, { receipt, printers }) => {
+  try {
+    return await printReceipt({ receipt, printers });
+  } catch (err) {
     return { ok: false, error: err.message || 'Unexpected print error' };
   }
 });

@@ -6,7 +6,8 @@ import Dropdown from '../../../components/Dropdown.jsx';
 import DatePicker from '../../../components/DatePicker.jsx';
 import PhoneInput, { formatPhoneDisplay } from '../../../components/PhoneInput.jsx';
 import { camelizeRow, camelizeRows } from '../../../lib/case.js';
-import { ClipboardList, Check, X, AlertTriangle, Trash2, RefreshCw, Calendar, DollarSign, Grid3X3, User, CreditCard, Ban, Edit3, Plus, Minus, FileText } from 'lucide-react';
+import { ClipboardList, Check, X, AlertTriangle, Trash2, RefreshCw, Calendar, DollarSign, Grid3X3, User, CreditCard, Ban, Edit3, Plus, Minus, FileText, Printer } from 'lucide-react';
+import { buildReceiptData } from '../../../lib/receipt.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ported verbatim from website/src/pages/admin/AdminOrders.jsx (~2145 lines) —
@@ -908,6 +909,36 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     return Math.max(0, (parseFloat(pf.amountReceived) || 0) - total);
   };
 
+  // Receipt print for the Collect Payment modal (2026-08-02). Restores the
+  // "Print Receipt" button that adaptation #4 in this file's header removed
+  // during the port, now that pos-app has its own LAN receipt engine.
+  // Best-effort and never throws, so it can't affect the payment itself.
+  const printPaymentReceipt = async (order, formData) => {
+    if (!order) return;
+    try {
+      const receipt = buildReceiptData({
+        order,
+        items: (order.items || []).map((it) => ({
+          name:      it.name || it.menuItemName || 'Item',
+          quantity:  Number(it.quantity || 1),
+          unitPrice: Number(it.unitPrice || it.price || 0),
+          unit:      it.unit,
+        })),
+        settings: settings || {},
+        payment: {
+          method:         formData?.paymentMethod,
+          discountAmount: getDiscountAmount(formData, order.totalAmount || 0),
+          discountReason: formData?.discountReason,
+          amountReceived: formData?.amountReceived,
+        },
+      });
+      const res = await window.electronAPI.printReceipt({
+        receipt, printers: settings?.receiptPrinters,
+      });
+      if (res?.failed?.length > 0) setError(t('admin.orders.receiptPrinterFailed'));
+    } catch { /* best-effort */ }
+  };
+
   const processPayment = async () => {
     if (!paymentOrder) return;
     const finalAmount = getTotalAfterDiscount(paymentFormData);
@@ -941,6 +972,12 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
 
     try {
       await call(ordersAPI.pay, paymentOrder.id, payload);
+      // Auto-print, gated on restaurant_settings.receipt_auto_print (default
+      // true). Captured BEFORE setPaymentOrder(null) clears the state below,
+      // and awaited so a slow printer can't race the modal closing.
+      if (settings?.receiptAutoPrint) {
+        await printPaymentReceipt(paymentOrder, paymentFormData);
+      }
       setPaymentOrder(null);
       setSplitParts([]);
       await fetchActiveOrders();
@@ -2190,10 +2227,13 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                     )}
                   </div>
 
-                  {/* Actions footer — the source's "Print Receipt" button (between
-                      Confirm Payment and Cancel) is removed here, per the standing
-                      print-exclusion rule — see this file's header comment,
-                      adaptation #4. */}
+                  {/* Actions footer. The source's "Print Receipt" button was removed
+                      during the original port (adaptation #4 in this file's header,
+                      when printing was out of scope) and is RESTORED here as of
+                      2026-08-02, now that pos-app prints receipts over the LAN
+                      itself. It prints the receipt as currently configured in this
+                      modal without confirming payment, so a cashier can hand the
+                      customer a bill before taking the money. */}
                   <div className="p-4 border-t border-gray-200 space-y-2 flex-shrink-0 bg-white">
                     <button
                       onClick={processPayment}
@@ -2201,6 +2241,13 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                     >
                       <Check size={18} className="text-green-400" />
                       {t('cashier.orders.confirmPayment')} · {money(totalToPay)}
+                    </button>
+                    <button
+                      onClick={() => printPaymentReceipt(paymentOrder, paymentFormData)}
+                      className="w-full flex items-center justify-center gap-2 px-5 py-2.5 border border-gray-200 text-gray-900 font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors"
+                    >
+                      <Printer size={16} />
+                      {t('admin.orders.printReceipt')}
                     </button>
                     <button
                       onClick={() => setPaymentOrder(null)}

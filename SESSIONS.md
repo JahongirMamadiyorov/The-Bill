@@ -3096,3 +3096,143 @@ Full chain of what was actually wrong, in the order it had to be peeled back:
   print call sites, Login screen show/hide + language toggle.
 - Consider scoping synced orders/order_items by age (e.g. last 90 days) — 26,000 order_items per
   terminal is heavy for local DB size and first-sync time. Performance, not a limit problem.
+
+## 2026-08-02 — RLS/anon exposure found and closed (asked as "what is RLS?", turned out to matter)
+
+User asked what RLS is. Rather than answer generically, checked what was actually true of this
+database — which turned the long-standing "RLS disabled" advisor warning from a cosmetic item into
+a confirmed live data exposure:
+
+- All **37** public tables had RLS disabled (zero enabled).
+- `anon` and `authenticated` held **SELECT/INSERT/UPDATE/DELETE/TRUNCATE on all 37**.
+- PostgREST live (an `authenticator` connection was present in `pg_stat_activity`).
+
+Since Supabase serves public-schema tables over PostgREST and the anon key is public by design,
+anyone with that key could read/modify/delete every row over HTTPS — `users.password_hash`
+included. The standing assumption ("fine, the Express backend enforces access at the app layer")
+was wrong, because that route never touches the app.
+
+Also checked first, which is what made this safe to fix immediately: grepped the repo and found
+**no `supabase-js` client anywhere** — the frontends only talk to the Express API — then read
+`pg_stat_activity` to identify the real connecting roles rather than trusting `.env.example`:
+`postgres` (backend) and `powersync_role` both have `rolbypassrls = true`; `authenticator`
+(PostgREST → anon) does not. So enabling RLS closes exactly the exposed path and nothing else.
+This mattered because the user answered "not sure" when asked which DB role Render uses, while
+also asking to apply both changes at once — checking beat guessing.
+
+Migration `close_anon_exposure_enable_rls_all_public_tables`: revoked anon/authenticated
+privileges on all tables and sequences, revoked the matching default privileges so new tables
+can't silently regain them, and enabled RLS on all 37 tables (no policies = deny-by-default).
+`FORCE ROW LEVEL SECURITY` deliberately not used (would apply to the owner too).
+
+Verified after: 37/37 RLS on, 0 anon grants, 0 policies, and `postgres` still sees all data
+(4 restaurants / 21 users / 3,547 orders). Note `mcp__workspace__web_fetch` returned a CACHED
+`/health` response (byte-identical timestamp across calls) — so HTTP checks were not trustworthy
+here and the DB-level check was used instead. Worth remembering for future verification.
+
+**User still needs to confirm in the app** that login and normal usage work post-change.
+
+## 2026-08-02 (later) — receipt printing: foundation built and verified, call sites still to wire
+
+Owner approved the plan and said Go. Built the bottom half of the feature; the UI wiring is not
+done yet.
+
+**Done and verified:**
+- **Migration `add_receipt_auto_print_setting`** — `receipt_auto_print boolean NOT NULL DEFAULT
+  true` on `restaurant_settings`. Defaults TRUE to match the website's PayModal, which always
+  printed on payment, so no restaurant sees a behaviour change until they turn it off.
+- **`routes/settings.js`** — that route is an explicit whitelist, so the column was added in all
+  four required places (destructure, INSERT column list, ON CONFLICT update, values array).
+  Verified: highest placeholder is now `$29` and the values array has exactly 29 entries.
+- **`printEngine.js`** — `buildReceipt()` is a faithful port of the backend's
+  `routes/print.js` `buildEscPos()`, plus `printReceipt()` matching `printKitchenTicket()`'s exact
+  contract (never throws; `{ok:false}` for "nothing configured" is silence, not failure; warn only
+  on a real `failed` entry). Sends to the FIRST configured receipt printer only, per the owner's
+  choice. Uses its own `R_DOUBLE_ON` (ESC ! 0x10, double height) — deliberately NOT the kitchen
+  ticket's `DBL_ON` (0x30, height+width) — to match each source format exactly.
+  **The one intentional deviation from the website: pos-app formats and sends over the LAN itself
+  rather than posting to `POST /api/print/receipt` and having Render open the socket.** The
+  backend route is untouched and still serves the website.
+- **IPC** — `print:receipt` in `main.js`, `printReceipt` on preload, same no-settings-fetch shape
+  as the kitchen handler.
+- **`useSettings.js`** — adds `receiptHeader`, `receiptFooter`, `receiptPrinters`,
+  `receiptAutoPrint`, `receiptShow{logo,orderNumber,tableName,tax,serviceCharge,footer}`. No
+  sync-rules change needed: this reads `GET /api/settings`, a plain `SELECT *`, so the
+  `receipt_show_*` columns are available even though they are absent from the Sync Streams column
+  list.
+- **New `src/lib/receipt.js`** — one shared assembler (`buildReceiptData`,
+  `buildSingleItemReceiptData`, `fmtOrderNum`, `fmtReceiptDate`, `paymentMethodLabel`) ported from
+  PayModal.jsx, so all seven call sites emit identical receipts instead of drifting like the
+  website's PayModal/CashierMenu duplicates did. Normalises BOTH item shapes the app uses (cart
+  entries `{item, qty}` and order rows `{name, quantity, unitPrice}`).
+
+**Deliberate quirk replicated, not "fixed":** tax and service charge are DISPLAYED on the receipt
+but NOT added to the total — the website computes `totalToPay = orderTotal - discount`, and
+pos-app's MenuScreen already labels the service row "not charged". Making the receipt disagree
+with the amount actually charged would be a real bug; if this should change it has to change in
+the payment logic first. Documented in `receipt.js`'s header.
+
+**Verification done:** `node --check` on main.js/preload.js/printEngine.js/settings.js; esbuild
+clean on receipt.js/useSettings.js; and a full end-to-end run (assembler → ESC/POS) with mixed
+item shapes confirming 270 000 subtotal, 12% tax and 10% service shown-but-excluded, discount
+applied, total 250 000, change 50 000, `#42` from dailyNumber, `ESC @` prefix and partial-cut
+suffix, long names wrapping with the price right-aligned below, and weighed units printing
+`1.5 kg` vs `x2`.
+
+**NOT done — next session picks up here:** wiring the seven call sites (Menu cart Print button,
+payment auto-print gated on `receiptAutoPrint`, POS Orders + Tables Print buttons which already
+exist as placeholders, a new History reprint button, Admin Collect Payment's removed Print
+Receipt button, and the per-item receipt + per-item kitchen send), the sent-item tracking so Fire
+only prints the not-yet-sent remainder, the Admin Settings toggle for auto-print, and the UZ i18n
+strings. Nothing is user-visible yet — no call site calls `printReceipt` so far.
+
+### Receipt call sites wired — feature now complete in code (2026-08-02)
+
+All seven print triggers are connected; the feature is user-visible for the first time.
+
+**`pos/MenuScreen.jsx`** (three of the seven):
+- Cart **Print** button — was a placeholder toast ("Receipt printing comes with the History
+  step"), now prints a pre-bill for the current cart with no payment block.
+- **Auto-print after payment** in `submitCharge`, gated on `settings.receiptAutoPrint`. Runs only
+  after `ordersPay` succeeds and can never fail the payment.
+- **Per-item actions on every cart line** — a Flame button sends just that dish to the kitchen,
+  a Printer button prints a cheque for just that item (the Uzbek till-copy use case the owner
+  described).
+
+**Double-print prevention, the one genuinely tricky part:** new `sentQty` state maps
+menu_item_id → quantity already sent individually. `unsentTicketItems()` subtracts it, so Fire
+prints only the remainder — and only the DELTA for partially-sent items (send 2, bump to 3, Fire
+→ kitchen gets 1, not 3). Lines already sent show a "sent" marker. Reset by `clearOrder()`.
+**Only PRINTING is deduplicated — the order write still always sends the full cart**, which is
+correct: the order must contain everything regardless of what was printed when.
+
+**`pos/OrdersScreen.jsx` / `pos/TablesScreen.jsx`** — the existing placeholder Print buttons now
+call a new `printSelectedReceipt()`. Local PowerSync item rows carry `menuItemId` rather than a
+name, so names/units come from the `menuById` lookup these screens already use for editing.
+
+**`pos/HistoryScreen.jsx`** — new **Print Receipt** button in the order detail modal, deliberately
+available for refunded orders too. **Field-name trap avoided:** this screen alone reads REST
+(`GET /api/orders/:id`) and is raw snake_case (`daily_number`, `unit_price`, `payment_method`),
+unlike Orders/Tables which read camelised local rows — mapped explicitly rather than assumed.
+
+**`admin/screens/OrdersScreen.jsx`** — restored the **Print Receipt** button that adaptation #4
+removed from the Collect Payment modal during the original port, plus auto-print after
+`ordersAPI.pay` succeeds (gated on the same setting, captured before `setPaymentOrder(null)`
+clears the state). Failures surface through the screen's existing `setError` toast.
+
+**`admin/screens/SettingsScreen.jsx`** — auto-print toggle added to the receipt-template card.
+Needed no load/save wiring: `load()` spreads the camelised API response and `handleSave()` sends
+the whole form through `client.js`'s `snakeizeKeys`, so it round-trips as `receipt_auto_print`
+by itself.
+
+**i18n** — 7 new UZ strings in `lib/i18n.js` (duplicate-key checked, 252 keys, no dups) and 4 new
+keys in each of `i18n/en.json`/`uz.json`, added programmatically and re-validated as JSON.
+
+**Verified:** `node --check` on main.js/preload.js/printEngine.js; esbuild clean on all six
+changed screens plus receipt.js/i18n.js/useSettings.js; no placeholder toast strings remain; 5
+call sites reach the `printReceipt` IPC.
+
+**NOT tested on real hardware.** Everything so far is syntax, import resolution and one
+synthetic ESC/POS render. The next step is a rebuild and a real printer (or a TCP listener on
+port 9100) to check: each of the seven triggers, that a dish sent individually does NOT reprint
+on Fire, that auto-print respects the new toggle, and that the Uzbek strings read correctly.

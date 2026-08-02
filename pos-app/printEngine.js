@@ -248,4 +248,187 @@ async function printKitchenTicket({ order, items, printers, show }) {
   return { ok: true, printed, failed };
 }
 
-module.exports = { printKitchenTicket, buildKitchenTicket, buildPrintJobs };
+// ═════════════════════════════════════════════════════════════════════════════
+// CUSTOMER RECEIPT (cheque) — added 2026-08-02
+//
+// Deliberate port of restaurant-app/backend/src/routes/print.js's buildEscPos(),
+// NOT a redesign, for the same reason the kitchen ticket above ports
+// kitchenPrint.js: a receipt printed by pos-app must look identical to one
+// printed by the website. If you change the layout here, change it there too.
+//
+// The one intentional difference is WHERE it runs. The website posts receipt
+// data to `POST /api/print/receipt` and the BACKEND opens the socket — meaning
+// every receipt round-trips through Render before reaching a printer sitting a
+// few metres from the till. Here the terminal formats and sends it itself over
+// the LAN, same as the kitchen ticket, per RULES.md §4. The backend route is
+// left untouched and still serves the website.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Receipt uses double-HEIGHT only (ESC ! 0x10), unlike the kitchen ticket's
+// DBL_ON which is double height AND width (0x30). Keeping them separate is
+// deliberate — matching each source format exactly.
+const R_DOUBLE_ON = ESC + '!\x10';
+
+const rDashes = () => '-'.repeat(WIDTH) + '\n';
+
+// Left-align within `len`, truncating anything longer.
+const pad = (str, len) => {
+  const s = String(str || '').substring(0, len);
+  return s + ' '.repeat(Math.max(0, len - s.length));
+};
+
+// Right-align within `len`.
+const rpad = (str, len) => {
+  const s = String(str || '').substring(0, len);
+  return ' '.repeat(Math.max(0, len - s.length)) + s;
+};
+
+/**
+ * buildReceipt — ESC/POS customer receipt.
+ *
+ * `r` shape (all money values are ALREADY FORMATTED STRINGS — the caller does
+ * currency formatting so every call site produces identical output; see
+ * src/lib/receipt.js):
+ *   { restaurantName, headerText, orderNum, tableName, dateTime,
+ *     items: [{ name, qty, unit, total }],
+ *     subtotal, taxRate, tax, serviceRate, service,
+ *     discountReason, discount, total, method, change, footer,
+ *     show: { logo, orderNumber, tableName, tax, serviceCharge, footer } }
+ *
+ * Every `show` flag defaults to TRUE when absent — same as the backend, so a
+ * missing settings row prints a full receipt rather than an empty one.
+ */
+function buildReceipt(r) {
+  const show = {
+    logo:          r.show?.logo          !== false,
+    orderNumber:   r.show?.orderNumber   !== false,
+    tableName:     r.show?.tableName     !== false,
+    tax:           r.show?.tax           !== false,
+    serviceCharge: r.show?.serviceCharge !== false,
+    footer:        r.show?.footer        !== false,
+  };
+
+  let d = CMD.INIT;
+
+  // Restaurant name — large, bold, centered.
+  if (show.logo) {
+    d += CMD.CENTER + CMD.BOLD_ON + R_DOUBLE_ON;
+    d += (r.restaurantName || 'Restaurant') + '\n';
+    d += CMD.NORMAL + CMD.BOLD_OFF;
+  }
+
+  // Optional tagline (restaurant_settings.receipt_header).
+  if (r.headerText) d += CMD.CENTER + r.headerText + '\n';
+
+  // Order number / table / timestamp.
+  d += CMD.CENTER + CMD.BOLD_ON;
+  const metaLine = [
+    show.orderNumber && r.orderNum  ? r.orderNum  : '',
+    show.tableName   && r.tableName ? r.tableName : '',
+  ].filter(Boolean).join('  ');
+  if (metaLine) d += metaLine + '\n';
+  d += (r.dateTime || '') + '\n';
+  d += CMD.BOLD_OFF + CMD.LEFT + rDashes();
+
+  // Items. Weighed units (kg/l/g/ml) print as "2.5 kg"; everything else "x3".
+  // Long names wrap to their own line with the qty/price right-aligned below.
+  if (Array.isArray(r.items)) {
+    r.items.forEach((item) => {
+      const name    = String(item.name || '—');
+      const rawQty  = parseFloat(item.qty ?? item.quantity) || 1;
+      const u       = String(item.unit || 'piece').toLowerCase();
+      const weighed = u === 'kg' || u === 'l' || u === 'g' || u === 'ml';
+      const qtyStr  = Number.isInteger(rawQty) ? String(rawQty) : parseFloat(rawQty.toFixed(3)).toString();
+      const qty     = weighed ? `${qtyStr} ${u}` : `x${qtyStr}`;
+      const price   = String(item.total || item.price || '');
+
+      if (name.length <= WIDTH - qty.length - price.length - 2) {
+        d += pad(name, WIDTH - qty.length - price.length - 1) + qty + ' ' + rpad(price, price.length) + '\n';
+      } else {
+        d += name.substring(0, WIDTH) + '\n';
+        d += pad('', WIDTH - qty.length - price.length - 1) + qty + ' ' + rpad(price, price.length) + '\n';
+      }
+    });
+  }
+
+  d += rDashes();
+
+  // Subtotal only shown when it differs from the total (i.e. something was added).
+  if (r.subtotal && r.subtotal !== r.total) {
+    d += pad('Subtotal', WIDTH - String(r.subtotal).length) + r.subtotal + '\n';
+  }
+  if (show.tax && r.tax) {
+    d += pad(`Tax (${r.taxRate || ''}%)`, WIDTH - String(r.tax).length) + r.tax + '\n';
+  }
+  if (show.serviceCharge && r.service) {
+    d += pad(`Service (${r.serviceRate || ''}%)`, WIDTH - String(r.service).length) + r.service + '\n';
+  }
+  if (r.discount) {
+    d += pad(`Discount${r.discountReason ? ' (' + r.discountReason + ')' : ''}`,
+             WIDTH - String(r.discount).length) + r.discount + '\n';
+  }
+
+  // TOTAL — bold, double height.
+  d += rDashes() + CMD.BOLD_ON + R_DOUBLE_ON;
+  d += pad('TOTAL', WIDTH - String(r.total || '').length) + (r.total || '') + '\n';
+  d += CMD.NORMAL + CMD.BOLD_OFF + rDashes();
+
+  // Payment method and change.
+  d += CMD.BOLD_ON;
+  d += pad('Method', WIDTH - String(r.method || '').length) + (r.method || '') + '\n';
+  if (r.change && r.change !== '0') {
+    d += pad('Change', WIDTH - String(r.change).length) + r.change + '\n';
+  }
+  d += CMD.BOLD_OFF;
+
+  if (show.footer) {
+    d += rDashes() + CMD.CENTER + CMD.BOLD_ON;
+    d += (r.footer || 'Thank you for dining with us!') + '\n';
+    d += CMD.BOLD_OFF;
+  }
+
+  return d + CMD.FEED(4) + CMD.CUT;
+}
+
+/**
+ * printReceipt — sends a receipt to the FIRST configured receipt printer.
+ *
+ * Only the first, by explicit decision (2026-08-02): a till has one receipt
+ * printer, unlike kitchen printers which fan out by station. If multi-printer
+ * receipts are ever wanted, this is the single place to change.
+ *
+ * Never throws — mirrors printKitchenTicket's contract exactly so call sites
+ * can treat both the same way:
+ *   { ok: true,  printed: ['Kassa (192.168.1.60)'], failed: [] }
+ *   { ok: true,  printed: [], failed: [{ printer, ip, error }] }
+ *   { ok: false, error: 'No receipt printers configured' }  — nothing to do
+ *
+ * The `ok: false` case is deliberately NOT a failure: callers stay silent for
+ * it (nothing is configured, so nothing is expected) and warn only when
+ * `failed` is non-empty, i.e. a real printer was configured and didn't answer.
+ */
+async function printReceipt({ receipt, printers }) {
+  if (!receipt) return { ok: false, error: 'No receipt data' };
+
+  const configured = (Array.isArray(printers) ? printers : []).filter((p) => p && p.ip);
+  if (configured.length === 0) return { ok: false, error: 'No receipt printers configured' };
+
+  const printer = configured[0];
+  const label   = `${printer.name || 'Printer'} (${printer.ip})`;
+
+  try {
+    await sendToPrinter(printer.ip, printer.port || 9100, buildReceipt(receipt));
+    return { ok: true, printed: [label], failed: [] };
+  } catch (err) {
+    return {
+      ok: true,
+      printed: [],
+      failed: [{ printer: printer.name || printer.ip, ip: printer.ip, error: err.message }],
+    };
+  }
+}
+
+module.exports = {
+  printKitchenTicket, buildKitchenTicket, buildPrintJobs,
+  printReceipt, buildReceipt,
+};

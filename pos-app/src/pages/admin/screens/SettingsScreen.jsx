@@ -939,6 +939,12 @@ function ReceiptTemplatePanel({ form, set, t }) {
         <ToggleRow label={t('settings.receipt.showTax')}           checked={form.receiptShowTax}           onChange={set('receiptShowTax')} />
         <ToggleRow label={t('settings.receipt.showServiceCharge')} checked={form.receiptShowServiceCharge} onChange={set('receiptShowServiceCharge')} />
         <ToggleRow label={t('settings.receipt.showFooter')}        checked={form.receiptShowFooter}        onChange={set('receiptShowFooter')} />
+        <ToggleRow
+          label={t('settings.receipt.autoPrint')}
+          desc={t('settings.receipt.autoPrintDesc')}
+          checked={form.receiptAutoPrint}
+          onChange={set('receiptAutoPrint')}
+        />
       </Card>
 
       {form.receiptShowFooter && (
@@ -1017,6 +1023,11 @@ export default function AdminSettingsScreen() {
     receiptShowFooter: true,
     receiptShowOrderNumber: true,
     receiptShowTableName: true,
+    // Auto-print the customer receipt when payment is confirmed (2026-08-02).
+    // Needs no extra load/save wiring: load() spreads the camelised API data and
+    // handleSave() sends the whole form back through client.js's snakeizeKeys,
+    // so this round-trips as receipt_auto_print on its own.
+    receiptAutoPrint: true,
     kitchenShowOrderType: true,
     kitchenShowTableName: true,
     kitchenShowOrderNumber: true,

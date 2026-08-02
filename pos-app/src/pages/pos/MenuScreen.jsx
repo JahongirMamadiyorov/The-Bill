@@ -14,6 +14,7 @@ import AmountPickerModal from './AmountPickerModal.jsx';
 import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { localPhotoSrc } from '../../lib/localPhoto.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
+import { buildReceiptData, buildSingleItemReceiptData } from '../../lib/receipt.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Menu screen — order building. Design handoff screen 1 (+ floor-plan picker
@@ -215,6 +216,13 @@ export default function MenuScreen({ user, settings, search, lang }) {
   // ── Cart actions ──────────────────────────────────────────────────────────
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
+  // Per-item "send to kitchen" tracking (added 2026-08-02). Maps menu_item_id →
+  // the quantity ALREADY sent to the kitchen individually, so pressing Fire
+  // afterwards prints only the remainder instead of re-printing dishes the
+  // kitchen is already cooking. Reset by clearOrder(). Only affects PRINTING —
+  // the order write itself always sends the full cart.
+  const [sentQty, setSentQty] = useState({});
+
   // `mode: 'add'` (tapping ADD/+ on a weighed item) starts blank and, on
   // confirm, is SUMMED with whatever qty is already in the cart — a cashier
   // adding "1.33 more" to an existing 0.5 must end up at 1.83, not have the
@@ -281,6 +289,7 @@ export default function MenuScreen({ user, settings, search, lang }) {
   const clearOrder = () => {
     setCart({}); setSelTable(null); setExistingOrder(null); setOrderType('dine_in');
     setCustName(''); setCustPhone(''); setCustAddr(''); setError(''); setShowTablePicker(false);
+    setSentQty({}); // new order — nothing has been sent to the kitchen yet
   };
 
   // ── Order submit ──────────────────────────────────────────────────────────
@@ -319,6 +328,76 @@ export default function MenuScreen({ user, settings, search, lang }) {
     } catch { /* printing is best-effort — never affects the order flow */ }
   };
 
+  // ── Receipt printing (added 2026-08-02) ───────────────────────────────────
+  // Same best-effort contract as printTicket above: never throws, never gates
+  // the order/payment flow, silent when no receipt printer is configured
+  // (printReceipt returns ok:false for that by design), warns only when a
+  // CONFIGURED printer actually failed.
+  const printReceiptNow = async (receipt) => {
+    try {
+      const res = await window.electronAPI.printReceipt({
+        receipt, printers: settings.receiptPrinters,
+      });
+      if (res?.failed?.length > 0) {
+        showToast(t('Receipt printer did not respond', lang), false);
+      }
+    } catch { /* best-effort */ }
+  };
+
+  // Order metadata shared by every print path on this screen. dailyNumber is
+  // null for a cart that hasn't been submitted yet — fmtOrderNum() falls back
+  // to the id, and an empty one just prints no order number.
+  const currentOrderMeta = () => ({
+    dailyNumber: existingOrder?.dailyNumber ?? null,
+    id:          existingOrder?.id ?? '',
+    tableName:   selTable ? (selTable.name || tableFallbackLabel(selTable.tableNumber, lang)) : null,
+    orderType:   existingOrder?.orderType || orderType,
+    createdAt:   new Date().toISOString(),
+    customerName:  custName || null,
+    customerPhone: custPhone || null,
+    deliveryAddress: custAddr || null,
+  });
+
+  // Kitchen-ticket items for the cart, EXCLUDING anything already sent
+  // individually — and sending only the not-yet-sent delta for partially sent
+  // items (send 2, bump to 3, Fire → the kitchen gets 1, not 3).
+  const unsentTicketItems = () => cartEntries
+    .map((e) => ({ e, delta: e.qty - (sentQty[e.item.id] || 0) }))
+    .filter((x) => x.delta > 0)
+    .map(({ e, delta }) => ({
+      name: e.item.name, quantity: delta, unit: e.item.unit,
+      notes: e.item.notes || null, kitchenStation: e.item.kitchenStation,
+    }));
+
+  // Send ONE dish to the kitchen without firing the whole cart.
+  const sendItemToKitchen = async (entry) => {
+    const delta = entry.qty - (sentQty[entry.item.id] || 0);
+    if (delta <= 0) {
+      showToast(t('This item was already sent to the kitchen', lang), false);
+      return;
+    }
+    await printTicket(currentOrderMeta(), [{
+      name: entry.item.name, quantity: delta, unit: entry.item.unit,
+      notes: entry.item.notes || null, kitchenStation: entry.item.kitchenStation,
+    }]);
+    setSentQty((p) => ({ ...p, [entry.item.id]: entry.qty }));
+    showToast(tt(lang, '{name} sent to the kitchen', '{name} oshxonaga yuborildi', { name: entry.item.name }));
+  };
+
+  // Cheque for ONE item — some restaurants keep a per-item receipt in the till.
+  const printItemReceipt = (entry) => printReceiptNow(
+    buildSingleItemReceiptData({ item: entry.item, qty: entry.qty, order: currentOrderMeta(), settings })
+  );
+
+  // Pre-bill for the whole cart (the cart's Print button) — no payment block,
+  // since nothing has been paid yet.
+  const printCartReceipt = () => {
+    if (!cartEntries.length) return;
+    return printReceiptNow(buildReceiptData({
+      order: currentOrderMeta(), items: cartEntries, settings, payment: {},
+    }));
+  };
+
   const handleFire = async () => {
     if (!cartEntries.length || submitting) return;
     setError('');
@@ -343,10 +422,7 @@ export default function MenuScreen({ user, settings, search, lang }) {
           customerName: custName || null,
           customerPhone: custPhone || null,
           deliveryAddress: custAddr || null,
-        }, cartEntries.map(e => ({
-          name: e.item.name, quantity: e.qty, unit: e.item.unit,
-          notes: e.item.notes || null, kitchenStation: e.item.kitchenStation,
-        })));
+        }, unsentTicketItems());
         clearOrder();
         return;
       }
@@ -354,7 +430,8 @@ export default function MenuScreen({ user, settings, search, lang }) {
       const res = await window.electronAPI.ordersCreate(buildOrderPayload());
       if (!res.ok) { setError(res.error || t('Failed to send order', lang)); return; }
       showToast(t('Order sent to kitchen', lang));
-      // Print the full cart — this IS the whole order, nothing printed yet.
+      // Print the cart MINUS anything already sent to the kitchen one-by-one
+      // (see unsentTicketItems) — so a dish sent individually isn't cooked twice.
       await printTicket({
         dailyNumber: res.data?.daily_number,
         tableName,
@@ -362,10 +439,7 @@ export default function MenuScreen({ user, settings, search, lang }) {
         customerName: custName || null,
         customerPhone: custPhone || null,
         deliveryAddress: custAddr || null,
-      }, cartEntries.map(e => ({
-        name: e.item.name, quantity: e.qty, unit: e.item.unit,
-        notes: e.item.notes || null, kitchenStation: e.item.kitchenStation,
-      })));
+      }, unsentTicketItems());
       clearOrder();
     } finally { setSubmitting(false); }
   };
@@ -383,6 +457,24 @@ export default function MenuScreen({ user, settings, search, lang }) {
     if (!createRes.ok) return { ok: false, error: createRes.error || 'Failed to create order' };
     const payRes = await window.electronAPI.ordersPay(createRes.data?.id, payPayload);
     if (!payRes.ok) return { ok: false, error: payRes.error || 'Payment failed — order was created but not paid, check Orders' };
+
+    // Auto-print the customer receipt, gated on the restaurant's own setting
+    // (restaurant_settings.receipt_auto_print, default true). Runs only AFTER
+    // payment is confirmed, and can never fail the payment — printReceiptNow
+    // swallows everything. The cashier can still reprint from Orders/History.
+    if (settings.receiptAutoPrint) {
+      await printReceiptNow(buildReceiptData({
+        order: { ...currentOrderMeta(), dailyNumber: createRes.data?.daily_number, id: createRes.data?.id },
+        items: cartEntries,
+        settings,
+        payment: {
+          method:         payPayload?.payment_method,
+          discountAmount: payPayload?.discount_amount,
+          discountReason: payPayload?.discount_reason,
+          amountReceived: payPayload?.amount_received,
+        },
+      }));
+    }
     return { ok: true };
   };
 
@@ -748,9 +840,32 @@ export default function MenuScreen({ user, settings, search, lang }) {
                         fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                       }}>
                         {e.item.name} <span style={{ color: T.faint, fontWeight: 600 }}>{formatQty(e.item, e.qty)}</span>
+                        {/* Marks a dish already sent to the kitchen individually,
+                            so the cashier can see at a glance what Fire will skip. */}
+                        {(sentQty[e.item.id] || 0) >= e.qty && (
+                          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: T.greenDark }}>
+                            {t('sent', lang)}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {/* Per-item actions (2026-08-02): send just this dish to the
+                          kitchen, or print a cheque for just this item. */}
+                      <button onClick={() => sendItemToKitchen(e)} title={t('Send this item to the kitchen', lang)} style={{
+                        width: 24, height: 24, borderRadius: 8, border: 'none',
+                        background: (sentQty[e.item.id] || 0) >= e.qty ? T.chipBg : T.amberBg,
+                        color: (sentQty[e.item.id] || 0) >= e.qty ? T.faint : T.amber,
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Flame size={12} strokeWidth={2.5} />
+                      </button>
+                      <button onClick={() => printItemReceipt(e)} title={t('Print a receipt for this item', lang)} style={{
+                        width: 24, height: 24, borderRadius: 8, border: 'none', background: T.chipBg,
+                        color: T.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Printer size={12} strokeWidth={2.5} />
+                      </button>
                       <StepBtn onClick={() => decItem(e.item.id)}><Minus size={12} strokeWidth={2.5} /></StepBtn>
                       <StepBtn primary onClick={() => addItem(e.item)}><Plus size={12} strokeWidth={2.5} /></StepBtn>
                       <button onClick={() => delItem(e.item.id)} title={t('Remove', lang)} style={{
@@ -811,7 +926,7 @@ export default function MenuScreen({ user, settings, search, lang }) {
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <button onClick={() => showToast(t('Receipt printing comes with the History step', lang), false)} style={{
+          <button onClick={printCartReceipt} disabled={!cartEntries.length} style={{
             flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
             background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

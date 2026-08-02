@@ -8,6 +8,7 @@ import PaymentModal from './PaymentModal.jsx';
 import AmountPickerModal from './AmountPickerModal.jsx';
 import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
+import { buildReceiptData } from '../../lib/receipt.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Orders screen — live order cards + right detail panel + edit mode.
@@ -157,6 +158,39 @@ export default function OrdersScreen({ user, settings, search, lang }) {
   // instead of falling back to `selected` (the event is truthy, so the
   // default never kicks in), and `event.id`/`event.tableId` are undefined —
   // exactly what caused items/table to blank out when Edit was clicked.
+  // Reprint the customer receipt for the selected order (2026-08-02). Local
+  // item rows carry menuItemId rather than a name, so names/units come from
+  // menuById — the same lookup startEdit() below already uses. Best-effort:
+  // silent when no receipt printer is configured, warns only on a real failure.
+  const printSelectedReceipt = async () => {
+    if (!selected) return;
+    try {
+      const table = tableById[selected.tableId];
+      const receipt = buildReceiptData({
+        order: {
+          ...selected,
+          tableName: table ? (table.name || tableFallbackLabel(table.tableNumber, lang)) : null,
+        },
+        items: (itemsByOrd[selected.id] || []).map((it) => ({
+          name:      menuById[it.menuItemId]?.name || 'Item',
+          quantity:  Number(it.quantity || 1),
+          unitPrice: Number(it.unitPrice || menuById[it.menuItemId]?.price || 0),
+          unit:      menuById[it.menuItemId]?.unit,
+        })),
+        settings,
+        payment: selected.paymentMethod
+          ? { method: selected.paymentMethod, discountAmount: selected.discountAmount }
+          : {},
+      });
+      const res = await window.electronAPI.printReceipt({
+        receipt, printers: settings.receiptPrinters,
+      });
+      if (res?.failed?.length > 0) {
+        showToast(t('Receipt printer did not respond', lang), false);
+      }
+    } catch { /* best-effort — a failed reprint must never break the screen */ }
+  };
+
   const startEdit = () => {
     if (!selected) return;
     const items = (itemsByOrd[selected.id] || []).map(it => ({
@@ -663,7 +697,7 @@ export default function OrdersScreen({ user, settings, search, lang }) {
                 </>
               ) : (
                 <>
-                  <button onClick={() => showToast(t('Receipt printing comes with the History step', lang), false)} style={{
+                  <button onClick={printSelectedReceipt} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                     background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

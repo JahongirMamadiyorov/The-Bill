@@ -9,6 +9,7 @@ import PaymentModal from './PaymentModal.jsx';
 import AmountPickerModal from './AmountPickerModal.jsx';
 import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
+import { buildReceiptData } from '../../lib/receipt.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tables screen — floor plan overview. Design handoff screen 6.
@@ -153,6 +154,37 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
   // onClick always passes the DOM event as the first argument, so a default
   // parameter would silently receive that event instead (see OrdersScreen.jsx
   // for the exact bug this caused there). Read selOrder/selTable directly.
+  // Reprint the customer receipt for the selected table's order (2026-08-02).
+  // Same shape as OrdersScreen's version; the table name comes from selTable,
+  // which this screen already has selected. Best-effort, never throws.
+  const printSelectedReceipt = async () => {
+    if (!selOrder) return;
+    try {
+      const receipt = buildReceiptData({
+        order: {
+          ...selOrder,
+          tableName: selTable ? (selTable.name || tableFallbackLabel(selTable.tableNumber, lang)) : null,
+        },
+        items: selItems.map((it) => ({
+          name:      menuById[it.menuItemId]?.name || 'Item',
+          quantity:  Number(it.quantity || 1),
+          unitPrice: Number(it.unitPrice || menuById[it.menuItemId]?.price || 0),
+          unit:      menuById[it.menuItemId]?.unit,
+        })),
+        settings,
+        payment: selOrder.paymentMethod
+          ? { method: selOrder.paymentMethod, discountAmount: selOrder.discountAmount }
+          : {},
+      });
+      const res = await window.electronAPI.printReceipt({
+        receipt, printers: settings.receiptPrinters,
+      });
+      if (res?.failed?.length > 0) {
+        showToast(t('Receipt printer did not respond', lang), false);
+      }
+    } catch { /* best-effort */ }
+  };
+
   const startEdit = () => {
     if (!selOrder) return;
     const items = selItems.map(it => ({
@@ -645,7 +677,7 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
                 </>
               ) : (
                 <>
-                  <button onClick={() => showToast(t('Receipt printing comes with a future step', lang), false)} style={{
+                  <button onClick={printSelectedReceipt} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                     background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Loader2, Receipt, X, RotateCcw, CalendarDays, ChevronLeft, ChevronRight,
-  CheckCircle2, AlertCircle, ArrowLeft,
+  CheckCircle2, AlertCircle, ArrowLeft, Printer,
 } from 'lucide-react';
 import { T, card, pill, statusPill, uppercaseLabel, fmtMoney } from './tokens.js';
 import { loadCached, saveCached, timeAgo } from '../../lib/staleCache.js';
 import { t, tt } from '../../lib/i18n.js';
+import { buildReceiptData } from '../../lib/receipt.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // History screen — closed orders + refunds. Design handoff screens 7–10.
@@ -117,6 +118,40 @@ export default function HistoryScreen({ user, settings, search, lang }) {
       const res = await window.electronAPI.apiGet(`/api/orders/${o.id}`);
       if (res?.ok) setDetail(res.data);
     } finally { setDetailLoading(false); }
+  };
+
+  // Reprint the receipt for a closed order (2026-08-02). NOTE the field names:
+  // this screen's `detail` comes from REST (`GET /api/orders/:id`) and is raw
+  // snake_case — unlike Orders/Tables, which read camelised local PowerSync
+  // rows. See this file's own header for why history stays on REST.
+  const reprintReceipt = async () => {
+    if (!detail) return;
+    try {
+      const receipt = buildReceiptData({
+        order: {
+          dailyNumber: detail.daily_number,
+          id:          detail.id,
+          tableName:   detail.table_name || '',
+          createdAt:   detail.created_at,
+        },
+        items: (detail.items || []).map((it) => ({
+          name:      it.name || it.item_name || 'Item',
+          quantity:  Number(it.quantity || 1),
+          unitPrice: Number(it.unit_price || 0),
+          unit:      it.unit,
+        })),
+        settings,
+        payment: {
+          method:         detail.payment_method,
+          discountAmount: detail.discount_amount,
+        },
+      });
+      const res = await window.electronAPI.printReceipt({
+        receipt, printers: settings.receiptPrinters,
+      });
+      if (res?.failed?.length > 0) showToast(t('Receipt printer did not respond', lang), false);
+      else if (res?.printed?.length > 0) showToast(t('Receipt sent to printer', lang));
+    } catch { /* best-effort */ }
   };
 
   const doRefund = async () => {
@@ -319,6 +354,18 @@ export default function HistoryScreen({ user, settings, search, lang }) {
                   <span style={{ fontSize: 13.5, fontWeight: 800 }}>{t('Total Paid', lang)}</span>
                   <span style={{ fontSize: 15, fontWeight: 800 }}>{money(detail.total_amount)}</span>
                 </div>
+
+                {/* Reprint — available for ANY closed order including refunded
+                    ones, since a customer or the till may need the copy
+                    regardless of how the order ended. */}
+                <button onClick={reprintReceipt} style={{
+                  width: '100%', padding: '10px 0', marginBottom: 10, borderRadius: T.rBtn,
+                  border: `1px solid ${T.line}`, background: T.surface, color: T.ink,
+                  fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}>
+                  <Printer size={14} strokeWidth={1.8} /> {t('Print Receipt', lang)}
+                </button>
 
                 {detail.refunded_at ? (
                   <div style={{ background: T.coralBg, color: T.coral, borderRadius: T.rBtn, padding: '10px 12px', fontSize: 11.5, fontWeight: 700 }}>

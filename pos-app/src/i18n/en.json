@@ -77,7 +77,6 @@
     "table": "Table",
     "orderNumber": "Order #"
   },
-
   "login": {
     "title": "The Bill",
     "subtitle": "Restaurant Management System",
@@ -93,7 +92,6 @@
     "countryCode": "+998",
     "countryLabel": "UZ"
   },
-
   "subscription": {
     "expired": "Subscription Expired",
     "expiredMessage": "Your restaurant's {plan} plan has expired{date}. Access has been temporarily blocked.",
@@ -113,7 +111,6 @@
     "freeTrial30": "Free -- 30 days",
     "trial": "trial"
   },
-
   "layout": {
     "superAdmin": "Super Admin",
     "ownerPanel": "Owner Panel",
@@ -124,7 +121,6 @@
     "collapse": "Collapse",
     "logout": "Logout"
   },
-
   "nav": {
     "restaurants": "Restaurants",
     "home": "Home",
@@ -144,20 +140,51 @@
     "newOrder": "New Order",
     "settings": "Settings"
   },
-
   "datePicker": {
     "pickADate": "Pick a date",
     "clear": "Clear",
     "today": "Today",
-    "months": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-    "monthsShort": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-    "days": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+    "months": [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December"
+    ],
+    "monthsShort": [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ],
+    "days": [
+      "Mo",
+      "Tu",
+      "We",
+      "Th",
+      "Fr",
+      "Sa",
+      "Su"
+    ]
   },
-
   "phoneInput": {
     "placeholder": "90 123 45 67"
   },
-
   "roles": {
     "super_admin": "Super Admin",
     "superAdmin": "Super Admin",
@@ -173,7 +200,6 @@
     "new_cashier": "New Cashier",
     "new_waiter": "New Waiter"
   },
-
   "periods": {
     "today": "Today",
     "yesterday": "Yesterday",
@@ -185,19 +211,16 @@
     "custom": "Custom",
     "allTime": "All Time"
   },
-
   "time": {
     "justNow": "just now",
     "minAgo": "{count}m ago",
     "hoursAgo": "{h}h {m}m ago"
   },
-
   "greeting": {
     "morning": "Good Morning",
     "afternoon": "Good Afternoon",
     "evening": "Good Evening"
   },
-
   "statuses": {
     "free": "Free",
     "occupied": "Occupied",
@@ -212,14 +235,12 @@
     "paid": "Paid",
     "cancelled": "Cancelled"
   },
-
   "orderTypes": {
     "dineIn": "Dine-In",
     "toGo": "To Go",
     "delivery": "Delivery",
     "takeaway": "Takeaway"
   },
-
   "paymentMethods": {
     "cash": "Cash",
     "card": "Card",
@@ -230,7 +251,6 @@
     "mobilePayment": "Mobile Payment",
     "check": "Check"
   },
-
   "superAdmin": {
     "title": "Super Admin",
     "newRestaurant": "New Restaurant",
@@ -281,7 +301,6 @@
     "failedToUpdatePlan": "Failed to update plan",
     "expiresPrefix": "Expires:"
   },
-
   "admin": {
     "dashboard": {
       "title": "Admin Dashboard",
@@ -344,7 +363,6 @@
       "inventory": "Inventory",
       "notification": "Notification"
     },
-
     "tables": {
       "title": "Table Management",
       "addTable": "Add Table",
@@ -423,7 +441,6 @@
       "statusCleaningTitle": "Cleaning",
       "statusCleaningSubtitle": "Being prepared for next guests"
     },
-
     "menu": {
       "title": "Menu Management",
       "subtitle": "Categories & items",
@@ -512,7 +529,6 @@
       "uploadNotSupportedLabel": "Photo upload not available yet",
       "uploadNotSupportedHint": "Uploading photos isn't supported in the POS app yet -- use the website Admin panel to add or change item photos for now."
     },
-
     "orders": {
       "title": "Orders",
       "activeOrders": "Active Orders",
@@ -530,8 +546,21 @@
       "allMethods": "All Methods",
       "selectReason": "Select a reason...",
       "describeReason": "Describe the reason...",
-      "cancelReasons": ["Customer Left", "Customer Changed Mind", "Kitchen Issue", "Wrong Order", "Long Wait Time", "Other"],
-      "deleteReasons": ["Duplicate Entry", "Wrong Table", "Test Order", "Customer Left", "Other"],
+      "cancelReasons": [
+        "Customer Left",
+        "Customer Changed Mind",
+        "Kitchen Issue",
+        "Wrong Order",
+        "Long Wait Time",
+        "Other"
+      ],
+      "deleteReasons": [
+        "Duplicate Entry",
+        "Wrong Table",
+        "Test Order",
+        "Customer Left",
+        "Other"
+      ],
       "noOrdersFound": "No orders found",
       "statusLabels": {
         "pending": "Pending",
@@ -560,9 +589,10 @@
       "items": "Items",
       "total": "Total",
       "cancellationReason": "Cancellation Reason",
-      "date": "Date"
+      "date": "Date",
+      "printReceipt": "Print Receipt",
+      "receiptPrinterFailed": "Receipt printer did not respond — check it and print again"
     },
-
     "staff": {
       "title": "Staff Management",
       "staffList": "Staff List",
@@ -667,7 +697,6 @@
       "netPayHeader": "Net Pay",
       "stationPlaceholder": "Type station name (or pick below)"
     },
-
     "inventory": {
       "title": "Inventory",
       "stockOverview": "Stock Overview",
@@ -680,8 +709,26 @@
       "outOfStock": "Out of Stock",
       "inStock": "In Stock",
       "allCategories": "All Categories",
-      "categories": ["Food & Ingredients", "Beverages", "Cleaning", "Packaging", "Other"],
-      "units": ["kg", "g", "liter", "ml", "piece", "portion", "box", "bottle", "pack", "bag", "tray"],
+      "categories": [
+        "Food & Ingredients",
+        "Beverages",
+        "Cleaning",
+        "Packaging",
+        "Other"
+      ],
+      "units": [
+        "kg",
+        "g",
+        "liter",
+        "ml",
+        "piece",
+        "portion",
+        "box",
+        "bottle",
+        "pack",
+        "bag",
+        "tray"
+      ],
       "addNewItem": "Add New Item",
       "editItem": "Edit Item",
       "goodsReceived": "Goods received",
@@ -708,12 +755,51 @@
         "adjust": "Adjustment",
         "shrinkage": "Shrinkage"
       },
-      "inReasons": ["Purchase", "Supplier Delivery", "Transfer", "Return", "Donation", "Correction"],
-      "outReasons": ["Kitchen Use", "Transfer", "Cleaning", "Staff Meal", "Sample"],
-      "wasteReasons": ["Expired", "Spoilage", "Broken", "Damaged", "Quality Issue"],
-      "adjustReasons": ["Overcount", "Undercount", "Spillage", "Audit Correction", "Theft", "Breakage"],
-      "deliveryStatuses": ["Ordered", "In Transit", "Partial", "Delivered", "Cancelled"],
-      "paymentMethods": ["Cash", "Bank Transfer", "Card", "Mobile Payment", "Check", "Other"],
+      "inReasons": [
+        "Purchase",
+        "Supplier Delivery",
+        "Transfer",
+        "Return",
+        "Donation",
+        "Correction"
+      ],
+      "outReasons": [
+        "Kitchen Use",
+        "Transfer",
+        "Cleaning",
+        "Staff Meal",
+        "Sample"
+      ],
+      "wasteReasons": [
+        "Expired",
+        "Spoilage",
+        "Broken",
+        "Damaged",
+        "Quality Issue"
+      ],
+      "adjustReasons": [
+        "Overcount",
+        "Undercount",
+        "Spillage",
+        "Audit Correction",
+        "Theft",
+        "Breakage"
+      ],
+      "deliveryStatuses": [
+        "Ordered",
+        "In Transit",
+        "Partial",
+        "Delivered",
+        "Cancelled"
+      ],
+      "paymentMethods": [
+        "Cash",
+        "Bank Transfer",
+        "Card",
+        "Mobile Payment",
+        "Check",
+        "Other"
+      ],
       "costPerUnit": "Cost/Unit",
       "unit": "Unit",
       "expired": "EXPIRED",
@@ -805,7 +891,6 @@
       "deleteDeliveryConfirm": "Delete this delivery from {supplier}?",
       "selectReason": "Select a reason"
     },
-
     "profile": {
       "title": "Profile",
       "profileInformation": "Profile Information",
@@ -826,7 +911,6 @@
       "profileUpdated": "Profile updated",
       "passwordChanged": "Password changed"
     },
-
     "newOrder": {
       "title": "New Order",
       "addItemsTitle": "Add Items to Order",
@@ -864,7 +948,6 @@
       "price": "Price"
     }
   },
-
   "owner": {
     "home": {
       "todaysRevenue": "Today's Revenue",
@@ -922,7 +1005,15 @@
       "addExpense": "Add Expense",
       "descriptionPlaceholder": "Expense description",
       "selectCategory": "Select category",
-      "expenseCategories": ["Supplies", "Utilities", "Maintenance", "Marketing", "Rent", "Salaries", "Other"],
+      "expenseCategories": [
+        "Supplies",
+        "Utilities",
+        "Maintenance",
+        "Marketing",
+        "Rent",
+        "Salaries",
+        "Other"
+      ],
       "addLoan": "Add Loan",
       "lenderNamePlaceholder": "Lender name",
       "dueDatePlaceholder": "Due date",
@@ -937,7 +1028,12 @@
       "interestRate": "Interest Rate (%)",
       "remaining": "Remaining",
       "duePrefix": "Due:",
-      "revenueCategories": ["Cash", "Card", "QR Code", "Online"]
+      "revenueCategories": [
+        "Cash",
+        "Card",
+        "QR Code",
+        "Online"
+      ]
     },
     "profile": {
       "title": "Owner",
@@ -958,14 +1054,12 @@
       "filingAnnually": "Annually"
     }
   },
-
   "settings": {
     "title": "Restaurant Settings",
     "saved": "Settings saved",
     "saveFailed": "Failed to save settings",
     "loadFailed": "Failed to load settings",
     "saving": "Saving...",
-
     "sections": {
       "restaurantInfo": "Restaurant Info",
       "financial": "Financial",
@@ -973,7 +1067,6 @@
       "receiptTemplate": "Receipt Template",
       "kitchenTemplate": "Kitchen Order Template"
     },
-
     "info": {
       "name": "Restaurant Name",
       "namePlaceholder": "e.g. The Bill",
@@ -989,7 +1082,6 @@
       "uploading": "Uploading...",
       "removeLogo": "Remove"
     },
-
     "financial": {
       "taxRate": "Tax Rate (%)",
       "taxEnabled": "Enable Tax",
@@ -998,7 +1090,6 @@
       "currencySymbol": "Currency Symbol",
       "currencyPlaceholder": "e.g. so'm"
     },
-
     "printers": {
       "receiptPrinters": "Receipt Printers",
       "addReceiptPrinter": "Add receipt printer",
@@ -1035,7 +1126,6 @@
       "compatiblePrinters": "Works with any ESC/POS network thermal printer: Epson TM-T20 / TM-T88, Xprinter XP-58 / XP-80, Star TSP100, and others. USB-only printers will not work.",
       "troubleshooting": "Not printing? Check that the printer and this computer are on the same WiFi/LAN, the IP is correct, and your router does not block port 9100."
     },
-
     "receipt": {
       "title": "Show on Customer Receipt",
       "headerText": "Receipt Header Text",
@@ -1047,9 +1137,10 @@
       "showOrderNumber": "Order number",
       "showTableName": "Table name",
       "footerText": "Footer Text",
-      "footerPlaceholder": "e.g. Thank you! Come again."
+      "footerPlaceholder": "e.g. Thank you! Come again.",
+      "autoPrint": "Auto-print receipt on payment",
+      "autoPrintDesc": "Print the customer receipt automatically as soon as a payment is confirmed"
     },
-
     "kitchen": {
       "title": "Show on Kitchen Order Slip",
       "showOrderType": "Order type (Dine-in / To-go / Delivery)",
@@ -1062,7 +1153,6 @@
       "showTimestamp": "Timestamp"
     }
   },
-
   "cashier": {
     "printItem": "Print item",
     "orders": {
@@ -1087,7 +1177,12 @@
       "customerName": "Customer Name",
       "expectedReturn": "Expected Return Date",
       "selectDueDate": "Select Due Date",
-      "discountReasons": ["Manager Approved", "Loyalty Customer", "Complaint Resolution", "Other"],
+      "discountReasons": [
+        "Manager Approved",
+        "Loyalty Customer",
+        "Complaint Resolution",
+        "Other"
+      ],
       "selectReason": "Select Reason",
       "confirmPayment": "Confirm Payment",
       "printReceipt": "Print Receipt",
@@ -1134,7 +1229,12 @@
     },
     "history": {
       "title": "Payment History",
-      "refundReasons": ["Customer Complaint", "Wrong Order", "Duplicate Payment", "Other"],
+      "refundReasons": [
+        "Customer Complaint",
+        "Wrong Order",
+        "Duplicate Payment",
+        "Other"
+      ],
       "refundProcessed": "Refund processed",
       "tapDateHint": "Tap a date to set start/end",
       "itemCount": "{count} item(s)",
@@ -1216,7 +1316,6 @@
       "backToMenu": "Back to Menu"
     }
   },
-
   "waitress": {
     "tables": {
       "title": "Tables",
@@ -1279,7 +1378,6 @@
       "clockIn": "Clock In"
     }
   },
-
   "kitchen": {
     "dashboard": {
       "title": "Kitchen Dashboard",
@@ -1311,14 +1409,12 @@
       "averageCookTime": "Average Cook Time"
     }
   },
-
   "language": {
     "title": "Language",
     "uzbek": "O'zbekcha",
     "english": "English",
     "selectLanguage": "Select Language"
   },
-
   "placeholders": {
     "pickDate": "Pick a date",
     "phoneLocal": "90 123 45 67",
@@ -1352,7 +1448,6 @@
     "endDate": "End date",
     "yourName": "Your name"
   },
-
   "alerts": {
     "failedDeleteStation": "Failed to delete station",
     "failedUpdateProfile": "Failed to update profile.",
@@ -1360,27 +1455,21 @@
     "refundFailed": "Refund failed",
     "failedLoadOrders": "Failed to load orders"
   },
-
   "fallbacks": {
     "placeholder": ""
   },
-
   "payment": {
     "cash": "Cash"
   },
-
   "salary": {
     "monthly": "monthly"
   },
-
   "receipt": {
     "thankYou": "Thank you for dining with us!"
   },
-
   "tables": {
     "indoor": "Indoor"
   },
-
   "orders": {
     "cancelOrder": "Cancel Order"
   }

@@ -77,7 +77,6 @@
     "table": "Stol",
     "orderNumber": "Buyurtma #"
   },
-
   "login": {
     "title": "The Bill",
     "subtitle": "Restoran boshqaruv tizimi",
@@ -93,7 +92,6 @@
     "countryCode": "+998",
     "countryLabel": "UZ"
   },
-
   "subscription": {
     "expired": "Obuna muddati tugagan",
     "expiredMessage": "Restoraningizning {plan} rejasi muddati tugagan{date}. Kirish vaqtincha to'xtatilgan.",
@@ -113,7 +111,6 @@
     "freeTrial30": "Bepul -- 30 kun",
     "trial": "sinov"
   },
-
   "layout": {
     "superAdmin": "Bosh Admin",
     "ownerPanel": "Egasi paneli",
@@ -124,7 +121,6 @@
     "collapse": "Yig'ish",
     "logout": "Chiqish"
   },
-
   "nav": {
     "restaurants": "Restoranlar",
     "home": "Bosh sahifa",
@@ -144,20 +140,51 @@
     "newOrder": "Yangi buyurtma",
     "settings": "Sozlamalar"
   },
-
   "datePicker": {
     "pickADate": "Sanani tanlang",
     "clear": "Tozalash",
     "today": "Bugun",
-    "months": ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"],
-    "monthsShort": ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"],
-    "days": ["Du", "Se", "Cho", "Pa", "Ju", "Sha", "Ya"]
+    "months": [
+      "Yanvar",
+      "Fevral",
+      "Mart",
+      "Aprel",
+      "May",
+      "Iyun",
+      "Iyul",
+      "Avgust",
+      "Sentyabr",
+      "Oktyabr",
+      "Noyabr",
+      "Dekabr"
+    ],
+    "monthsShort": [
+      "Yan",
+      "Fev",
+      "Mar",
+      "Apr",
+      "May",
+      "Iyn",
+      "Iyl",
+      "Avg",
+      "Sen",
+      "Okt",
+      "Noy",
+      "Dek"
+    ],
+    "days": [
+      "Du",
+      "Se",
+      "Cho",
+      "Pa",
+      "Ju",
+      "Sha",
+      "Ya"
+    ]
   },
-
   "phoneInput": {
     "placeholder": "90 123 45 67"
   },
-
   "roles": {
     "super_admin": "Bosh Admin",
     "superAdmin": "Super Admin",
@@ -173,7 +200,6 @@
     "new_cashier": "Yangi kassir",
     "new_waiter": "Yangi ofitsiant"
   },
-
   "periods": {
     "today": "Bugun",
     "yesterday": "Kecha",
@@ -185,19 +211,16 @@
     "custom": "Boshqa",
     "allTime": "Barcha vaqt"
   },
-
   "time": {
     "justNow": "hozirgina",
     "minAgo": "{count} daq oldin",
     "hoursAgo": "{h} soat {m} daq oldin"
   },
-
   "greeting": {
     "morning": "Xayrli tong",
     "afternoon": "Xayrli kun",
     "evening": "Xayrli kech"
   },
-
   "statuses": {
     "free": "Bo'sh",
     "occupied": "Band",
@@ -212,14 +235,12 @@
     "paid": "To'langan",
     "cancelled": "Bekor qilingan"
   },
-
   "orderTypes": {
     "dineIn": "Zalda",
     "toGo": "Olib ketish",
     "delivery": "Yetkazib berish",
     "takeaway": "Olib ketish"
   },
-
   "paymentMethods": {
     "cash": "Naqd",
     "card": "Karta",
@@ -230,7 +251,6 @@
     "mobilePayment": "Mobil to'lov",
     "check": "Chek"
   },
-
   "superAdmin": {
     "title": "Bosh Admin",
     "newRestaurant": "Yangi restoran",
@@ -281,7 +301,6 @@
     "failedToUpdatePlan": "Rejani yangilashda xatolik",
     "expiresPrefix": "Tugaydi:"
   },
-
   "admin": {
     "dashboard": {
       "title": "Boshqaruv paneli",
@@ -344,7 +363,6 @@
       "inventory": "Ombor",
       "notification": "Bildirishnoma"
     },
-
     "tables": {
       "title": "Stollarni boshqarish",
       "addTable": "Stol qo'shish",
@@ -423,7 +441,6 @@
       "statusCleaningTitle": "Tozalanmoqda",
       "statusCleaningSubtitle": "Keyingi mehmonlar uchun tayyorlanmoqda"
     },
-
     "menu": {
       "title": "Menyuni boshqarish",
       "subtitle": "Kategoriyalar va taomlar",
@@ -512,7 +529,6 @@
       "uploadNotSupportedLabel": "Rasm yuklash hali mavjud emas",
       "uploadNotSupportedHint": "POS ilovasida rasm yuklash hali qo'llab-quvvatlanmaydi -- hozircha taom rasmlarini qo'shish yoki o'zgartirish uchun veb-sayt Admin panelidan foydalaning."
     },
-
     "orders": {
       "title": "Buyurtmalar",
       "activeOrders": "Faol buyurtmalar",
@@ -530,8 +546,21 @@
       "allMethods": "Barcha usullar",
       "selectReason": "Sababni tanlang...",
       "describeReason": "Sababni tavsiflang...",
-      "cancelReasons": ["Mijoz ketdi", "Mijoz fikrini o'zgartirdi", "Oshxona muammosi", "Noto'g'ri buyurtma", "Uzoq kutish", "Boshqa"],
-      "deleteReasons": ["Takroriy yozuv", "Noto'g'ri stol", "Sinov buyurtmasi", "Mijoz ketdi", "Boshqa"],
+      "cancelReasons": [
+        "Mijoz ketdi",
+        "Mijoz fikrini o'zgartirdi",
+        "Oshxona muammosi",
+        "Noto'g'ri buyurtma",
+        "Uzoq kutish",
+        "Boshqa"
+      ],
+      "deleteReasons": [
+        "Takroriy yozuv",
+        "Noto'g'ri stol",
+        "Sinov buyurtmasi",
+        "Mijoz ketdi",
+        "Boshqa"
+      ],
       "noOrdersFound": "Buyurtmalar topilmadi",
       "statusLabels": {
         "pending": "Kutilmoqda",
@@ -560,9 +589,10 @@
       "items": "Taomlar",
       "total": "Jami",
       "cancellationReason": "Bekor qilish sababi",
-      "date": "Sana"
+      "date": "Sana",
+      "printReceipt": "Chek chiqarish",
+      "receiptPrinterFailed": "Chek printeri javob bermadi — tekshirib, qayta chiqaring"
     },
-
     "staff": {
       "title": "Xodimlarni boshqarish",
       "staffList": "Xodimlar ro'yxati",
@@ -667,7 +697,6 @@
       "netPayHeader": "Sof to'lov",
       "stationPlaceholder": "Stantsiya nomini kiriting (yoki pastdan tanlang)"
     },
-
     "inventory": {
       "title": "Ombor",
       "stockOverview": "Zaxira ko'rinishi",
@@ -680,8 +709,26 @@
       "outOfStock": "Tugagan",
       "inStock": "Mavjud",
       "allCategories": "Barcha kategoriyalar",
-      "categories": ["Oziq-ovqat va ingredientlar", "Ichimliklar", "Tozalik", "Qadoqlash", "Boshqa"],
-      "units": ["kg", "g", "litr", "ml", "dona", "porsiya", "quti", "shisha", "paket", "xalta", "lagan"],
+      "categories": [
+        "Oziq-ovqat va ingredientlar",
+        "Ichimliklar",
+        "Tozalik",
+        "Qadoqlash",
+        "Boshqa"
+      ],
+      "units": [
+        "kg",
+        "g",
+        "litr",
+        "ml",
+        "dona",
+        "porsiya",
+        "quti",
+        "shisha",
+        "paket",
+        "xalta",
+        "lagan"
+      ],
       "addNewItem": "Yangi mahsulot qo'shish",
       "editItem": "Mahsulotni tahrirlash",
       "goodsReceived": "Tovar qabul qilindi",
@@ -708,12 +755,51 @@
         "adjust": "Tuzatish",
         "shrinkage": "Kamayish"
       },
-      "inReasons": ["Xarid", "Yetkazib berish", "O'tkazish", "Qaytarish", "Xayriya", "Tuzatish"],
-      "outReasons": ["Oshxona sarfi", "O'tkazish", "Tozalik", "Xodim ovqati", "Namuna"],
-      "wasteReasons": ["Muddati o'tgan", "Buzilgan", "Singan", "Shikastlangan", "Sifat muammosi"],
-      "adjustReasons": ["Ortiqcha hisoblangan", "Kam hisoblangan", "To'kilgan", "Audit tuzatishi", "O'g'irlik", "Sinish"],
-      "deliveryStatuses": ["Buyurtma qilingan", "Yo'lda", "Qisman", "Yetkazilgan", "Bekor qilingan"],
-      "paymentMethods": ["Naqd", "Bank o'tkazmasi", "Karta", "Mobil to'lov", "Chek", "Boshqa"],
+      "inReasons": [
+        "Xarid",
+        "Yetkazib berish",
+        "O'tkazish",
+        "Qaytarish",
+        "Xayriya",
+        "Tuzatish"
+      ],
+      "outReasons": [
+        "Oshxona sarfi",
+        "O'tkazish",
+        "Tozalik",
+        "Xodim ovqati",
+        "Namuna"
+      ],
+      "wasteReasons": [
+        "Muddati o'tgan",
+        "Buzilgan",
+        "Singan",
+        "Shikastlangan",
+        "Sifat muammosi"
+      ],
+      "adjustReasons": [
+        "Ortiqcha hisoblangan",
+        "Kam hisoblangan",
+        "To'kilgan",
+        "Audit tuzatishi",
+        "O'g'irlik",
+        "Sinish"
+      ],
+      "deliveryStatuses": [
+        "Buyurtma qilingan",
+        "Yo'lda",
+        "Qisman",
+        "Yetkazilgan",
+        "Bekor qilingan"
+      ],
+      "paymentMethods": [
+        "Naqd",
+        "Bank o'tkazmasi",
+        "Karta",
+        "Mobil to'lov",
+        "Chek",
+        "Boshqa"
+      ],
       "costPerUnit": "Birlik narxi",
       "unit": "Birlik",
       "expired": "MUDDATI O'TGAN",
@@ -805,7 +891,6 @@
       "deleteDeliveryConfirm": "{supplier} dan yetkazib berishni o'chirmoqchimisiz?",
       "selectReason": "Sababni tanlang"
     },
-
     "profile": {
       "title": "Profil",
       "profileInformation": "Profil ma'lumotlari",
@@ -826,7 +911,6 @@
       "profileUpdated": "Profil yangilandi",
       "passwordChanged": "Parol o'zgartirildi"
     },
-
     "newOrder": {
       "title": "Yangi buyurtma",
       "addItemsTitle": "Buyurtmaga taom qo'shish",
@@ -864,7 +948,6 @@
       "price": "Narx"
     }
   },
-
   "owner": {
     "home": {
       "todaysRevenue": "Bugungi daromad",
@@ -922,7 +1005,15 @@
       "addExpense": "Xarajat qo'shish",
       "descriptionPlaceholder": "Xarajat tavsifi",
       "selectCategory": "Kategoriyani tanlang",
-      "expenseCategories": ["Xomashyo", "Kommunal xizmatlar", "Ta'mirlash", "Marketing", "Ijara", "Maoshlar", "Boshqa"],
+      "expenseCategories": [
+        "Xomashyo",
+        "Kommunal xizmatlar",
+        "Ta'mirlash",
+        "Marketing",
+        "Ijara",
+        "Maoshlar",
+        "Boshqa"
+      ],
       "addLoan": "Qarz qo'shish",
       "lenderNamePlaceholder": "Qarz beruvchi ismi",
       "dueDatePlaceholder": "Muddat sanasi",
@@ -937,7 +1028,12 @@
       "interestRate": "Foiz stavkasi (%)",
       "remaining": "Qoldiq",
       "duePrefix": "Muddat:",
-      "revenueCategories": ["Naqd", "Karta", "QR kod", "Onlayn"]
+      "revenueCategories": [
+        "Naqd",
+        "Karta",
+        "QR kod",
+        "Onlayn"
+      ]
     },
     "profile": {
       "title": "Egasi",
@@ -958,14 +1054,12 @@
       "filingAnnually": "Yillik"
     }
   },
-
   "settings": {
     "title": "Restoran sozlamalari",
     "saved": "Sozlamalar saqlandi",
     "saveFailed": "Sozlamalarni saqlashda xatolik",
     "loadFailed": "Sozlamalarni yuklashda xatolik",
     "saving": "Saqlanmoqda...",
-
     "sections": {
       "restaurantInfo": "Restoran ma'lumotlari",
       "financial": "Moliyaviy",
@@ -973,7 +1067,6 @@
       "receiptTemplate": "Chek shabloni",
       "kitchenTemplate": "Oshxona buyurtma shabloni"
     },
-
     "info": {
       "name": "Restoran nomi",
       "namePlaceholder": "masalan: The Bill",
@@ -989,7 +1082,6 @@
       "uploading": "Yuklanmoqda...",
       "removeLogo": "O'chirish"
     },
-
     "financial": {
       "taxRate": "Soliq stavkasi (%)",
       "taxEnabled": "Soliqni yoqish",
@@ -998,7 +1090,6 @@
       "currencySymbol": "Valyuta belgisi",
       "currencyPlaceholder": "masalan: so'm"
     },
-
     "printers": {
       "receiptPrinters": "Chek printerlari",
       "addReceiptPrinter": "Chek printeri qo'shish",
@@ -1035,7 +1126,6 @@
       "compatiblePrinters": "Har qanday ESC/POS tarmoq termal printeri bilan ishlaydi: Epson TM-T20 / TM-T88, Xprinter XP-58 / XP-80, Star TSP100 va boshqalar. Faqat USB-printer ishlamaydi.",
       "troubleshooting": "Chop etilmayaptimi? Printer va bu kompyuter bir xil WiFi/LAN tarmog'ida ekanligini, IP to'g'riligini va router 9100 portini bloklamasligini tekshiring."
     },
-
     "receipt": {
       "title": "Mijoz chekida ko'rsatish",
       "headerText": "Chek sarlavha matni",
@@ -1047,9 +1137,10 @@
       "showOrderNumber": "Buyurtma raqami",
       "showTableName": "Stol nomi",
       "footerText": "Pastki matn",
-      "footerPlaceholder": "masalan: Rahmat! Yana keling."
+      "footerPlaceholder": "masalan: Rahmat! Yana keling.",
+      "autoPrint": "To'lovda chekni avtomatik chiqarish",
+      "autoPrintDesc": "To'lov tasdiqlanishi bilan mijoz cheki avtomatik chiqariladi"
     },
-
     "kitchen": {
       "title": "Oshxona buyurtma varaqasida ko'rsatish",
       "showOrderType": "Buyurtma turi (Stolda / Olib ketish / Yetkazib berish)",
@@ -1062,7 +1153,6 @@
       "showTimestamp": "Vaqt tamg'asi"
     }
   },
-
   "cashier": {
     "printItem": "Mahsulotni chiqarish",
     "orders": {
@@ -1087,7 +1177,12 @@
       "customerName": "Mijoz ismi",
       "expectedReturn": "Kutilayotgan qaytish sanasi",
       "selectDueDate": "Muddat sanasini tanlang",
-      "discountReasons": ["Menejer tasdiqladi", "Doimiy mijoz", "Shikoyat hal qilindi", "Boshqa"],
+      "discountReasons": [
+        "Menejer tasdiqladi",
+        "Doimiy mijoz",
+        "Shikoyat hal qilindi",
+        "Boshqa"
+      ],
       "selectReason": "Sababni tanlang",
       "confirmPayment": "To'lovni tasdiqlash",
       "printReceipt": "Chek chiqarish",
@@ -1134,7 +1229,12 @@
     },
     "history": {
       "title": "To'lovlar tarixi",
-      "refundReasons": ["Mijoz shikoyati", "Noto'g'ri buyurtma", "Takroriy to'lov", "Boshqa"],
+      "refundReasons": [
+        "Mijoz shikoyati",
+        "Noto'g'ri buyurtma",
+        "Takroriy to'lov",
+        "Boshqa"
+      ],
       "refundProcessed": "Qaytarish amalga oshirildi",
       "tapDateHint": "Boshlanish/tugash sanasini tanlash uchun bosing",
       "itemCount": "{count} ta taom",
@@ -1216,7 +1316,6 @@
       "backToMenu": "Menyuga qaytish"
     }
   },
-
   "waitress": {
     "tables": {
       "title": "Stollar",
@@ -1279,7 +1378,6 @@
       "clockIn": "Ishga kirish"
     }
   },
-
   "kitchen": {
     "dashboard": {
       "title": "Oshxona paneli",
@@ -1311,14 +1409,12 @@
       "averageCookTime": "O'rtacha pishirish vaqti"
     }
   },
-
   "language": {
     "title": "Til",
     "uzbek": "O'zbekcha",
     "english": "English",
     "selectLanguage": "Tilni tanlang"
   },
-
   "placeholders": {
     "pickDate": "Sanani tanlang",
     "phoneLocal": "90 123 45 67",
@@ -1352,7 +1448,6 @@
     "endDate": "Tugash sanasi",
     "yourName": "Ismingiz"
   },
-
   "alerts": {
     "failedDeleteStation": "Stansiyani o'chirib bo'lmadi",
     "failedUpdateProfile": "Profilni yangilab bo'lmadi.",
@@ -1360,27 +1455,21 @@
     "refundFailed": "Qaytarish amalga oshmadi",
     "failedLoadOrders": "Buyurtmalarni yuklab bo'lmadi"
   },
-
   "fallbacks": {
     "placeholder": ""
   },
-
   "payment": {
     "cash": "Naqd"
   },
-
   "salary": {
     "monthly": "oylik"
   },
-
   "receipt": {
     "thankYou": "Bizning mehmonimiz bo'lganingiz uchun rahmat!"
   },
-
   "tables": {
     "indoor": "Ichkarida"
   },
-
   "orders": {
     "cancelOrder": "Buyurtmani bekor qilish"
   }

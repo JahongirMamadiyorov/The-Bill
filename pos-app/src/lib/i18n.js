@@ -81,6 +81,15 @@ const UZ = {
   'Copy details': 'Nusxa olish',
   'Copied': 'Nusxalandi',
   'Recent events': 'Soʻnggi hodisalar',
+
+  // ── Receipt printing (added 2026-08-02) ───────────────────────────────────
+  'Receipt printer did not respond': 'Chek printeri javob bermadi',
+  'Receipt sent to printer': 'Chek printerga yuborildi',
+  'Print Receipt': 'Chek chiqarish',
+  'Send this item to the kitchen': 'Bu taomni oshxonaga yuborish',
+  'Print a receipt for this item': 'Bu taom uchun chek chiqarish',
+  'This item was already sent to the kitchen': 'Bu taom oshxonaga allaqachon yuborilgan',
+  'sent': 'yuborildi',
   // ('Close' is NOT re-added here — it already exists further down in this same
   //  dictionary; a duplicate key would silently win/lose depending on order.)
   'Cashier': 'Kassir',

@@ -51,10 +51,9 @@ across many future sessions. Update it when something here goes stale.
   scoped/read-restricted key or a temporary issue. Don't assume DB query access is available;
   verify with a cheap call first, and fall back to code-audit + asking the user to read screenshots
   of real data if it's unavailable (as happened 2026-07-16, see "Inventory ingredient math" below).
-- Supabase advisors flagged ~35 public tables with RLS disabled (ERROR level) as of 2026-07-06.
-  Status: unresolved, needs an explicit decision from the project owner on whether this is
-  intentional (Express backend uses a service-role key and enforces access control at the app
-  layer) before "fixing" it blindly.
+- ~~Supabase advisors flagged ~35 public tables with RLS disabled (ERROR level) as of 2026-07-06.
+  Status: unresolved...~~ **RESOLVED 2026-08-02 — and it was a genuine, live data exposure, not a
+  cosmetic advisor warning. See the "RLS / anon exposure" section near the end of this file.**
 - `public.users` columns as of 2026-07-06: id, restaurant_id, name, email, phone, password_hash,
   role, is_active, salary, salary_type, shift_start, shift_end, kitchen_station,
   commission_rate, created_at, updated_at. No `pin_hash` or dedicated `username` column yet —
@@ -1066,3 +1065,63 @@ limit — **the dev machine could not reproduce it and never will.** Any restaur
   subqueries are not supported in Sync Streams queries, which is why the `restaurant_id` claim
   is baked into the PowerSync JWT (`routes/auth.js`, 60m TTL) and read via
   `auth.parameter('restaurant_id')` instead.
+
+## RLS / anon exposure — found and closed 2026-08-02 (was a REAL hole, not an advisor nag)
+
+The "RLS disabled on ~35 tables" advisor warning sat open from 2026-07-06 on the assumption that
+it was fine because "the Express backend enforces access control at the app layer." **That
+reasoning was wrong**, and checking the actual grants is what showed it:
+
+- All **37** public tables had RLS **disabled** (0 with it enabled).
+- The `anon` AND `authenticated` roles held **SELECT, INSERT, UPDATE, DELETE, TRUNCATE** on all 37.
+- PostgREST was live (confirmed by an `authenticator` connection in `pg_stat_activity`).
+
+Supabase exposes public-schema tables over PostgREST, and **the anon key is public by design** —
+it ships inside frontend bundles. So anyone holding that key could read, modify or delete every
+row in the database over plain HTTPS, including `users.password_hash` and every restaurant's
+orders. The app-layer argument was irrelevant because that path never goes through the app.
+
+**The lesson worth keeping: "our backend guards it" only holds if the backend is the ONLY way in.
+With Supabase it is not — PostgREST is always there unless grants or RLS stop it.**
+
+Fixed by migration `close_anon_exposure_enable_rls_all_public_tables`: revoked all anon/
+authenticated privileges on tables and sequences, revoked the matching `ALTER DEFAULT PRIVILEGES`
+so newly created tables don't silently get them back, and enabled RLS on all 37 tables (no
+policies = deny-by-default). Verified after: 37/37 RLS on, 0 anon grants, 0 policies.
+
+**Why this was safe, verified via `pg_stat_activity` BEFORE applying — do this check before ever
+touching RLS again:**
+- `postgres` (the Express backend on Render) — `rolbypassrls = true`
+- `powersync_role` (replication) — `rolbypassrls = true`
+- `authenticator` (PostgREST → anon) — `rolbypassrls = FALSE` ← the only path closed
+
+Confirmed after the migration that `postgres` still sees everything (4 restaurants / 21 users /
+3,547 orders). **If the backend is ever moved to a role WITHOUT `rolbypassrls`, RLS with zero
+policies will block it completely** — policies would have to be written first.
+
+`NOT FORCE ROW LEVEL SECURITY` was used deliberately: FORCE would apply RLS to the table owner
+too and break maintenance work.
+
+## Waitress phones are NOT reliably on the restaurant wifi (stated by owner 2026-08-02)
+
+Restaurants in Uzbekistan are often physically large and **wifi does not reach the whole floor**,
+so waitresses' phones frequently run on mobile data instead. Stated directly by the project owner
+when evaluating architecture options.
+
+**Consequence — this rules out a whole class of designs, permanently:**
+- A phone CANNOT be assumed to reach a POS terminal, the print agent, or a printer over the LAN.
+- Any "phone talks directly to the terminal/printer on the local network" design is dead on
+  arrival, no matter how good the latency would be. This was seriously considered on 2026-08-02
+  (phone → local HTTP listener on the POS app → printer) and rejected on exactly this basis.
+- **Phone-originated orders must therefore always travel through the cloud backend**, and the POS
+  app must learn about them from the cloud — via PowerSync's synced local data (preferred: the
+  SDK handles reconnect/resume, and it covers orders from any source) or a WebSocket client.
+- RULES.md §4's "trigger printing directly from the order-creating terminal over LAN" therefore
+  applies only to orders created ON a POS terminal. It cannot apply to phone orders.
+
+**Render cold starts: the project owner has explicitly said not to worry about this (2026-08-02). Do not keep raising it.** Recorded for context only: because phone orders must hit Render, and Render is on the FREE tier
+(spins down after 15 min idle, ~50s cold start), the FIRST phone order after an idle period is
+slow for the waitress. An open POS terminal masks this — its badge polls `/health` every 5s, which
+keeps the instance awake — but only while a terminal is actually running. This is a real argument
+for moving Render to a paid tier (note CLAUDE.md already claims paid; it is not — unresolved since
+2026-07-06).

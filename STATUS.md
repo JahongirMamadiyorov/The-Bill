@@ -3,7 +3,57 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-## 2026-08-01 (LATEST): PowerSync WORKING — S2305 resolved, data leak fixed and verified
+## 2026-08-02 (LATEST): receipt/cheque printing BUILT — needs a real printer test
+
+Customer receipt printing is complete in code and user-visible for the first time. **Not yet
+tested on hardware** — that is the single next step.
+
+- **Prints over the LAN from the terminal**, not via the backend's `POST /api/print/receipt`
+  (which is how the website does it, round-tripping every receipt through Render). Layout is a
+  faithful port of that route's `buildEscPos()` so pos-app and website receipts look identical.
+- **Seven triggers wired:** cart Print, auto-print after payment (new `receipt_auto_print`
+  setting, default true), POS Orders + Tables Print buttons, History reprint (works for refunded
+  orders too), Admin Collect Payment (button restored + auto-print), and per-item **send to
+  kitchen** / **print cheque** on each cart line.
+- **Double-print prevention:** `sentQty` tracks what was sent to the kitchen individually; Fire
+  prints only the remainder, and only the delta for partially-sent items. Only printing is
+  deduplicated — the order write always sends the full cart.
+- **Files:** migration `add_receipt_auto_print_setting`, `routes/settings.js` (4 whitelist
+  edits), `printEngine.js`, `main.js`, `preload.js`, `useSettings.js`, new `src/lib/receipt.js`,
+  `pos/MenuScreen|OrdersScreen|TablesScreen|HistoryScreen`, `admin/screens/OrdersScreen|
+  SettingsScreen`, `lib/i18n.js`, `i18n/en.json`, `i18n/uz.json`.
+- **Known quirk, replicated deliberately:** tax and service charge appear on the receipt but are
+  NOT added to the total (the website computes `total = order − discount`, and MenuScreen already
+  labels service "not charged"). Changing it needs a payment-logic decision first, not a receipt
+  change.
+
+**Test list:** all seven triggers; a dish sent individually must NOT reprint on Fire; auto-print
+must respect the toggle; Uzbek strings must read correctly. A TCP listener on port 9100 works if
+no printer is free.
+
+## 2026-08-02 (earlier): RLS/anon data exposure found and closed
+
+Asked "what is RLS?" — checking the real state turned the year-old advisor warning into a
+confirmed live exposure. All 37 public tables had RLS off while `anon`/`authenticated` held
+SELECT/INSERT/UPDATE/DELETE/TRUNCATE on every one, with PostgREST live. Because the anon key is
+public by design, anyone holding it could read/modify/delete every row over HTTPS, including
+`users.password_hash`. The standing "the backend enforces access at the app layer" assumption was
+wrong — PostgREST never goes through the app.
+
+**Closed** by migration `close_anon_exposure_enable_rls_all_public_tables`: anon/authenticated
+grants revoked (plus default privileges, so new tables can't regain them) and RLS enabled on all
+37 tables, deny-by-default. Verified safe BEFORE applying via `pg_stat_activity`: `postgres`
+(backend) and `powersync_role` both bypass RLS; only `authenticator` (PostgREST → anon) does not.
+Verified after: 37/37 RLS on, 0 anon grants, `postgres` still sees all data.
+
+**NEEDS CONFIRMING IN THE APP:** log in and use the POS/Admin normally to confirm nothing broke.
+DB-level checks all pass, but `web_fetch` was returning cached responses so HTTP-level
+verification was not trustworthy from here.
+
+**If the backend is ever moved to a DB role without `rolbypassrls`, RLS with zero policies will
+block it entirely** — policies must be written first.
+
+## 2026-08-01: PowerSync WORKING — S2305 resolved, data leak fixed and verified
 
 **Both problems are closed and confirmed on a real machine.** The Do'stlar 2 terminal — the
 restaurant that had never once synced — now works.
