@@ -24,6 +24,38 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { fmtMoney } from '../pages/pos/tokens.js';
+import { t } from './i18n.js';
+
+// The receipt is a physical document handed to a customer, so every word on it
+// must be in the restaurant's language — not just the app UI. printEngine.js
+// runs in the main process and has no access to the i18n dictionary, so the
+// labels are translated HERE and passed along with the data.
+//
+// `lang` falls back to localStorage when a call site doesn't pass it: the POS
+// shell stores 'pos.lang' ('UZ'/'EN') and the Admin panel stores 'lang'
+// ('uz'/'en'), so both are checked. This keeps the Admin call site working
+// without threading a lang prop through a screen that uses a different i18n
+// system entirely (LanguageContext).
+function resolveLang(lang) {
+  if (lang) return lang;
+  try {
+    if (localStorage.getItem('pos.lang') === 'UZ') return 'UZ';
+    if ((localStorage.getItem('lang') || '').toLowerCase() === 'uz') return 'UZ';
+  } catch { /* localStorage unavailable — fall through to English */ }
+  return 'EN';
+}
+
+function buildLabels(lang) {
+  return {
+    subtotal: t('Subtotal', lang),
+    tax:      t('Tax', lang),
+    service:  t('Service', lang),
+    discount: t('Discount', lang),
+    total:    t('Total', lang).toUpperCase(),
+    method:   t('Method', lang),
+    change:   t('Change', lang),
+  };
+}
 
 // "#42" from daily_number, else last 4 of the uuid — verbatim from PayModal.jsx.
 export function fmtOrderNum(o) {
@@ -39,9 +71,17 @@ export function fmtReceiptDate(d) {
   return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
 }
 
-// 'bank_transfer' -> 'Bank Transfer'. Same transform PayModal.jsx uses.
-export function paymentMethodLabel(method) {
-  return String(method || 'cash').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+// Payment method values arrive in two different shapes depending on the screen:
+// the POS PaymentModal emits Title Case ('Cash', 'QR Code', 'Split'), while the
+// Admin panel and the DB use snake_case ('cash', 'bank_transfer'). Both are
+// normalised to the Title Case form first — which is also the exact key the i18n
+// dictionary uses — then translated. An unknown method still title-cases
+// sensibly rather than printing a raw database value at the customer.
+export function paymentMethodLabel(method, lang) {
+  const titled = String(method || 'cash')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return t(titled, resolveLang(lang));
 }
 
 // Normalises the two different item shapes this app deals with:
@@ -85,9 +125,10 @@ function showFlags(settings = {}) {
  * @param {object}  payment   { method, discountAmount, discountReason, amountReceived }
  *                            — omit entirely for an unpaid "pre-bill" print.
  */
-export function buildReceiptData({ order = {}, items = [], settings = {}, payment = {} }) {
+export function buildReceiptData({ order = {}, items = [], settings = {}, payment = {}, lang }) {
   const symbol = settings.currencySymbol || "so'm";
   const money  = (n) => fmtMoney(n, symbol);
+  const lng    = resolveLang(lang);
 
   const lines    = normaliseItems(items, money);
   const subtotal = lines.reduce((sum, l) => sum + l._lineTotal, 0);
@@ -120,10 +161,11 @@ export function buildReceiptData({ order = {}, items = [], settings = {}, paymen
     discountReason: payment.discountReason || undefined,
     discount:       discountAmt > 0 ? `-${money(discountAmt)}` : undefined,
     total:          money(total),
-    method:         payment.method ? paymentMethodLabel(payment.method) : '',
+    method:         payment.method ? paymentMethodLabel(payment.method, lng) : '',
     change:         change > 0 ? money(change) : undefined,
     footer:         settings.receiptFooter || 'Rahmat!',
     show:           showFlags(settings),
+    labels:         buildLabels(lng),
   };
 }
 

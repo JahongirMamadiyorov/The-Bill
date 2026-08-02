@@ -85,11 +85,18 @@ const UZ = {
   // ── Receipt printing (added 2026-08-02) ───────────────────────────────────
   'Receipt printer did not respond': 'Chek printeri javob bermadi',
   'Receipt sent to printer': 'Chek printerga yuborildi',
+  'No receipt printer set up yet — add one in Settings → Printers':
+    'Chek printeri hali sozlanmagan — Sozlamalar → Printerlar boʻlimidan qoʻshing',
   'Print Receipt': 'Chek chiqarish',
-  'Send this item to the kitchen': 'Bu taomni oshxonaga yuborish',
   'Print a receipt for this item': 'Bu taom uchun chek chiqarish',
-  'This item was already sent to the kitchen': 'Bu taom oshxonaga allaqachon yuborilgan',
-  'sent': 'yuborildi',
+  // Printed on the physical receipt itself (see lib/receipt.js buildLabels) —
+  // the slip a customer is handed must not be half-English.
+  'Tax': 'Soliq',
+  'Service': 'Xizmat haqi',
+  'Change': 'Qaytim',
+  'Method': "To'lov turi",
+  'Split': "Bo'lib to'lash",
+  'Bank Transfer': "Bank o'tkazmasi",
   // ('Close' is NOT re-added here — it already exists further down in this same
   //  dictionary; a duplicate key would silently win/lose depending on order.)
   'Cashier': 'Kassir',

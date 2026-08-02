@@ -1054,6 +1054,18 @@ limit — **the dev machine could not reproduce it and never will.** Any restaur
   **exactly one column** (it means `IN (SELECT * FROM cte_name)`); with more columns, use explicit
   subquery or INNER JOIN form. CTE names must not shadow a real table name, and CTEs cannot
   reference other CTEs.
+- **A local PowerSync query can only use columns the SYNC RULE actually SELECTS.** Several rules
+  use an explicit column list rather than `SELECT *` (users, restaurant_settings, warehouse_items,
+  suppliers, stock_batches, stock_movements, supplier_deliveries, loans, shifts, staff_payments,
+  custom_stations, table_sections). Referencing an omitted column in a local query fails at
+  runtime with "no such column". **Real instance, 2026-08-02:** `SELECT name FROM custom_stations
+  ORDER BY created_at` in BOTH `admin/screens/MenuScreen.jsx` and `SettingsScreen.jsx` — the rule
+  only sends `id, restaurant_id, name`. MenuScreen wrapped it in `catch { /* silently ignore */ }`
+  so custom kitchen stations had been **invisible there since task #31 with no error shown**; it
+  was only found when the Printers tab surfaced the same failure as "Failed to load stations".
+  Fixed by ordering on `name` instead. **When converting a REST read to a local query, check the
+  sync rule's column list first — and be suspicious of any `catch` that ignores errors, because it
+  will hide exactly this.**
 - **The sync rules are now versioned at `pos-app/powersync/sync-rules.yaml`** (added 2026-08-01).
   They previously lived ONLY in the PowerSync dashboard, which cost a full round-trip mid-debug to
   get them. The dashboard is still what actually runs — **this file must be updated by hand

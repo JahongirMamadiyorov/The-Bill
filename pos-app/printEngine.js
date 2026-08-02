@@ -182,21 +182,54 @@ function sendToPrinter(ip, port, escposStr) {
 // this matches the backend's existing behavior exactly, not a new choice).
 // An item whose station matches no assigned printer falls back to any
 // catch-all printer, same as today.
+// Returns ONE JOB PER STATION, not one per printer (changed 2026-08-02).
+//
+// Previously this emitted a single job per printer, so a printer assigned five
+// stations produced ONE combined ticket headed "Salad / Hot / Tandir / ..." with
+// every dish on it. The kitchen needs a separate slip per station even when they
+// all come off the same physical printer — the salad station shouldn't have to
+// read past the grill's items to find its own. Each job is a self-contained
+// ESC/POS document ending in a cut, so one job = one piece of paper.
+//
+// Items with no kitchenStation set are grouped together under the printer's own
+// name, matching the previous catch-all behaviour rather than dropping them.
 function buildPrintJobs(printers, items) {
-  return printers
-    .filter((p) => p && p.ip)
-    .map((printer) => {
-      const assignedStations = Array.isArray(printer.stations) ? printer.stations : [];
-      const catchAll = assignedStations.length === 0;
-      const printerItems = items.filter((item) => {
-        if (catchAll) return true;
-        const station = (item.kitchenStation || '').trim();
-        if (!station) return true;
-        return assignedStations.some((st) => st.toLowerCase() === station.toLowerCase());
+  const jobs = [];
+
+  for (const printer of printers.filter((p) => p && p.ip)) {
+    const assignedStations = Array.isArray(printer.stations) ? printer.stations : [];
+    const catchAll = assignedStations.length === 0;
+
+    const printerItems = items.filter((item) => {
+      if (catchAll) return true;
+      const station = (item.kitchenStation || '').trim();
+      if (!station) return true;
+      return assignedStations.some((st) => st.toLowerCase() === station.toLowerCase());
+    });
+    if (printerItems.length === 0) continue;
+
+    // Group this printer's items by station, preserving first-seen order so the
+    // slips come out in a stable sequence. Keyed case-insensitively (station
+    // names are free text and "Hot"/"hot" must not become two slips), but the
+    // ORIGINAL casing is kept for the printed label.
+    const groups = new Map();
+    for (const item of printerItems) {
+      const station = (item.kitchenStation || '').trim();
+      const key = station.toLowerCase();
+      if (!groups.has(key)) groups.set(key, { station, items: [] });
+      groups.get(key).items.push(item);
+    }
+
+    for (const { station, items: stationItems } of groups.values()) {
+      jobs.push({
+        printer,
+        printerItems: stationItems,
+        stationLabel: station || printer.name || 'KITCHEN',
       });
-      return { printer, printerItems };
-    })
-    .filter((job) => job.printerItems.length > 0);
+    }
+  }
+
+  return jobs;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -229,19 +262,35 @@ async function printKitchenTicket({ order, items, printers, show }) {
   const printed = [];
   const failed  = [];
 
-  await Promise.allSettled(jobs.map(async ({ printer, printerItems }) => {
-    const stationLabel = Array.isArray(printer.stations) && printer.stations.length > 0
-      ? printer.stations.join(' / ')
-      : (printer.name || 'KITCHEN');
+  // Jobs are grouped by PRINTER and each printer's slips sent STRICTLY IN
+  // SEQUENCE. A station split means one printer can now receive several
+  // documents for a single order; firing those concurrently at the same socket
+  // interleaves the byte streams and produces garbled slips. Different printers
+  // still run in parallel, since they're independent devices.
+  const byPrinter = new Map();
+  for (const job of jobs) {
+    const key = `${job.printer.ip}:${job.printer.port || 9100}`;
+    if (!byPrinter.has(key)) byPrinter.set(key, []);
+    byPrinter.get(key).push(job);
+  }
 
-    const ticket = buildKitchenTicket({ order, items: printerItems, stationLabel, show });
-    const label  = `${printer.name || 'Printer'} (${printer.ip})`;
+  await Promise.allSettled([...byPrinter.values()].map(async (printerJobs) => {
+    for (const { printer, printerItems, stationLabel } of printerJobs) {
+      const ticket = buildKitchenTicket({ order, items: printerItems, stationLabel, show });
+      const label  = `${printer.name || 'Printer'} (${printer.ip}) — ${stationLabel}`;
 
-    try {
-      await sendToPrinter(printer.ip, printer.port || 9100, ticket);
-      printed.push(label);
-    } catch (err) {
-      failed.push({ printer: printer.name || printer.ip, ip: printer.ip, error: err.message });
+      try {
+        await sendToPrinter(printer.ip, printer.port || 9100, ticket);
+        printed.push(label);
+      } catch (err) {
+        failed.push({
+          printer: printer.name || printer.ip,
+          ip: printer.ip,
+          station: stationLabel,
+          error: err.message,
+        });
+        // Keep going: one station's slip failing shouldn't cost the others.
+      }
     }
   }));
 
@@ -353,31 +402,36 @@ function buildReceipt(r) {
 
   d += rDashes();
 
+  // Labels come from the renderer already translated (src/lib/receipt.js
+  // buildLabels) — this process has no i18n dictionary. English defaults keep
+  // an older/partial payload printing sensibly rather than blank.
+  const L = r.labels || {};
+
   // Subtotal only shown when it differs from the total (i.e. something was added).
   if (r.subtotal && r.subtotal !== r.total) {
-    d += pad('Subtotal', WIDTH - String(r.subtotal).length) + r.subtotal + '\n';
+    d += pad(L.subtotal || 'Subtotal', WIDTH - String(r.subtotal).length) + r.subtotal + '\n';
   }
   if (show.tax && r.tax) {
-    d += pad(`Tax (${r.taxRate || ''}%)`, WIDTH - String(r.tax).length) + r.tax + '\n';
+    d += pad(`${L.tax || 'Tax'} (${r.taxRate || ''}%)`, WIDTH - String(r.tax).length) + r.tax + '\n';
   }
   if (show.serviceCharge && r.service) {
-    d += pad(`Service (${r.serviceRate || ''}%)`, WIDTH - String(r.service).length) + r.service + '\n';
+    d += pad(`${L.service || 'Service'} (${r.serviceRate || ''}%)`, WIDTH - String(r.service).length) + r.service + '\n';
   }
   if (r.discount) {
-    d += pad(`Discount${r.discountReason ? ' (' + r.discountReason + ')' : ''}`,
+    d += pad(`${L.discount || 'Discount'}${r.discountReason ? ' (' + r.discountReason + ')' : ''}`,
              WIDTH - String(r.discount).length) + r.discount + '\n';
   }
 
   // TOTAL — bold, double height.
   d += rDashes() + CMD.BOLD_ON + R_DOUBLE_ON;
-  d += pad('TOTAL', WIDTH - String(r.total || '').length) + (r.total || '') + '\n';
+  d += pad(L.total || 'TOTAL', WIDTH - String(r.total || '').length) + (r.total || '') + '\n';
   d += CMD.NORMAL + CMD.BOLD_OFF + rDashes();
 
   // Payment method and change.
   d += CMD.BOLD_ON;
-  d += pad('Method', WIDTH - String(r.method || '').length) + (r.method || '') + '\n';
+  d += pad(L.method || 'Method', WIDTH - String(r.method || '').length) + (r.method || '') + '\n';
   if (r.change && r.change !== '0') {
-    d += pad('Change', WIDTH - String(r.change).length) + r.change + '\n';
+    d += pad(L.change || 'Change', WIDTH - String(r.change).length) + r.change + '\n';
   }
   d += CMD.BOLD_OFF;
 

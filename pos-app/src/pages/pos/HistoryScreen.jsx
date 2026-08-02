@@ -150,6 +150,7 @@ export default function HistoryScreen({ user, settings, search, lang }) {
         receipt, printers: settings.receiptPrinters,
       });
       if (res?.failed?.length > 0) showToast(t('Receipt printer did not respond', lang), false);
+      else if (res?.ok === false) showToast(t('No receipt printer set up yet — add one in Settings → Printers', lang), false);
       else if (res?.printed?.length > 0) showToast(t('Receipt sent to printer', lang));
     } catch { /* best-effort */ }
   };

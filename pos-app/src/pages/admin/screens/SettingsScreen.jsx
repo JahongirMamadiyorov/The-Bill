@@ -181,7 +181,7 @@ import { camelizeRows } from '../../../lib/case.js';
 // kitchen_station <> ''` (replaces `menuAPI.getItems()` — only the distinct
 // non-empty station names were ever read off each item, same as the
 // source's own `.map(i => i.kitchenStation).filter(Boolean)`), and (3)
-// `SELECT name FROM custom_stations ORDER BY created_at` (replaces `menuAPI.
+// `SELECT name FROM custom_stations ORDER BY name` (replaces `menuAPI.
 // getStations()` — identical query to `MenuScreen.jsx`'s own `fetchStations`,
 // reused verbatim rather than re-derived). The case-insensitive
 // first-occurrence-wins merge logic across all 3 sources is otherwise
@@ -637,7 +637,11 @@ function PrintersPanel({ form, set, t }) {
     setStationError(null);
     try {
       const [customRows, itemRows] = await Promise.all([
-        window.electronAPI.psGetAll(`SELECT name FROM custom_stations ORDER BY created_at`),
+        // ORDER BY name, NOT created_at — see MenuScreen.jsx's fetchStations for
+        // the full reason: created_at is not synced and does not exist on the
+        // local table, so ordering by it threw and produced "Failed to load
+        // stations" here (and failed silently in MenuScreen).
+        window.electronAPI.psGetAll(`SELECT name FROM custom_stations ORDER BY name`),
         window.electronAPI.psGetAll(
           `SELECT DISTINCT kitchen_station FROM menu_items WHERE kitchen_station IS NOT NULL AND kitchen_station <> ''`
         ),

@@ -157,7 +157,11 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
   // Reprint the customer receipt for the selected table's order (2026-08-02).
   // Same shape as OrdersScreen's version; the table name comes from selTable,
   // which this screen already has selected. Best-effort, never throws.
-  const printSelectedReceipt = async () => {
+  // `payment` overrides what's read off the order row — needed straight after
+  // paying, when the local PowerSync copy hasn't caught up with the write yet.
+  // `announce` is false for the automatic post-payment print (silence is correct
+  // when nothing is configured) and true for a deliberate button press.
+  const printSelectedReceipt = async ({ payment, announce = true } = {}) => {
     if (!selOrder) return;
     try {
       const receipt = buildReceiptData({
@@ -172,15 +176,21 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
           unit:      menuById[it.menuItemId]?.unit,
         })),
         settings,
-        payment: selOrder.paymentMethod
+        payment: payment || (selOrder.paymentMethod
           ? { method: selOrder.paymentMethod, discountAmount: selOrder.discountAmount }
-          : {},
+          : {}),
       });
       const res = await window.electronAPI.printReceipt({
         receipt, printers: settings.receiptPrinters,
       });
       if (res?.failed?.length > 0) {
         showToast(t('Receipt printer did not respond', lang), false);
+      } else if (res?.ok === false && announce) {
+        // Explicit button press with nothing configured — say so, or the button
+        // looks broken (see MenuScreen.jsx's printReceiptNow for the reasoning).
+        showToast(t('No receipt printer set up yet — add one in Settings → Printers', lang), false);
+      } else if (res?.printed?.length > 0 && announce) {
+        showToast(t('Receipt sent to printer', lang));
       }
     } catch { /* best-effort */ }
   };
@@ -360,6 +370,19 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
   const submitPay = async (payPayload) => {
     const res = await window.electronAPI.ordersPay(selOrder.id, payPayload);
     if (!res.ok) return { ok: false, error: res.error || 'Payment failed' };
+    // Same post-payment receipt as OrdersScreen — see its submitPay for why the
+    // payment details are passed explicitly and why announce is false.
+    if (settings.receiptAutoPrint) {
+      await printSelectedReceipt({
+        announce: false,
+        payment: {
+          method:         payPayload?.payment_method,
+          discountAmount: payPayload?.discount_amount,
+          discountReason: payPayload?.discount_reason,
+          amountReceived: payPayload?.amount_received,
+        },
+      });
+    }
     return { ok: true };
   };
 
@@ -677,7 +700,7 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
                 </>
               ) : (
                 <>
-                  <button onClick={printSelectedReceipt} style={{
+                  <button onClick={() => printSelectedReceipt()} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                     background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

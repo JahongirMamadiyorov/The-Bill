@@ -162,7 +162,11 @@ export default function OrdersScreen({ user, settings, search, lang }) {
   // item rows carry menuItemId rather than a name, so names/units come from
   // menuById — the same lookup startEdit() below already uses. Best-effort:
   // silent when no receipt printer is configured, warns only on a real failure.
-  const printSelectedReceipt = async () => {
+  // `payment` overrides what's read off the order row — needed straight after
+  // paying, when the local PowerSync copy hasn't caught up with the write yet.
+  // `announce` is false for the automatic post-payment print (silence is correct
+  // when nothing is configured) and true for a deliberate button press.
+  const printSelectedReceipt = async ({ payment, announce = true } = {}) => {
     if (!selected) return;
     try {
       const table = tableById[selected.tableId];
@@ -178,15 +182,21 @@ export default function OrdersScreen({ user, settings, search, lang }) {
           unit:      menuById[it.menuItemId]?.unit,
         })),
         settings,
-        payment: selected.paymentMethod
+        payment: payment || (selected.paymentMethod
           ? { method: selected.paymentMethod, discountAmount: selected.discountAmount }
-          : {},
+          : {}),
       });
       const res = await window.electronAPI.printReceipt({
         receipt, printers: settings.receiptPrinters,
       });
       if (res?.failed?.length > 0) {
         showToast(t('Receipt printer did not respond', lang), false);
+      } else if (res?.ok === false && announce) {
+        // Explicit button press with nothing configured — say so, or the button
+        // looks broken (see MenuScreen.jsx's printReceiptNow for the reasoning).
+        showToast(t('No receipt printer set up yet — add one in Settings → Printers', lang), false);
+      } else if (res?.printed?.length > 0 && announce) {
+        showToast(t('Receipt sent to printer', lang));
       }
     } catch { /* best-effort — a failed reprint must never break the screen */ }
   };
@@ -350,6 +360,24 @@ export default function OrdersScreen({ user, settings, search, lang }) {
   const submitPay = async (payPayload) => {
     const res = await window.electronAPI.ordersPay(selected.id, payPayload);
     if (!res.ok) return { ok: false, error: res.error || 'Payment failed' };
+    // Receipt straight after payment, gated on restaurant_settings
+    // .receipt_auto_print. Added 2026-08-02 — this path had NO receipt at all
+    // before, so paying an existing order from Orders/Tables printed nothing
+    // while paying a new order from Menu did. The payment details are passed
+    // explicitly because the local PowerSync copy of this order hasn't caught
+    // up with the write yet. announce:false — silence is right for automatic
+    // printing; the Print button still reports a missing printer.
+    if (settings.receiptAutoPrint) {
+      await printSelectedReceipt({
+        announce: false,
+        payment: {
+          method:         payPayload?.payment_method,
+          discountAmount: payPayload?.discount_amount,
+          discountReason: payPayload?.discount_reason,
+          amountReceived: payPayload?.amount_received,
+        },
+      });
+    }
     return { ok: true };
   };
 
@@ -697,7 +725,7 @@ export default function OrdersScreen({ user, settings, search, lang }) {
                 </>
               ) : (
                 <>
-                  <button onClick={printSelectedReceipt} style={{
+                  <button onClick={() => printSelectedReceipt()} style={{
                     flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
                     background: T.surface, color: T.ink, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

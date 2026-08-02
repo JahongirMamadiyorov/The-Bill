@@ -3236,3 +3236,118 @@ call sites reach the `printReceipt` IPC.
 synthetic ESC/POS render. The next step is a rebuild and a real printer (or a TCP listener on
 port 9100) to check: each of the seven triggers, that a dish sent individually does NOT reprint
 on Fire, that auto-print respects the new toggle, and that the Uzbek strings read correctly.
+
+### "Failed to load stations" — a silent bug the Printers tab finally exposed (2026-08-02)
+
+User hit `Failed to load stations` in the new Printers tab's kitchen-printer form. Root cause is
+NOT the Printers tab: both it and `admin/screens/MenuScreen.jsx` ran
+`SELECT name FROM custom_stations ORDER BY created_at` against the LOCAL PowerSync table — but
+that table has no `created_at` column locally. The Sync Streams rule sends only
+`id, restaurant_id, name` (see `powersync/sync-rules.yaml`) and `powersync/schema.js` matches, so
+SQLite raised "no such column" and the whole `Promise.all` rejected.
+
+**The important part: this has been broken in Admin → Menu since task #31 and nobody knew**,
+because `MenuScreen.jsx`'s `fetchStations` wraps it in `catch { /* silently ignore */ }` — custom
+kitchen stations have simply never appeared there. The Printers tab is the first screen that
+surfaces the error instead of swallowing it, which is the only reason it was found.
+
+**Fixed** by ordering on `name` (which does exist locally) in both call sites, rather than adding
+`created_at` to the sync rule + client schema — that would have meant another rules deploy and a
+re-sync of the table for cosmetic ordering. The website orders by creation date; alphabetical is
+the nearest deterministic equivalent available locally, and the picker merges/dedupes against the
+preset list anyway. Stale comment at SettingsScreen.jsx:184 updated to match.
+
+**Swept for the same bug class rather than fixing just the reported one:** checked every
+`ORDER BY created_at` in local PowerSync queries against `powersync/schema.js` programmatically —
+`notifications`, `loans`, `users` and `orders` all have `created_at` locally and are fine.
+`custom_stations` was the only broken table.
+
+**Standing lesson worth keeping:** a local PowerSync query can only use columns the SYNC RULE
+actually selects. Where a rule uses an explicit column list rather than `SELECT *`, any local
+query referencing an omitted column fails at runtime — and if the caller swallows errors, it
+fails invisibly. Both files esbuild-verified clean.
+
+### First real-printer test — one paper per station, and the "dead" Print buttons (2026-08-02)
+
+User tested with a real thermal printer. Three findings, all now fixed.
+
+**1. One combined slip instead of one per station (real bug).** `buildPrintJobs` grouped by
+PRINTER, so his single printer assigned five stations produced ONE ticket headed
+`Salad / Hot / Tandir / Q ora / Somsa` with every dish on it. The kitchen needs a separate slip
+per station even off one physical printer. **Fixed:** `buildPrintJobs` now emits one job PER
+STATION — items grouped by `kitchenStation` (keyed case-insensitively so "Hot"/"hot" don't split,
+but the original casing is printed), unstationed items grouped under the printer's own name,
+preserving the previous catch-all behaviour. Each job is a self-contained ESC/POS document ending
+in a cut, so one job = one piece of paper.
+
+**Concurrency trap caught while doing it:** one printer can now receive several documents for a
+single order, and firing those in parallel at the same socket interleaves the byte streams into
+garbage. `printKitchenTicket` now groups jobs by printer and sends each printer's slips STRICTLY
+in sequence, while different printers still run in parallel. A failed slip no longer aborts the
+rest of that printer's queue. Verified against his exact setup (1 printer, 5 stations, 5 items):
+4 slips — Salad, Q ora (2 items), Tandir, and the unstationed item under the printer name.
+
+**2. "Print buttons don't work" on Menu/Orders/Tables — not a bug, a design mistake of mine.**
+His Settings screenshot showed "No receipt printers yet" — only KITCHEN printers configured. So
+`printReceipt` returned `{ok:false, 'No receipt printers configured'}` and every call site stayed
+silent BY DESIGN. Silence is right for automatic printing (nothing configured = nothing expected)
+but wrong for a button a cashier deliberately taps — they reasonably conclude it's broken. User
+confirmed: *"those print buttons are working, I just have not assigned a cashier printer."*
+**Fixed:** manual presses now report it. MenuScreen's `printReceiptNow` takes `{ announce }`
+(true for the cart Print button and the per-item cheque, false for auto-print after payment);
+Orders/Tables/History always announce, since every call there is an explicit press. New UZ string
+added.
+
+**3. Per-item "send to kitchen" flame icon REMOVED at the owner's request**, one day after asking
+for it. Sending to the kitchen now happens only via Fire. Removed cleanly rather than left dead:
+the flame button, the "sent" marker, `sendItemToKitchen`, the `sentQty` state and its
+`clearOrder()` reset, and the three now-unused i18n keys. `unsentTicketItems()` — which existed
+solely to subtract already-sent quantities — is simplified back to `ticketItems()`, since nothing
+can now reach the kitchen ahead of Fire, so there is nothing to deduplicate against. **The
+per-item RECEIPT (printer icon) stays** — that was the Uzbek till-copy requirement and is
+unaffected. The double-print protection can be restored if the flame button ever comes back.
+
+All verified: `node --check` on printEngine.js, esbuild clean on all four POS screens plus
+i18n.js, i18n duplicate-key check clean, no dangling references to the removed helpers.
+
+### Three follow-ups: dine-in table gate, post-payment receipt everywhere, receipt i18n (2026-08-02)
+
+**1. Dine-in Print now requires a table.** `printCartReceipt` calls the existing `validateOrder()`
+first, the same gate Fire and Charge already use — it shows the message AND opens the table
+picker. A dine-in bill with no table is unusable; the cashier can't tell whose it is.
+
+**2. Post-payment receipt was MISSING on two of four payment paths — a real gap, not a tweak.**
+Auto-print existed only in `pos/MenuScreen.jsx`'s `submitCharge` (new orders) and Admin's
+`processPayment`. Paying an EXISTING order from `pos/OrdersScreen.jsx` or `pos/TablesScreen.jsx`
+went through their own `submitPay`, which just called `ordersPay` and returned — **no receipt at
+all**. Both now print after a successful payment, gated on `receiptAutoPrint`.
+
+Two details that would have caused silent bugs:
+- **The payment details are passed EXPLICITLY** rather than read off the order row. These screens
+  read the local PowerSync copy, which hasn't caught up with the write that just happened — the
+  receipt would have printed with the OLD (or empty) payment method. `printSelectedReceipt` gained
+  a `payment` override for exactly this.
+- **`announce: false` for the automatic print, true for the button.** Same reasoning as the
+  earlier fix — and this meant `printSelectedReceipt` grew an options object, so its `onClick`
+  had to become `() => printSelectedReceipt()`. Wired directly it would have received the DOM
+  event as the options object, making `announce` undefined (falsy) and silently killing the
+  button's own feedback. This file's existing header comments warn about exactly that trap.
+
+**3. Receipts are now fully translated.** "Method", "Tax", "Service", "Change", "TOTAL" and the
+payment method values were printing in English on an otherwise Uzbek slip. `printEngine.js` runs
+in the MAIN process and has no access to the i18n dictionary, so labels are translated in
+`src/lib/receipt.js` (`buildLabels`) and passed through in a new `labels` field;
+`buildReceipt` reads `r.labels.*` with English fallbacks so an older payload still prints.
+
+`paymentMethodLabel` now handles BOTH shapes the app produces — the POS PaymentModal emits Title
+Case (`'Cash'`, `'QR Code'`, `'Split'`) while Admin and the DB use snake_case (`'bank_transfer'`)
+— normalising to Title Case (which is also the i18n key) before translating, so an unknown method
+still title-cases rather than printing a raw DB value at a customer. `lang` falls back to
+localStorage (`pos.lang` 'UZ'/'EN', or Admin's `lang` 'uz'/'en'), which keeps the Admin call site
+working without threading a prop through a screen that uses a different i18n system entirely.
+
+6 new UZ keys (Tax, Service, Change, Method, Split, Bank Transfer). Verified by rendering a full
+UZ receipt end-to-end: `Oraliq summa / Soliq (12%) / Xizmat haqi (10%) / Chegirma / JAMI /
+To'lov turi: Naqd / Qaytim`, and `'Cash'`→`Naqd`, `'QR Code'`→`QR kod`,
+`'bank_transfer'`→`Bank o'tkazmasi`, with EN unchanged. All files esbuild-clean, 256 i18n keys,
+no duplicates.

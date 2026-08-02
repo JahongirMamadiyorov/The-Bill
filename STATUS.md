@@ -3,7 +3,34 @@
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
-## 2026-08-02 (LATEST): receipt/cheque printing BUILT — needs a real printer test
+## 2026-08-02 (LATEST): printing DONE — verified on real hardware, owner confirmed working
+
+Kitchen and receipt printing are both live and tested on a real thermal printer.
+
+- **Kitchen: one slip per STATION**, even when several stations share one physical printer
+  (was one combined slip). Each printer's slips are sent strictly in sequence — parallel sends to
+  one socket interleave into garbage.
+- **Receipts print over the LAN from the terminal**, not via the backend's
+  `POST /api/print/receipt`. Layout is a faithful port of that route's `buildEscPos()`.
+- **Auto-print after payment on ALL FOUR payment paths** (Menu, Orders, Tables, Admin) — Orders
+  and Tables previously printed nothing at all. Gated on `receipt_auto_print` (default true).
+  Payment details are passed explicitly, since the local synced copy lags the write.
+- **Receipts fully translated** — labels are translated in the renderer and passed to the print
+  engine, which has no i18n dictionary of its own. Payment methods translate from both the POS
+  (`'Cash'`) and Admin/DB (`'bank_transfer'`) shapes.
+- **Dine-in Print requires a table** first, same gate as Fire and Charge.
+- **Per-item receipt** (printer icon per cart line) kept; the per-item "send to kitchen" flame
+  button was built and then removed at the owner's request the same day.
+
+**Bug found and fixed while testing:** `SELECT ... FROM custom_stations ORDER BY created_at` in
+both the Printers tab and Admin → Menu — `created_at` is not in the sync rule's column list, so it
+doesn't exist locally. Admin → Menu had swallowed this error since task #31, meaning custom
+stations were silently invisible there. Now ordered by `name`.
+
+**Still untested from earlier sessions:** Login screen show/hide + language toggle, and the
+`psOwner` check (`local-data-cleared` must NOT fire on a clean launch with no logout).
+
+## 2026-08-02 (earlier): receipt/cheque printing BUILT — needs a real printer test
 
 Customer receipt printing is complete in code and user-visible for the first time. **Not yet
 tested on hardware** — that is the single next step.

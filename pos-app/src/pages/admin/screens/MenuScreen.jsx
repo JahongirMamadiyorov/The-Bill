@@ -206,8 +206,16 @@ export default function AdminMenuScreen() {
   const [customStations, setCustomStations] = useState([]); // loaded from local PowerSync
   const fetchStations = useCallback(async () => {
     try {
+      // ORDER BY name, NOT created_at (fixed 2026-08-02). The Sync Streams rule
+      // for custom_stations selects only `id, restaurant_id, name`, and the local
+      // schema (powersync/schema.js) matches — there is no created_at column
+      // locally, so ordering by it threw "no such column" and this catch
+      // swallowed it, leaving custom stations permanently invisible here. The
+      // website orders by creation; alphabetical is the closest deterministic
+      // ordering available without adding created_at to both the sync rule and
+      // the client schema (which would force a rules redeploy + table re-sync).
       const rows = await window.electronAPI.psGetAll(
-        `SELECT name FROM custom_stations ORDER BY created_at`
+        `SELECT name FROM custom_stations ORDER BY name`
       );
       setCustomStations(Array.isArray(rows) ? rows.map(r => r.name) : []);
     } catch { /* silently ignore */ }
