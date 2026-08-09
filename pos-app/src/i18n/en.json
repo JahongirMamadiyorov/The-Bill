@@ -591,7 +591,22 @@
       "cancellationReason": "Cancellation Reason",
       "date": "Date",
       "printReceipt": "Print Receipt",
-      "receiptPrinterFailed": "Receipt printer did not respond — check it and print again"
+      "receiptPrinterFailed": "Receipt printer did not respond — check it and print again",
+      "history": "Order history",
+      "historyEmpty": "No changes recorded for this order yet.",
+      "historyUnknownUser": "Unknown user",
+      "hist": {
+        "created": "Order created with {count} item(s)",
+        "itemAdded": "Added {item} × {qty}",
+        "itemRemoved": "Removed {item} × {qty}",
+        "qtyChanged": "Changed {item} quantity from {from} to {to}",
+        "tableChanged": "Changed the table",
+        "paid": "Payment taken ({method})",
+        "refunded": "Refunded — {reason}",
+        "cancelled": "Order cancelled",
+        "statusChanged": "Status changed from {from} to {to}",
+        "deleted": "Order deleted"
+      }
     },
     "staff": {
       "title": "Staff Management",

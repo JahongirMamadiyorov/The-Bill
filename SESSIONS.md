@@ -3561,3 +3561,60 @@ All verified: `node --check` on main.js/preload.js, esbuild clean on ProfileScre
 **Not yet tested on real hardware** — needs a POS rebuild, then: create an order on a waitress
 phone and confirm a ticket prints; add items from the phone and confirm only the NEW items print;
 create an order on the POS itself and confirm it prints exactly ONCE (not twice).
+
+## 2026-08-09 — Order change history ("lock history") built
+
+Owner asked to see who changed what on any order, with exact times, visible even after the order
+closes, on the order detail in the Admin panel. Chosen via ranked questions: order changes only
+(no kitchen ready/served noise), Admin-visible, 45-day retention, translated UZ/EN.
+
+**Table `order_audit_log`** (migration `create_order_audit_log`) — two deliberate design choices:
+- **`user_name`/`user_role` are DENORMALISED and frozen at the time of the action.** If a staff
+  member is later deleted, `user_id` goes NULL — and that is exactly when an audit log matters
+  most. History that turns into "Unknown" after a staffing change is worthless.
+- **NO foreign key to `orders`.** An admin deleting an order is one of the most important things
+  to audit, so the history must SURVIVE the deletion — an FK would either cascade the evidence
+  away or block the delete. `order_number` is copied in so a deleted order stays identifiable.
+
+RLS enabled and anon/authenticated grants revoked, matching the 2026-08-02 security posture.
+Two indexes: `(order_id, created_at DESC)` for the read, `(created_at)` for the retention sweep.
+
+**Backend (`routes/orders.js`)** — `logOrderChange()` helper plus logging at all eight relevant
+mutation points: create, add-items, edit, pay, refund, status change, cancel, delete. Kitchen
+ready/serve deliberately NOT logged, per the owner's choice.
+
+- **Fire-and-forget by design:** every call is awaited but fully swallowed on error, and runs
+  OUTSIDE the caller's transaction. A failed log line must never break, slow or roll back a
+  payment — and a rolled-back operation leaves no misleading entry.
+- **The edit path needed a diff.** `PUT /:id` deletes and re-inserts every row, so it cannot say
+  what changed without comparing. Added `diffOrderItems(before, after)` plus a snapshot of the
+  items taken BEFORE the delete (kept separate from the existing stock-diff read, which sits in a
+  try/catch that can be skipped). Unit-tested: quantity change, addition, removal and unchanged
+  items all classify correctly, and duplicate rows for one product are summed rather than
+  double-counted.
+- **Bug caught by that test:** a newly added item logged `item: null`, because a new product has
+  no name in the before-snapshot. Fixed by resolving names from `menu_items` for the after-list.
+- **Retention:** 45 days (6 weeks — owner raised it from 14 on 2026-08-09), swept opportunistically (~1 in 50 writes) rather than via pg_cron —
+  the extension isn't installed, and a separate cron job is one more thing that can silently stop.
+  Verified with EXPLAIN that the delete uses the `created_at` index rather than scanning.
+
+**`GET /api/orders/:id/history`** — `authorize('owner','admin')`. Owner is included deliberately
+even though the owner said "Admin only": owner is the account ABOVE admin, and locking them out of
+an audit log for their own restaurant makes no sense. Flagged to the owner for correction.
+
+**Admin UI** — new "Order history" section in the order detail modal, newest first, showing exact
+time to the SECOND, the change, and who made it. Fetched on demand when the modal opens (it's read
+one order at a time); a 403 for a non-admin degrades to an empty list rather than an error.
+
+**Translation approach:** the backend stores an action CODE plus structured `details`, never a
+written sentence, and `describeAuditEntry()` renders it through the i18n dictionary. Adding a new
+action needs a translation string, not a migration. 13 new keys in each of en.json/uz.json.
+
+All verified: `node --check` on orders.js, esbuild clean on the Admin screen and api/client.js,
+both i18n files valid JSON, retention SQL EXPLAINed against the real database.
+
+**IMPORTANT LIMITATION to tell the restaurants:** history starts from the moment this deploys.
+Existing orders will show an empty log — the information was never captured before, and cannot be
+reconstructed.
+
+**Deploy:** backend push to Render (the table already exists) + a pos-app rebuild.

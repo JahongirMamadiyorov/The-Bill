@@ -591,7 +591,22 @@
       "cancellationReason": "Bekor qilish sababi",
       "date": "Sana",
       "printReceipt": "Chek chiqarish",
-      "receiptPrinterFailed": "Chek printeri javob bermadi — tekshirib, qayta chiqaring"
+      "receiptPrinterFailed": "Chek printeri javob bermadi — tekshirib, qayta chiqaring",
+      "history": "Buyurtma tarixi",
+      "historyEmpty": "Bu buyurtma bo'yicha hozircha o'zgarish qayd etilmagan.",
+      "historyUnknownUser": "Nomaʼlum foydalanuvchi",
+      "hist": {
+        "created": "Buyurtma yaratildi ({count} ta mahsulot)",
+        "itemAdded": "{item} × {qty} qo'shildi",
+        "itemRemoved": "{item} × {qty} o'chirildi",
+        "qtyChanged": "{item} miqdori {from} dan {to} ga o'zgartirildi",
+        "tableChanged": "Stol o'zgartirildi",
+        "paid": "To'lov qabul qilindi ({method})",
+        "refunded": "Qaytarildi — {reason}",
+        "cancelled": "Buyurtma bekor qilindi",
+        "statusChanged": "Holat {from} dan {to} ga o'zgardi",
+        "deleted": "Buyurtma o'chirildi"
+      }
     },
     "staff": {
       "title": "Xodimlarni boshqarish",

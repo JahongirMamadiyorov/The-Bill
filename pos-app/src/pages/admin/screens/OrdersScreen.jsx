@@ -253,8 +253,44 @@ const paymentMethodLabel = (method, t) => {
   return t(`paymentMethods.${key}`, method);
 };
 
+// ── Order history rendering ──────────────────────────────────────────────────
+// The backend stores an action CODE plus structured `details`, never a written
+// sentence, so the same entry can be rendered in Uzbek or English. Adding a new
+// action therefore needs a translation string, not a database migration.
+//
+// Falls back to the raw action code if a translation is missing — an unfamiliar
+// code is still more useful to a manager than a blank line.
+function describeAuditEntry(h, t) {
+  const d = h.details || {};
+  const n = (v) => (v === null || v === undefined ? '?' : v);
+  switch (h.action) {
+    case 'order_created':
+      return t('admin.orders.hist.created', { count: Array.isArray(d.items) ? d.items.length : 0 });
+    case 'item_added':
+      return t('admin.orders.hist.itemAdded', { item: n(d.item), qty: n(d.quantity) });
+    case 'item_removed':
+      return t('admin.orders.hist.itemRemoved', { item: n(d.item), qty: n(d.quantity) });
+    case 'item_qty_changed':
+      return t('admin.orders.hist.qtyChanged', { item: n(d.item), from: n(d.from), to: n(d.to) });
+    case 'table_changed':
+      return t('admin.orders.hist.tableChanged');
+    case 'paid':
+      return t('admin.orders.hist.paid', { method: n(d.method) });
+    case 'refunded':
+      return t('admin.orders.hist.refunded', { reason: n(d.reason) });
+    case 'order_cancelled':
+      return t('admin.orders.hist.cancelled');
+    case 'status_changed':
+      return t('admin.orders.hist.statusChanged', { from: n(d.from), to: n(d.to) });
+    case 'order_deleted':
+      return t('admin.orders.hist.deleted');
+    default:
+      return h.action;
+  }
+}
+
 export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrderId, settings }) {
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const { call, loading, error, setError } = useApi();
   const [activeOrders, setActiveOrders] = useState([]);
   const [paidOrders, setPaidOrders] = useState([]);
@@ -312,6 +348,23 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     fetchOrderDetail(selectedOrder.id)
       .then(full => { if (full) setSelectedOrder(prev => prev?.id === full.id ? { ...prev, ...full } : prev); })
       .catch(() => {});
+  }, [selectedOrder?.id, modalOpenKey]); // eslint-disable-line
+
+  // Order change history ("lock history"). Fetched on demand when the detail
+  // modal opens rather than with the order list — it's only ever read one order
+  // at a time, and the endpoint is owner/admin-only (a 403 for anyone else is
+  // swallowed into an empty list rather than shown as an error).
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  useEffect(() => {
+    if (!selectedOrder?.id) { setHistory([]); return; }
+    let alive = true;
+    setHistoryLoading(true);
+    ordersAPI.getHistory(selectedOrder.id)
+      .then(res => { if (alive) setHistory(camelizeRows(res.data || [])); })
+      .catch(() => { if (alive) setHistory([]); })
+      .finally(() => { if (alive) setHistoryLoading(false); });
+    return () => { alive = false; };
   }, [selectedOrder?.id, modalOpenKey]); // eslint-disable-line
 
   // Auto-open an order if AdminShell passed an `openOrderId` prop (parsed by
@@ -1457,6 +1510,42 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                   <span className="font-semibold text-gray-900">{t('common.total')}</span>
                   <span className="text-3xl font-bold text-blue-600">{money(selectedOrder.totalAmount || 0)}</span>
                 </div>
+              </div>
+
+              {/* ── Order change history ("lock history") ──────────────────────
+                  Every add / remove / quantity change / payment / refund on this
+                  order, with who did it and the exact time. Works for closed
+                  orders too. Admin/Owner only — the backend returns 403 to
+                  anyone else, so this section simply stays empty for them. */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <FileText size={18} />
+                  {t('admin.orders.history')}
+                </h3>
+
+                {historyLoading ? (
+                  <p className="text-sm text-gray-500">{t('common.loading')}</p>
+                ) : history.length === 0 ? (
+                  <p className="text-sm text-gray-500">{t('admin.orders.historyEmpty')}</p>
+                ) : (
+                  <ol className="space-y-2">
+                    {history.map((h) => (
+                      <li key={h.id} className="flex gap-3 text-sm bg-gray-50 rounded-lg px-4 py-2.5">
+                        {/* Exact time, to the second — the whole point of this panel */}
+                        <span className="font-mono text-xs text-gray-500 whitespace-nowrap pt-0.5">
+                          {new Date(h.createdAt || h.created_at).toLocaleString(
+                            lang === 'uz' ? 'uz-UZ' : 'en-GB',
+                            { day: '2-digit', month: '2-digit', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        <span className="flex-1 text-gray-900">{describeAuditEntry(h, t)}</span>
+                        <span className="text-xs text-gray-500 whitespace-nowrap pt-0.5">
+                          {h.userName || h.user_name || t('admin.orders.historyUnknownUser')}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
 
               {/* Payment Info */}

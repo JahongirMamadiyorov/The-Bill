@@ -173,6 +173,9 @@ export const ordersAPI = {
   getKitchenStats: () => api.get('/orders/kitchen/stats'),
   getKitchenCompleted: (params) => api.get('/orders/kitchen/completed', { params }),
   getById: (id) => api.get(`/orders/${id}`),
+  // Change history ("lock history") — who changed what on this order and when.
+  // Backend restricts this to owner/admin; a cashier calling it gets 403.
+  getHistory: (id) => api.get(`/orders/${id}/history`),
   create: (data) => api.post('/orders', data),
   update: (id, data) => api.put(`/orders/${id}`, data),
   updateStatus: (id, status) => api.put(`/orders/${id}/status`, { status }),
