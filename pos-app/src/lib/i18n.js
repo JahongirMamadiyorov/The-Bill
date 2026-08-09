@@ -89,6 +89,11 @@ const UZ = {
     'Chek printeri hali sozlanmagan — Sozlamalar → Printerlar boʻlimidan qoʻshing',
   'Print Receipt': 'Chek chiqarish',
   'Print a receipt for this item': 'Bu taom uchun chek chiqarish',
+  // Per-terminal kitchen auto-print switch (pos/ProfileScreen.jsx)
+  'This terminal': 'Ushbu terminal',
+  'Print kitchen tickets for orders from phones': 'Telefondan kelgan buyurtmalarni oshxonaga chiqarish',
+  'Turn this on for ONE terminal only. Waitress phones cannot reach the kitchen printer directly, so this computer prints their orders.':
+    'Buni FAQAT BITTA terminalda yoqing. Ofitsiant telefoni oshxona printeriga toʻgʻridan-toʻgʻri ulana olmaydi, shuning uchun ularning buyurtmalarini shu kompyuter chiqaradi.',
   // Printed on the physical receipt itself (see lib/receipt.js buildLabels) —
   // the slip a customer is handed must not be half-English.
   'Tax': 'Soliq',

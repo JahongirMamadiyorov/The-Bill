@@ -293,10 +293,188 @@ async function connectPowerSync() {
     );
     await db.connect(connector);
     psLastError = null;
+    // Watch for orders this terminal didn't create (phone/website/other
+    // terminals) and print their kitchen tickets — see autoPrintPendingItems.
+    startAutoPrint();
   } catch (err) {
     psLastError = err?.message || String(err);
     pushPsEvent('connect-failed', psLastError);
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// KITCHEN AUTO-PRINT for orders this terminal did NOT create. Added 2026-08-09.
+//
+// THE PROBLEM: a waitress creates an order on her phone; nothing prints. Until
+// now pos-app only printed tickets for orders IT created (see each screen's own
+// post-write print call). Phone/website orders relied on the OLD path — the
+// backend broadcasting over WebSocket to the separate print-agent — so any
+// restaurant running pos-app WITHOUT that agent got no kitchen ticket at all.
+//
+// WHY IT CANNOT BE FIXED IN THE PHONE APP: waitress phones are frequently on
+// mobile data, because wifi does not cover a large restaurant (owner, 2026-08-02
+// — see MEMORY.md). A phone on mobile data cannot reach a printer on the
+// restaurant LAN. Only a machine on that LAN can print, i.e. this terminal.
+//
+// HOW: every few seconds, look at the LOCAL PowerSync copy for order_items that
+// have not been printed yet and print them, grouped per order. PowerSync already
+// syncs orders/order_items from every source — phone, website, other terminals —
+// so no cloud round-trip or WebSocket client is needed, and it survives the
+// backend being briefly unreachable.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const AUTO_PRINT_POLL_MS  = 8000;
+const PRINTED_IDS_MAX     = 4000;   // ring cap so the marker file can't grow forever
+// Items belonging to an order THIS terminal just created/added to are marked
+// printed WITHOUT printing, because the renderer already printed them directly.
+// The window covers the gap between the write succeeding and the rows syncing back.
+const SELF_PRINT_WINDOW_MS = 3 * 60 * 1000;
+
+let autoPrintTimer   = null;
+let autoPrintRunning = false;
+let settingsCache    = { at: 0, value: null };
+
+// Record of orders this terminal wrote itself, so the watcher doesn't reprint them.
+function noteSelfPrinted(orderId) {
+  if (!orderId) return;
+  const list = (store.get('selfPrintedOrders') || [])
+    .filter((e) => Date.now() - e.at < SELF_PRINT_WINDOW_MS * 2);
+  list.push({ orderId, at: Date.now() });
+  store.set('selfPrintedOrders', list);
+}
+
+function wasSelfPrinted(orderId) {
+  return (store.get('selfPrintedOrders') || []).some(
+    (e) => e.orderId === orderId && Date.now() - e.at < SELF_PRINT_WINDOW_MS);
+}
+
+// kitchen_show_* columns are NOT in the Sync Streams column list, so they can't
+// be read locally — fetched over REST and cached. Falls back to all-true, which
+// matches useSettings.js's own DEFAULTS, so a failed fetch still prints a
+// complete ticket rather than a blank one.
+async function getKitchenSettings() {
+  if (settingsCache.value && Date.now() - settingsCache.at < 5 * 60 * 1000) {
+    return settingsCache.value;
+  }
+  let row = null;
+  try {
+    const token = store.get('session')?.token;
+    const res = await request('GET', '/api/settings', null, token, 8000);
+    if (res.status >= 200 && res.status < 300) row = res.body;
+  } catch { /* offline — fall through to defaults */ }
+
+  const value = {
+    printers: Array.isArray(row?.kitchenPrinters) ? row.kitchenPrinters
+            : Array.isArray(row?.kitchen_printers) ? row.kitchen_printers : [],
+    show: {
+      tableName:    (row?.kitchenShowTableName    ?? row?.kitchen_show_table_name)    !== false,
+      orderNumber:  (row?.kitchenShowOrderNumber  ?? row?.kitchen_show_order_number)  !== false,
+      customerName: (row?.kitchenShowCustomerName ?? row?.kitchen_show_customer_name) !== false,
+      orderType:    (row?.kitchenShowOrderType    ?? row?.kitchen_show_order_type)    !== false,
+    },
+  };
+  // Only cache a result that actually found printers — otherwise retry sooner,
+  // so a terminal that started while offline picks them up once it reconnects.
+  if (value.printers.length) settingsCache = { at: Date.now(), value };
+  return value;
+}
+
+async function autoPrintPendingItems() {
+  if (autoPrintRunning) return;              // never overlap polls
+  if (!store.get('session')) return;         // logged out
+  if (store.get('kitchenAutoPrint') === false) return;  // disabled on this terminal
+  autoPrintRunning = true;
+
+  try {
+    const db = await getPowerSync();
+    const rows = await db.getAll(
+      `SELECT oi.id AS item_id, oi.order_id, oi.quantity, oi.notes, oi.created_at AS item_created_at,
+              m.name, m.unit, m.kitchen_station,
+              o.daily_number, o.order_type, o.customer_name, o.customer_phone,
+              o.delivery_address, o.created_at AS order_created_at,
+              t.name AS table_name, t.table_number
+         FROM order_items oi
+         JOIN orders o            ON o.id  = oi.order_id
+         LEFT JOIN menu_items m   ON m.id  = oi.menu_item_id
+         LEFT JOIN restaurant_tables t ON t.id = o.table_id
+        WHERE o.status IN ('pending','sent_to_kitchen','preparing','ready','served','bill_requested')
+        ORDER BY oi.created_at ASC, oi.id ASC`
+    );
+
+    const printed = new Set(store.get('printedItemIds') || []);
+
+    // FIRST RUN: adopt everything currently on screen as already-printed instead
+    // of printing it. Without this, enabling the feature would spit out a ticket
+    // for every open order in the restaurant.
+    if (!store.get('autoPrintSeeded')) {
+      for (const r of rows) printed.add(r.item_id);
+      store.set('printedItemIds', [...printed].slice(-PRINTED_IDS_MAX));
+      store.set('autoPrintSeeded', true);
+      pushPsEvent('autoprint-seeded', `${rows.length} existing item(s) marked as already printed`);
+      return;
+    }
+
+    const fresh = rows.filter((r) => !printed.has(r.item_id));
+    if (fresh.length === 0) return;
+
+    // Group by order — one ticket set per order, not per item.
+    const byOrder = new Map();
+    for (const r of fresh) {
+      if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
+      byOrder.get(r.order_id).push(r);
+    }
+
+    const { printers, show } = await getKitchenSettings();
+
+    for (const [orderId, items] of byOrder) {
+      // This terminal already printed these directly after its own write.
+      if (wasSelfPrinted(orderId)) {
+        for (const r of items) printed.add(r.item_id);
+        continue;
+      }
+      if (!printers.length) continue;  // nothing configured — leave unmarked, retry later
+
+      const head = items[0];
+      const order = {
+        dailyNumber:  head.daily_number,
+        tableName:    head.table_name || (head.table_number ? `Table ${head.table_number}` : null),
+        orderType:    head.order_type,
+        customerName: head.customer_name,
+        customerPhone: head.customer_phone,
+        deliveryAddress: head.delivery_address,
+      };
+      const ticketItems = items.map((r) => ({
+        name: r.name || 'Item', quantity: r.quantity, unit: r.unit,
+        notes: r.notes || null, kitchenStation: r.kitchen_station,
+      }));
+
+      try {
+        const res = await printKitchenTicket({ order, items: ticketItems, printers, show });
+        if (res?.failed?.length) {
+          // A configured printer didn't answer. Do NOT mark as printed — the next
+          // poll retries, which is what you want when a printer is briefly off.
+          pushPsEvent('autoprint-failed',
+            `order #${head.daily_number}: ${res.failed.map((f) => f.printer).join(', ')}`);
+          continue;
+        }
+        for (const r of items) printed.add(r.item_id);
+        pushPsEvent('autoprint-ok', `order #${head.daily_number}, ${items.length} item(s)`);
+      } catch (err) {
+        pushPsEvent('autoprint-error', err?.message || String(err));
+      }
+    }
+
+    store.set('printedItemIds', [...printed].slice(-PRINTED_IDS_MAX));
+  } catch (err) {
+    pushPsEvent('autoprint-error', err?.message || String(err));
+  } finally {
+    autoPrintRunning = false;
+  }
+}
+
+function startAutoPrint() {
+  if (autoPrintTimer) return;
+  autoPrintTimer = setInterval(autoPrintPendingItems, AUTO_PRINT_POLL_MS);
 }
 
 // ── Photo cache: fetch-once-then-serve-from-disk ───────────────────────────────
@@ -534,8 +712,15 @@ async function submitOrderWrite(method, path_, body) {
 // a kitchen print for this order — pos-app prints it itself right after this
 // call succeeds (see the `print:kitchenTicket` IPC handler below and each
 // screen's post-write print call). See orders.js for the backend-side half.
-ipcMain.handle('orders:create', async (_event, payload) =>
-  submitOrderWrite('POST', '/api/orders', { ...payload, client_prints_locally: true }));
+// noteSelfPrinted marks the resulting order so the auto-print watcher does NOT
+// print it again — the renderer prints this one directly, right after this call
+// returns (see each screen's printTicket). Without it the watcher would see the
+// rows sync back a few seconds later and print a duplicate ticket.
+ipcMain.handle('orders:create', async (_event, payload) => {
+  const res = await submitOrderWrite('POST', '/api/orders', { ...payload, client_prints_locally: true });
+  if (res?.ok) noteSelfPrinted(res.data?.id);
+  return res;
+});
 
 ipcMain.handle('orders:pay', async (_event, { id, data }) =>
   submitOrderWrite('PUT', `/api/orders/${id}/pay`, data));
@@ -556,8 +741,22 @@ ipcMain.handle('orders:refund', async (_event, { id, data }) =>
 // recalculates subtotal/tax/total from ALL items and reopens the order for
 // the kitchen (see orders.js POST /:id/items) — send only the NEW items here,
 // not the full list (unlike orders:update, which replaces the whole list).
-ipcMain.handle('orders:addItems', async (_event, { id, data }) =>
-  submitOrderWrite('POST', `/api/orders/${id}/items`, { ...data, client_prints_locally: true }));
+ipcMain.handle('orders:addItems', async (_event, { id, data }) => {
+  const res = await submitOrderWrite('POST', `/api/orders/${id}/items`, { ...data, client_prints_locally: true });
+  if (res?.ok) noteSelfPrinted(id);   // same anti-duplicate marker as orders:create
+  return res;
+});
+
+// ── IPC: per-TERMINAL kitchen auto-print switch ───────────────────────────────
+// Stored in electron-store, NOT in restaurant_settings, on purpose: this is a
+// property of THIS MACHINE, not of the restaurant. If a venue runs two POS
+// terminals and both watched for incoming orders, the kitchen would get two
+// copies of every phone order — so exactly one terminal should have this on.
+ipcMain.handle('kitchenAutoPrint:get', () => store.get('kitchenAutoPrint') !== false);
+ipcMain.handle('kitchenAutoPrint:set', (_event, enabled) => {
+  store.set('kitchenAutoPrint', !!enabled);
+  return store.get('kitchenAutoPrint') !== false;
+});
 
 // ── IPC: Kitchen ticket printing (direct LAN, see printEngine.js) ──────────────
 // Called by each screen AFTER an order write above has already succeeded —

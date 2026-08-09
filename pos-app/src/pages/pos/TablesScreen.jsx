@@ -10,6 +10,7 @@ import AmountPickerModal from './AmountPickerModal.jsx';
 import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
 import { buildReceiptData } from '../../lib/receipt.js';
+import { mergeOrderItems } from '../../lib/orderItems.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tables screen — floor plan overview. Design handoff screen 6.
@@ -88,7 +89,7 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
       setCategories(camelizeRows(cats));
       if (orderRows.length) {
         const ids = orderRows.map(o => `'${o.id}'`).join(',');
-        const items = await window.electronAPI.psGetAll(`SELECT * FROM order_items WHERE order_id IN (${ids})`);
+        const items = await window.electronAPI.psGetAll(`SELECT * FROM order_items WHERE order_id IN (${ids}) ORDER BY created_at ASC, id ASC`);
         const map = {};
         for (const it of camelizeRows(items)) (map[it.orderId] = map[it.orderId] || []).push(it);
         setItemsByOrd(map);
@@ -138,7 +139,10 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
   // Display list for the right panel: edit state when editing, DB state otherwise
   const panelItems = editing
     ? editItems
-    : selItems.map(it => ({
+    // mergeOrderItems collapses repeated rows for the same product into one
+    // line (see lib/orderItems.js) — customers were seeing the same drink
+    // listed several times.
+    : mergeOrderItems(selItems).map(it => ({
         menuItemId: it.menuItemId,
         name:  menuById[it.menuItemId]?.name || 'Item',
         price: Number(it.unitPrice || menuById[it.menuItemId]?.price || 0),

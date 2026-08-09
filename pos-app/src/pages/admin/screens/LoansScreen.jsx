@@ -490,7 +490,7 @@ function LoanDetailsModal({ loan, onClose, onMarkPaid }) {
           FROM order_items oi
           LEFT JOIN menu_items m ON oi.menu_item_id = m.id
           WHERE oi.order_id = ?
-        `, [loan.orderId]);
+          ORDER BY oi.created_at ASC, oi.id ASC`, [loan.orderId]);
         if (!cancel) setOrder({ items: camelizeRows(itemRows) });
       } catch (e) {
         if (!cancel) setOrderError(e?.message || t('cashier.loans.couldNotLoadOrder', 'Could not load order'));

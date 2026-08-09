@@ -127,7 +127,7 @@ export default function MenuScreen({ user, settings, search, lang }) {
     setActiveOrders(orderRows);
     if (orderRows.length) {
       const ids = orderRows.map(o => `'${o.id}'`).join(',');
-      const its = await window.electronAPI.psGetAll(`SELECT * FROM order_items WHERE order_id IN (${ids})`);
+      const its = await window.electronAPI.psGetAll(`SELECT * FROM order_items WHERE order_id IN (${ids}) ORDER BY created_at ASC, id ASC`);
       const map = {};
       for (const it of camelizeRows(its)) (map[it.orderId] = map[it.orderId] || []).push(it);
       setItemsByOrder(map);

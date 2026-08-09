@@ -15,7 +15,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 //   Android emulator   → http://10.0.2.2:3000/api  (host machine alias)
 //   Real device        → http://<Metro host>:3000/api
 const PROD_API_URL      = 'https://the-bill-backend-pego.onrender.com/api';
-const USE_LOCAL_BACKEND = true;
+// false = talk to the hosted Render backend, the same one the POS app and the
+// website use — so all three clients share one restaurant's live data. Set back
+// to true only when deliberately developing against a local Express server
+// started with `npm run dev` in restaurant-app/backend (port 3000).
+//
+// Changed to false 2026-08-02: with it true, `__DEV__` builds silently pointed
+// at http://10.0.2.2:3000 and failed with "Cannot reach the server" whenever no
+// local backend happened to be running — which looked exactly like a network
+// outage, but wasn't.
+const USE_LOCAL_BACKEND = false;
 
 function resolveLocalApiUrl() {
   let host = 'localhost';

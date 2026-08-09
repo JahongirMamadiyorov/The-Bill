@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printKitchenTicket: (payload) => ipcRenderer.invoke('print:kitchenTicket', payload),
   // { receipt, printers } — see src/lib/receipt.js for building `receipt`.
   printReceipt:       (payload) => ipcRenderer.invoke('print:receipt', payload),
+  // Per-terminal switch for printing orders created elsewhere (phone/website).
+  kitchenAutoPrintGet: ()        => ipcRenderer.invoke('kitchenAutoPrint:get'),
+  kitchenAutoPrintSet: (enabled) => ipcRenderer.invoke('kitchenAutoPrint:set', enabled),
 
   // Read-only backend GET for data not in PowerSync (settings, shifts, loans,
   // history). Writes must NOT use this — see main.js api:get comment.

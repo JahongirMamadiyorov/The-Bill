@@ -25,6 +25,7 @@
 
 import { fmtMoney } from '../pages/pos/tokens.js';
 import { t } from './i18n.js';
+import { mergeOrderItems } from './orderItems.js';
 
 // The receipt is a physical document handed to a customer, so every word on it
 // must be in the restaurant's language — not just the app UI. printEngine.js
@@ -130,7 +131,9 @@ export function buildReceiptData({ order = {}, items = [], settings = {}, paymen
   const money  = (n) => fmtMoney(n, symbol);
   const lng    = resolveLang(lang);
 
-  const lines    = normaliseItems(items, money);
+  // Merge repeated rows for the same product first — see lib/orderItems.js.
+  // Without this a tea added four separate times prints as four lines.
+  const lines    = normaliseItems(mergeOrderItems(items), money);
   const subtotal = lines.reduce((sum, l) => sum + l._lineTotal, 0);
 
   const taxRate = Number(settings.taxRate || 0);

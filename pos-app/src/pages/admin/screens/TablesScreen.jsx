@@ -408,7 +408,7 @@ export default function TablesScreen({ navigate, settings }) {
           FROM order_items oi
           LEFT JOIN menu_items m ON oi.menu_item_id = m.id
           WHERE oi.order_id = ?
-        `, [orderRow.id]);
+          ORDER BY oi.created_at ASC, oi.id ASC`, [orderRow.id]);
         const full = camelizeRow(orderRow);
         full.items = camelizeRows(itemRows);
         setTableOrder(full);

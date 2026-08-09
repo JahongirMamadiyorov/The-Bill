@@ -3380,3 +3380,184 @@ this one has six.
 **Rule worth remembering: any `overflowX: 'auto'` row inside a flex layout needs `minWidth: 0` on
 itself or its wrapping flex item, or it silently grows the parent instead of scrolling.**
 All three files esbuild-verified clean.
+
+## 2026-08-02 — CUSTOMER-REPORTED BUG: order items differ between phone, cashier and printer
+
+Restaurants in the testing period reported that an order's ITEM LIST differs between the waiter
+phone, the cashier panel and the printed ticket — e.g. a Cola appearing several times — while
+**the money is correct on all three**. Intermittent, not every order.
+
+**Root cause found by code review (Supabase MCP had lost `execute_sql` permission mid-session, so
+this was diagnosed from the source, not the data):**
+
+`order_items` has NO `name` column — item names are always resolved by joining/looking up
+`menu_items` via `menu_item_id`, while `quantity` and `unit_price` are stored on the row itself.
+That is exactly why money can be right while the food list looks wrong.
+
+**And the actual defect: almost no `order_items` read had an `ORDER BY`.** Out of every read
+across the backend and pos-app, only two had one. Without it:
+- Postgres returns rows in physical storage order, which changes after updates
+- the POS's local SQLite returns them in rowid order, which changes as rows re-sync
+
+So the same order legitimately renders its lines in a **different sequence on each device**, and
+sums are unaffected because addition is order-independent.
+
+**Why it's intermittent:** the order-edit path does `DELETE FROM order_items WHERE order_id=$1`
+followed by a full re-INSERT (orders.js ~644). Any order that was edited or had items added gets
+its rows rewritten in a new physical order — those are the orders that diverge. Orders created
+once and never touched usually look consistent.
+
+**Fixed — `ORDER BY oi.created_at ASC, oi.id ASC` added to every display read:**
+- `backend/src/routes/orders.js` — the multi-order list fetches, both single-order detail fetches
+  (`GET /:id` and the edit response), and **the kitchen-print item fetch** (~line 905), so the
+  printed slip matches the screens. Aggregates and stock lookups were deliberately left alone —
+  they're order-independent.
+- `pos-app` — `pos/MenuScreen`, `pos/OrdersScreen`, `pos/TablesScreen` (local `SELECT * FROM
+  order_items WHERE order_id IN (...)`), plus `admin/screens/OrdersScreen`, `TablesScreen` and
+  `LoansScreen`. `DashboardScreen`'s best-sellers query is a GROUP BY aggregate with its own
+  ORDER BY and was left as-is.
+
+`created_at` exists on `order_items` in both Postgres and `powersync/schema.js`, so a proper sort
+key was available all along — it was simply never used.
+
+**Two self-inflicted errors caught by verification rather than shipped:** the scripted edit
+initially applied the clause TWICE to two backend queries (invalid SQL), and in `LoansScreen.jsx`
+it matched inside a COMMENT containing a backtick, breaking the file. Both found by re-checking
+every patched query and by esbuild, and fixed. All files verified: `node --check` on orders.js,
+esbuild clean on all six pos-app screens.
+
+**Still open, reported in the same conversation but NOT fixed:** adding the same item in separate
+actions creates separate `order_items` rows rather than merging quantities, so one client can show
+`Cola ×4` while another shows four `Cola ×1` lines. Same money, different-looking list. The owner
+chose the ordering fix only; merging duplicates is a behaviour change that needs its own decision.
+
+**Deploy required for the fix to reach anyone:** backend push to Render (orders.js) AND a pos-app
+rebuild. The phone app needs no change — it gets its items from the backend.
+
+## 2026-08-09 — customer videos decoded: duplicate item lines confirmed and fixed
+
+Owner supplied two Telegram round videos (384x384) of the reported problem. Extracted frames with
+ffmpeg and upscaled them (lanczos to 1152px) — legible enough to read both the cashier screen and
+the printed receipt for THE SAME order, which is far better evidence than the verbal report.
+
+**Order #2 / Karvat 17, both surfaces:**
+
+| Cashier panel (8 lines) | Printed receipt (6 lines) |
+|---|---|
+| Choy x1 3,000 · Choy x1 3,000 · Qiyma Shashlik x1 25,000 · Choy x2 6,000 · Choy x1 3,000 · Choy x1 3,000 · Qaynatma Sho'rva 0.5 x8 240,000 · Zog'ara baliq kilo 2.027kg 152,025 | Qiyma Shashlik x1 25,000 · Choy x2 6,000 · Choy x1 3,000 · Choy x1 3,000 · Qaynatma Sho'rva 0.5 x8 240,000 · Zog'ara baliq kilo 2.027kg 152,025 · JAMI 429,025 |
+
+**Confirmed root cause: `order_items` holds ONE ROW PER ADD ACTION and nothing merges them.**
+`POST /orders/:id/items` appends rather than combining, so a tea added five separate times becomes
+five rows, and every client renders them verbatim. This is the customers' "Cola written four
+times" — here it is Choy.
+
+**Two further observations from the frames, NOT yet explained:**
+1. The screen header reads "6 ta mahsulot" while EIGHT rows are drawn — count and list disagree
+   on the same screen, so they come from different sources.
+2. Screen lines sum to **435,025**; the receipt totals **429,025**. The gap is exactly 6,000 =
+   two Choy. So the owner's belief that "the money is always correct on all three" does not hold
+   for this order. Either items were added after the 11:03 receipt was printed (the screen shows
+   the order 2h39m later, which would make both correct for their moment), or the POS's local copy
+   holds rows the server doesn't. **Could not be settled — Supabase MCP lost `execute_sql`
+   permission earlier in the session, so order #2's real rows could not be queried.**
+
+**Fixed: new `pos-app/src/lib/orderItems.js` — `mergeOrderItems(rows)`**, applied in
+`lib/receipt.js` (so receipts merge) and the `panelItems` of `pos/OrdersScreen` and
+`pos/TablesScreen` (so the cashier panel merges).
+
+Deliberate design decisions:
+- **Merges at DISPLAY time, not by rewriting rows.** The separate rows carry real history (each
+  has its own `created_at`, and the kitchen was fired per add) — collapsing them in the database
+  would destroy what the kitchen-print delta logic depends on.
+- **Only genuinely identical sale lines merge.** The key is menu_item + unit_price + notes +
+  is_free + custom_price, so "no onion", a custom price, or a free item stays on its own line —
+  otherwise the cashier loses a distinction the customer agreed to.
+- Returns clones, never mutates the caller's React state array.
+
+Verified against the exact rows from that order: 8 rows collapse to 4 lines (`Choy x6` as one),
+**total unchanged at 435,025**, rows with differing notes/free flags correctly kept separate, and
+the source array unmutated. All touched files esbuild-clean.
+
+**Still open:** the 6-vs-8 count mismatch and the 6,000 discrepancy. Needs database access to
+settle whether the POS is holding stale local rows — which would be a sync bug, more serious than
+the display duplication fixed here.
+
+### DB access restored — stale-local-data hypothesis DISPROVED (2026-08-09)
+
+Queried order #2 / Karvat 17 (`355749b6-d760-47a5-b71b-79a994193acc`) directly. The three
+conflicting totals were three POINTS IN TIME, not three disagreeing clients:
+
+| When | State | Total |
+|---|---|---|
+| 06:03:27 — created, receipt printed | 6 lines, 4 teas | 429,025 |
+| ~08:42 — the video frame | 8 rows, 6 teas | 435,025 |
+| 09:39:01 — edited, rows rewritten | 7 rows, 5 teas | **432,025** (current, and `items_sum` matches `total_amount` exactly) |
+
+**There is no sync bug and nobody was mischarged.** Each surface was correct for its own moment.
+The earlier suspicion that the POS held stale local rows is withdrawn.
+
+**Confirmed real:** the order genuinely holds FOUR separate `Choy` rows (x1, x1, x2, x1) for one
+product — the duplication the merge fix addresses.
+
+**New finding worth remembering: the order-edit path destroys per-item history.** All 7 rows
+carry the IDENTICAL `created_at` of `2026-08-06 09:39:01.641486` because
+`PUT /orders/:id` does `DELETE FROM order_items` followed by a full re-INSERT. Consequences:
+- the record of when each item was actually added is lost on any edit;
+- the 2026-08-02 `ORDER BY oi.created_at, oi.id` fix falls back to sorting by UUID for edited
+  orders. That is still IDENTICAL on every client — which is the property that matters and the
+  bug that was being fixed — but it is arbitrary rather than chronological.
+
+## 2026-08-09 — phone/website orders now print: kitchen auto-print watcher in the POS app
+
+Owner reported that orders created on a waitress phone never reach the kitchen printer — printing
+worked only from the cashier panel — and asked for "the Android app" to be fixed.
+
+**Corrected the premise before building: this cannot be fixed in the phone app.** Waitress phones
+are frequently on mobile data because wifi doesn't cover a large restaurant (owner's own
+constraint, 2026-08-02, MEMORY.md). A phone on mobile data cannot reach a printer on the
+restaurant LAN. Only a machine on that LAN can print — the POS terminal. So the fix is entirely
+in pos-app, which the owner is rebuilding anyway; the Android app needs no change at all.
+
+**Why it was broken:** pos-app only ever printed tickets for orders IT created (each screen's own
+post-write print call). Phone/website orders relied on the OLD path — backend `broadcast()` over
+WebSocket to the separate print-agent. Any restaurant running pos-app WITHOUT that agent got
+nothing. `sendKitchenPrintJobs` (direct TCP from Render) is a no-op for LAN-only printers.
+
+**Built: `autoPrintPendingItems()` in `main.js`** — polls the LOCAL PowerSync copy every 8s for
+`order_items` on active orders that haven't been printed yet, groups them per order, and prints.
+Chosen over a WebSocket client per the 2026-08-02 analysis: PowerSync already syncs orders from
+every source (phone, website, other terminals), the SDK owns reconnect/resume, and there's no
+extra cloud round-trip.
+
+Details that matter:
+- **First-run seeding.** On first launch it marks every currently-open item as already printed
+  WITHOUT printing (`autoPrintSeeded`). Without this, enabling the feature would spit out a ticket
+  for every open order in the restaurant.
+- **No double-printing of this terminal's own orders.** `orders:create`/`orders:addItems` now call
+  `noteSelfPrinted(orderId)`; the watcher skips those orders for a 3-minute window, which covers
+  the gap between the write succeeding and the rows syncing back. The renderer already prints
+  those directly.
+- **Failures are retried, not swallowed.** If a configured printer doesn't answer, the items are
+  deliberately NOT marked printed, so the next poll tries again — correct when a printer is
+  briefly switched off. Successes and failures both land in the badge's event log
+  (`autoprint-ok` / `autoprint-failed` / `autoprint-seeded`).
+- **Settings via REST + cache.** The `kitchen_show_*` columns are NOT in the Sync Streams column
+  list so they cannot be read locally; fetched from `/api/settings` and cached 5 min, falling back
+  to all-true (matching useSettings.js's DEFAULTS) so a failed fetch still prints a full ticket.
+  A result with no printers is deliberately not cached, so a terminal that started offline picks
+  them up on reconnect.
+- **Marker capped** at 4000 item ids so the store file can't grow without bound.
+
+**Per-terminal switch, and why it is NOT in Admin Settings:** if a venue runs two POS terminals
+and both watched for incoming orders, the kitchen would get two copies of every phone order. The
+toggle therefore lives in `electron-store` (per machine) with new `kitchenAutoPrint:get/set` IPC,
+surfaced as a "This terminal" card at the bottom of `pos/ProfileScreen.jsx` — Admin settings are
+shared by every terminal and would switch them all at once. Default is ON, with UZ strings added.
+**Exactly one terminal per restaurant should have it enabled.**
+
+All verified: `node --check` on main.js/preload.js, esbuild clean on ProfileScreen/i18n/orderItems,
+259 i18n keys with no duplicates.
+
+**Not yet tested on real hardware** — needs a POS rebuild, then: create an order on a waitress
+phone and confirm a ticket prints; add items from the phone and confirm only the NEW items print;
+create an order on the POS itself and confirm it prints exactly ONCE (not twice).

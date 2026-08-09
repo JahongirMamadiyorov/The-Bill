@@ -42,6 +42,15 @@ export default function ProfileScreen({ user, settings, lang }) {
   const [shiftError, setShiftError] = useState(false);
   const [stats,   setStats]   = useState({ orders: 0, sales: 0, avgServeMin: null });
   const [busy,    setBusy]    = useState(false);
+  // Per-terminal kitchen auto-print switch (electron-store, not the DB — see the
+  // card near the bottom of the render for why it must be per-machine).
+  const [autoPrint, setAutoPrint] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try { setAutoPrint(await window.electronAPI.kitchenAutoPrintGet()); }
+      catch { /* older main process — leave the optimistic default */ }
+    })();
+  }, []);
   const [toast,   setToast]   = useState(null);
   const [, forceTick] = useState(0); // re-render every 30s so "Shift Length" ticks live
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
@@ -214,6 +223,46 @@ export default function ProfileScreen({ user, settings, lang }) {
         <StatCard label={t('Orders Handled Today', lang)} value={stats.orders} />
         <StatCard label={t('Sales Today', lang)} value={money(stats.sales)} />
         <StatCard label={t('Avg Serve Time', lang)} value={stats.avgServeMin != null ? `${Math.round(stats.avgServeMin)}m` : '—'} />
+      </div>
+
+      {/* ── This terminal (per-machine settings, NOT restaurant-wide) ──
+          Deliberately here and not in Admin → Settings: this is a property of
+          THIS computer. Admin settings are shared by every terminal, so putting
+          it there would switch all of them at once — and if two terminals both
+          watched for incoming orders the kitchen would get two copies of every
+          phone order. Exactly one terminal in a venue should have this on. */}
+      <div style={{ ...card, padding: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>{t('This terminal', lang)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>
+              {t('Print kitchen tickets for orders from phones', lang)}
+            </div>
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
+              {t('Turn this on for ONE terminal only. Waitress phones cannot reach the kitchen printer directly, so this computer prints their orders.', lang)}
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              const next = !autoPrint;
+              setAutoPrint(next);
+              try { await window.electronAPI.kitchenAutoPrintSet(next); }
+              catch { setAutoPrint(!next); } // revert if the main process refused
+            }}
+            style={{
+              width: 52, height: 30, borderRadius: T.rPill, border: 'none', flexShrink: 0,
+              background: autoPrint ? T.green : T.chipBg, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', padding: 3,
+              justifyContent: autoPrint ? 'flex-end' : 'flex-start',
+              transition: 'background .15s',
+            }}
+          >
+            <span style={{
+              width: 24, height: 24, borderRadius: '50%', background: '#fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,.2)',
+            }} />
+          </button>
+        </div>
       </div>
     </div>
   );

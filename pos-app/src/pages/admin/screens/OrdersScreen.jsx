@@ -295,7 +295,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
       FROM order_items oi
       LEFT JOIN menu_items m ON oi.menu_item_id = m.id
       WHERE oi.order_id = ?
-    `, [orderId]);
+      ORDER BY oi.created_at ASC, oi.id ASC`, [orderId]);
     const loanRow = await window.electronAPI.psGet(`
       SELECT customer_name, customer_phone, due_date, amount, status, paid_at, notes
       FROM loans WHERE order_id = ? ORDER BY created_at DESC LIMIT 1
@@ -450,7 +450,7 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
         FROM order_items oi
         LEFT JOIN menu_items m ON oi.menu_item_id = m.id
         WHERE oi.order_id IN (${ids.map(() => '?').join(',')})
-      `, ids));
+        ORDER BY oi.created_at ASC, oi.id ASC`, ids));
       const itemMap = {};
       for (const it of itemRows) {
         (itemMap[it.orderId] || (itemMap[it.orderId] = [])).push(it);
