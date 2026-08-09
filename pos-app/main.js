@@ -472,9 +472,37 @@ async function autoPrintPendingItems() {
   }
 }
 
+// Print as soon as the rows land, not on the next tick (2026-08-09).
+//
+// The poll alone added up to AUTO_PRINT_POLL_MS of avoidable delay on top of
+// the unavoidable phone → Render → replication → terminal travel time. PowerSync
+// exposes onChange, which fires the instant new rows are written into the local
+// database, so the ticket now goes out essentially the moment the order arrives.
+//
+// The interval is KEPT as a safety net rather than replaced: if a change event
+// is ever missed, or a printer was switched off when the order came in (its
+// items stay unmarked on purpose so they retry), the poll still picks it up.
+// Belt and braces — a missed kitchen ticket is a lost sale.
 function startAutoPrint() {
   if (autoPrintTimer) return;
   autoPrintTimer = setInterval(autoPrintPendingItems, AUTO_PRINT_POLL_MS);
+
+  (async () => {
+    try {
+      const db = await getPowerSync();
+      db.onChange(
+        {
+          onChange: () => { autoPrintPendingItems(); },  // guarded against overlap internally
+        },
+        // Only these two tables matter; anything else would wake it needlessly.
+        { tables: ['orders', 'order_items'] }
+      );
+      pushPsEvent('autoprint-watching', 'live change listener attached');
+    } catch (err) {
+      // Not fatal — the interval above still covers it, just less promptly.
+      pushPsEvent('autoprint-watch-failed', err?.message || String(err));
+    }
+  })();
 }
 
 // ── Photo cache: fetch-once-then-serve-from-disk ───────────────────────────────

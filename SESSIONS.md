@@ -3618,3 +3618,22 @@ Existing orders will show an empty log — the information was never captured be
 reconstructed.
 
 **Deploy:** backend push to Render (the table already exists) + a pos-app rebuild.
+
+### Auto-print made near-instant (2026-08-09)
+
+Owner asked for phone orders to print immediately rather than after a delay. The 8s poll was
+adding up to 8 seconds of avoidable latency on top of the unavoidable travel time.
+
+Attached PowerSync's `onChange({ tables: ['orders','order_items'] })`, which fires the moment new
+rows are written into the LOCAL database, so printing now triggers on arrival instead of on the
+next tick. `autoPrintRunning` already guards against overlap, so a burst of change events cannot
+start concurrent runs.
+
+**The interval was KEPT as a safety net, not replaced.** If a change event is ever missed, or a
+printer was switched off when the order arrived (its items deliberately stay unmarked so they
+retry), the poll still catches it. A missed kitchen ticket is a lost sale.
+
+**Honest limit, communicated to the owner: "the same second" is not fully achievable.** A phone
+order still travels phone → Render → Postgres → PowerSync replication → terminal, which is
+typically 1-3 seconds and is outside this app's control. What was removed is the extra polling
+delay on this end.
