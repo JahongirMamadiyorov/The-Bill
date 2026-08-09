@@ -3351,3 +3351,32 @@ UZ receipt end-to-end: `Oraliq summa / Soliq (12%) / Xizmat haqi (10%) / Chegirm
 To'lov turi: Naqd / Qaytim`, and `'Cash'`→`Naqd`, `'QR Code'`→`QR kod`,
 `'bank_transfer'`→`Bank o'tkazmasi`, with EN unchanged. All files esbuild-clean, 256 i18n keys,
 no duplicates.
+
+### Category row stretched the menu and the ‹ › buttons did nothing (2026-08-02)
+
+Owner reported the Cashier Menu screen's category row stretching the window, with the scroll
+arrows not responding. **Both symptoms, one cause — a flexbox `min-width: auto` trap:**
+
+The category row's wrapper `<div>` had no width constraint. A flex item defaults to
+`min-width: auto`, meaning it refuses to shrink below its content — so with enough categories the
+wrapper grew wider than the main column instead of letting the inner `overflowX: auto` container
+overflow. The main column's `overflow: hidden` then clipped it (looked like stretching), AND
+because the overflow was happening at the ANCESTOR rather than inside the scroll container, that
+container had nothing to scroll, so `catRef.scrollBy()` was a no-op and the arrows looked dead.
+
+`CategoryCard` already had `flexShrink: 0`, so the cards weren't squashing — which is what
+pointed at the ancestor rather than the cards.
+
+**Fixed** with `minWidth: 0` on the wrapper, plus `minWidth: 0` and hidden scrollbar styling on
+the scroll container itself.
+
+**Swept for the same pattern rather than fixing only the reported screen:** two more horizontal
+scroll rows had the identical latent bug — the edit-mode category pill rows in
+`pos/OrdersScreen.jsx` and `pos/TablesScreen.jsx`. There the `overflowX: auto` div IS the flex
+item, so `minWidth: 0` went directly on it. `FilterPill` already had `flexShrink: 0`, so no other
+change was needed. Those would have broken the same way once a restaurant had enough categories —
+this one has six.
+
+**Rule worth remembering: any `overflowX: 'auto'` row inside a flex layout needs `minWidth: 0` on
+itself or its wrapping flex item, or it silently grows the parent instead of scrolling.**
+All three files esbuild-verified clean.

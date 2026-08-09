@@ -396,7 +396,7 @@ export default function OrdersScreen({ user, settings, search, lang }) {
   );
 
   return (
-    <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
+    <div style={{ flex: 1, display: 'flex', gap: 16, minWidth: 0, minHeight: 0 }}>
       <style>{`@keyframes posspin { to { transform: rotate(360deg); } }`}</style>
 
       {toast && (
@@ -475,7 +475,12 @@ export default function OrdersScreen({ user, settings, search, lang }) {
               <span style={{ fontSize: 14, fontWeight: 800 }}>{tt(lang, 'Add items to Order #{n}', '#{n}-buyurtmaga mahsulot qo’shish', { n: selected?.dailyNumber })}</span>
               <span style={{ fontSize: 11.5, color: T.muted, marginLeft: 8 }}>{t('tap ADD to put an item on the order', lang)}</span>
             </div>
-            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+            {/* minWidth: 0 is required — see MenuScreen.jsx's category row for
+                the full explanation. Without it this flex item's default
+                `min-width: auto` lets the pill row grow past the column with
+                enough categories, and the parent's `overflow: hidden` clips it
+                instead of this div scrolling. */}
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, minWidth: 0, scrollbarWidth: 'none' }}>
               <FilterPill label={t('All', lang)} active={!editCat} onClick={() => setEditCat(null)} />
               {categories.map(c => (
                 <FilterPill key={c.id} label={c.name} active={editCat === c.id} onClick={() => setEditCat(editCat === c.id ? null : c.id)} />

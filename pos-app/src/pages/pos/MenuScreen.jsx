@@ -480,7 +480,7 @@ export default function MenuScreen({ user, settings, search, lang }) {
     : null;
 
   return (
-    <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
+    <div style={{ flex: 1, display: 'flex', gap: 16, minWidth: 0, minHeight: 0 }}>
       <style>{`@keyframes posspin { to { transform: rotate(360deg); } }`}</style>
 
       {toast && (
@@ -550,8 +550,18 @@ export default function MenuScreen({ user, settings, search, lang }) {
           </div>
         ) : (
           <>
-            {/* ── Category row ── */}
-            <div>
+            {/* ── Category row ──
+                minWidth: 0 is REQUIRED, not cosmetic (fixed 2026-08-02). A flex
+                item defaults to `min-width: auto`, i.e. it refuses to shrink below
+                its content — so with enough categories this wrapper grew wider
+                than the main column instead of letting the scroll container below
+                overflow. The column's `overflow: hidden` then clipped it, which
+                looked like the menu being stretched, AND the ‹ › buttons did
+                nothing because the overflow was happening at this level rather
+                than inside the `overflowX: auto` div, leaving it nothing to
+                scroll. Constraining the width here forces the overflow back into
+                the scroll container where it belongs. */}
+            <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <span style={{ fontSize: 16, fontWeight: 800 }}>Category</span>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -569,7 +579,13 @@ export default function MenuScreen({ user, settings, search, lang }) {
                   </button>
                 </div>
               </div>
-              <div ref={catRef} style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
+              {/* scrollbarWidth/msOverflowStyle hide the horizontal scrollbar on a
+                  touch terminal, where it's just visual noise — the ‹ › buttons and
+                  finger-drag both still scroll. */}
+              <div ref={catRef} style={{
+                display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4,
+                minWidth: 0, scrollbarWidth: 'none', msOverflowStyle: 'none',
+              }}>
                 {/* "All" card */}
                 <CategoryCard
                   label={t('All', lang)} Icon={UtensilsCrossed}

@@ -490,8 +490,12 @@ export default function PosShell({ session, onLogout, screens = {} }) {
           </div>
         </div>
 
-        {/* Active screen */}
-        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Active screen.
+            minWidth: 0 alongside minHeight: 0 (fixed 2026-08-02) — without it this
+            flex item keeps its default `min-width: auto` and grows to fit whatever
+            the screen renders, pushing the Cashier order panel off the right edge
+            once a restaurant has enough categories/menu items. */}
+        <div style={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
           {Screen ? <Screen {...screenProps} /> : <Placeholder label={t(active.label, lang)} lang={lang} />}
         </div>
       </div>
