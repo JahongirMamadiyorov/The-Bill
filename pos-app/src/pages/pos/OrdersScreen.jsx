@@ -10,6 +10,8 @@ import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
 import { buildReceiptData } from '../../lib/receipt.js';
 import { mergeOrderItems } from '../../lib/orderItems.js';
+import useSyncGate from '../../lib/useSyncGate.js';
+import { SyncGate, OfflineBanner } from './SyncGate.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Orders screen — live order cards + right detail panel + edit mode.
@@ -45,6 +47,7 @@ export default function OrdersScreen({ user, settings, search, lang }) {
   const money  = (n) => fmtMoney(n, symbol);
 
   // ── Data ──────────────────────────────────────────────────────────────────
+  const syncState = useSyncGate();
   const [orders,     setOrders]     = useState([]);
   const [itemsByOrd, setItemsByOrd] = useState({});
   const [menuItems,  setMenuItems]  = useState([]);
@@ -334,7 +337,17 @@ export default function OrdersScreen({ user, settings, search, lang }) {
       // never reprint something already on the order unchanged or decreased.
       // Best-effort, never blocks/affects the save that already succeeded.
       try {
-        const oldQtyByItem = Object.fromEntries((snapshot?.items || []).map(it => [it.menuItemId, it.qty]));
+        // Sums rather than overwrites. `snapshot.items` is currently already
+        // merged (startEdit merges), so fromEntries happened to be safe here —
+        // but the identical code in TablesScreen/Admin, whose sources are NOT
+        // merged, silently understated the old quantity and reprinted the
+        // difference on every edit. Summing makes this correct by construction
+        // regardless of what the source list looks like.
+        const oldQtyByItem = (snapshot?.items || []).reduce((acc, it) => {
+          const k = it.menuItemId;
+          if (k) acc[k] = (acc[k] || 0) + Number(it.qty || 0);
+          return acc;
+        }, {});
         const diffItems = editItems
           .map(it => ({ it, delta: it.qty - (oldQtyByItem[it.menuItemId] || 0) }))
           .filter(({ delta }) => delta > 0)
@@ -405,6 +418,20 @@ export default function OrdersScreen({ user, settings, search, lang }) {
     </div>
   );
 
+  // NEVER render a list the local database cannot vouch for. `loading` above
+  // only means "the query has not returned yet" — it says nothing about whether
+  // the rows it returns are CURRENT. A terminal that was switched off overnight
+  // answers that query instantly with yesterday's orders. See useSyncGate.js.
+  //
+  // Guarded here rather than inside `load()` on purpose: the 4-second poll must
+  // keep running throughout, so the moment the sync completes the real list is
+  // already in state and appears without another round-trip.
+  //
+  // Not gated while `editing` — pulling the screen out from under a cashier who
+  // is mid-edit would lose their work. That can only happen if the connection
+  // drops during an edit, in which case hasSynced stays true anyway.
+  if (syncState.gated && !editing) return <SyncGate lang={lang} />;
+
   return (
     <div style={{ flex: 1, display: 'flex', gap: 16, minWidth: 0, minHeight: 0 }}>
       <style>{`@keyframes posspin { to { transform: rotate(360deg); } }`}</style>
@@ -423,6 +450,13 @@ export default function OrdersScreen({ user, settings, search, lang }) {
 
       {/* ══ Main column ══ */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14, overflow: 'hidden' }}>
+
+        {/* Synced once, link since dropped: the rows below ARE usable (that is
+            the whole point of the local-first design and the cashier must keep
+            serving), so this states their age instead of blocking the screen. */}
+        {syncState.offline && (
+          <OfflineBanner lang={lang} lastSyncedAt={syncState.lastSyncedAt} />
+        )}
 
         {/* Filter pills + count */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

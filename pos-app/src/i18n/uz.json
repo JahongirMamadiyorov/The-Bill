@@ -606,9 +606,11 @@
         "refunded": "Qaytarildi — {reason}",
         "cancelled": "Buyurtma bekor qilindi",
         "statusChanged": "Holat {from} dan {to} ga o'zgardi",
-        "deleted": "Buyurtma o'chirildi"
+        "deleted": "Buyurtma o'chirildi",
+        "duplicatePaymentIgnored": "Takroriy to'lov e'tiborsiz qoldirildi — buyurtma allaqachon to'langan"
       },
-      "kitchenPrintWarning": "Buyurtma saqlandi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring"
+      "kitchenPrintWarning": "Buyurtma saqlandi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring",
+      "editClosedTooltip": "Bu buyurtma {status} — uni endi tahrirlab bo'lmaydi"
     },
     "staff": {
       "title": "Xodimlarni boshqarish",

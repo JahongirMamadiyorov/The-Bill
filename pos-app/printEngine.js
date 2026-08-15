@@ -260,7 +260,14 @@ function buildPrintJobs(printers, items) {
     // fall back to the FIRST printer so the food still gets cooked. Printing to
     // a slightly wrong printer is recoverable; printing nowhere is not.
     const catchAlls = usable.filter((p) => !Array.isArray(p.stations) || p.stations.length === 0);
-    const targets   = catchAlls.length ? catchAlls : [usable[0]];
+    // EXACTLY ONE target. This previously iterated over EVERY catch-all printer,
+    // so a venue with two unassigned printers printed each unstationed dish
+    // TWICE — one slip per catch-all. Observed live 2026-08-15: a single Cola
+    // (no kitchen_station set) produced two identical papers per order. An
+    // orphan needs to reach one printer so it gets cooked; sending it to all of
+    // them is the same duplicate-slip bug this fallback's sibling loop above was
+    // rewritten to remove.
+    const targets   = [catchAlls.length ? catchAlls[0] : usable[0]];
 
     for (const target of targets) {
       // Group orphans by their own station so they still print as separate slips

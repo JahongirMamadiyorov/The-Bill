@@ -2805,3 +2805,81 @@ to the owner as an open question, not decided, don't silently change it either d
 - `pos-app`'s Electron version (`^33.0.0`) is intentionally newer than the existing
   `electron-app`'s (`28.3.3`) — don't "align" them without checking PowerSync's Node version
   requirements still hold.
+
+## 2026-08-15 — printer reprint bug: ROOT CAUSE FIXED, needs rebuild + field test
+
+**Done:**
+- `pos-app/main.js` — `oi.menu_item_id` added to the auto-print query's SELECT list. This was the
+  whole bug: it was only in the JOIN, so the delta baseline keyed on the order_item ROW ID, which
+  changes on every edit (delete+reinsert) → whole order reprinted, one raw line per row.
+- Null-`menu_item_id` fallback re-keyed to `name|notes` (stable across re-insert).
+- `printedOrderQtySchema = 2` migration guard so the fix does not itself trigger one last reprint
+  on upgrade — existing baselines are re-seeded silently.
+- `pos-app/src/pages/admin/screens/OrdersScreen.jsx` — edit-save now aggregates BOTH sides per
+  product before diffing; previously raw rows vs a summed total gave negative deltas and a real
+  addition printed nothing.
+
+**NEXT — required, not yet done:**
+1. Rebuild the Windows package (`npm run build:win` in `pos-app`) — the sandbox cannot build it,
+   rollup's native binary there is Windows-only. NOTHING above reaches the restaurant until this
+   is rebuilt and reinstalled.
+2. Field test on the real terminal: open order → add ONE item → expect exactly ONE line on ONE
+   station slip; then remove an item → expect NO slip at all.
+3. Confirm via the Online/Offline badge → Copy details that the log shows
+   `autoprint-seeded ... (key schema migrated to v2 ...)` on first launch, then `autoprint-ok`
+   with a small line count (not the whole order) on the edit.
+
+**Still open from before:** `order_created` history entry now lists the foods but that change has
+never been in a shipped build either — it ships with this same rebuild.
+
+### 2026-08-15 (later) — two further printer bugs found from the owner's badge dump
+- `main.js` — auto-print now returns early unless `hasSynced`; baseline pruning no longer treats
+  "absent from the local DB" as "order closed" (that purge caused the full reprint on panel entry
+  after `local-data-cleared`).
+- `printEngine.js` — orphan fallback now targets ONE printer, not every catch-all. Was printing
+  two identical slips for any dish with no `kitchen_station` (e.g. Cola).
+- All three of today's printer fixes are UNBUILT. `npm run build:win` in `pos-app` is required
+  before any of this reaches a terminal.
+
+### 2026-08-15 — POS screens no longer render un-reconciled local data
+- New `src/lib/useSyncGate.js` + `src/pages/pos/SyncGate.jsx`; wired into pos Orders and Tables.
+- Gates ONLY on `hasSynced === false`. Offline-after-sync still shows data (with a banner) — do
+  not "simplify" this to a connected check, that would break offline service.
+- Ships with the same rebuild as the three printer fixes. STILL UNBUILT.
+
+### 2026-08-15 — order_items duplication (concurrent edit) FIXED, one order still corrupt
+- Root cause: no row lock on any order mutation. `SELECT ... FOR UPDATE` added to PUT /:id,
+  PUT /:id/status, PUT /:id/pay, POST /:id/items, POST /:id/refund. Backend change — deploys via
+  Render, does NOT need the POS rebuild.
+- **Order #9 (863c7157-be13-4dec-aec7-aac619104f6c, restaurant ...0001) is still corrupt in the
+  database**: 33 rows, charged 540,000, order reads 558,000. Awaiting the owner's decision on
+  which item set is correct before touching paid data.
+- **OPEN, needs an owner decision:** `PUT /:id/pay` has no already-paid guard. A double-submitted
+  payment writes a second cash_flow row. Not fixed unilaterally — changes payment semantics.
+
+### 2026-08-15 — double payments CONFIRMED IN LIVE DATA (was theoretical, is not)
+- 7 orders have cash_flow recorded at exactly 2x their total. **Cash takings overstated by
+  1,682,475 so'm** across restaurants ...0001 and 6a08845f. None refunded. Dates 2026-05-17 to
+  2026-08-03; four on 2026-08-01 at the same restaurant.
+- One pair is 30 MINUTES apart, so this is not only double-tapping — `PUT /:id/pay` accepting a
+  payment on an already-paid order is the real hole. Row lock does not close it.
+- Awaiting owner decision on: (a) adding the already-paid guard, (b) correcting the 1,682,475 in
+  cash_flow. Both were left untouched pending his call — money data.
+
+### 2026-08-15 — loan settlements missing from cash flow (found by the owner's challenge)
+- `PUT /:id/loan/pay` marks the loan paid but writes NO cash_flow row; no route does. **6 settled
+  loans = 800,317.60 so'm collected and invisible in cash flow.** 1 outstanding, 544,525.00 owed.
+- Combined with the double payments, cash_flow is +1,682,475 / -800,318 against reality.
+- Owner decision needed: should a loan repayment post as cash income when collected?
+
+### 2026-08-15 — payment/edit defences DONE, data corrected
+- Backend: duplicate payment absorbed idempotently; PUT /:id and POST /:id/items reject closed
+  orders with 409 ORDER_CLOSED; loan settlement posts cash (idempotent). Deploys via Render —
+  no POS rebuild needed for these.
+- pos-app: Admin Edit button disabled on closed orders; new history line for ignored duplicate
+  payments; en/uz keys added. These DO need the POS rebuild.
+- Live data: −1,682,475 duplicates removed, +800,317.60 loans backfilled, order #9 repaired.
+  All integrity checks return zero.
+- NOTE for future: 'refunded' orders remain payable by design (refund-then-repay). If in-place
+  correction of a PAID order is ever needed, gate it behind owner/admin and log it as its own
+  audit action — do not delete the ORDER_CLOSED check.

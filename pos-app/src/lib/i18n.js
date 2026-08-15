@@ -65,6 +65,20 @@ const UZ = {
   'Syncing…': 'Sinxronlanmoqda…',
   'Offline': 'Oflayn',
 
+  // ── Sync gate (SyncGate.jsx, used by Orders + Tables) ─────────────────────
+  // Added 2026-08-15. These are NOT duplicates of 'Syncing…'/'Offline' above:
+  // those two are the topbar badge's one-word states, these are the full-screen
+  // and banner messages shown in place of (or above) data that the local
+  // database cannot vouch for. Distinct strings on purpose — the badge label
+  // must stay short, this one has to actually explain the situation.
+  'Syncing with the server': 'Server bilan sinxronlanmoqda',
+  'Orders taken while this terminal was offline are still arriving. The list will appear as soon as it is up to date.':
+    'Ushbu terminal oflayn bo‘lgan vaqtda qabul qilingan buyurtmalar hali kelmoqda. Ro‘yxat yangilanishi bilan ko‘rinadi.',
+  // {time} is substituted by the caller AFTER translation, so the placeholder
+  // must survive verbatim in every language.
+  'Offline — showing orders as of {time}': 'Oflayn — {time} holatidagi buyurtmalar',
+  'Offline — showing the last synced orders': 'Oflayn — oxirgi sinxronlangan buyurtmalar',
+
   // ── Connection details panel (PosShell.jsx, topbar badge → click) ──────────
   // Added 2026-07-31 so a machine that says "Oflayn" can say WHICH of the three
   // checks failed — the badge alone made remote machines undiagnosable.

@@ -8,6 +8,7 @@ import PhoneInput, { formatPhoneDisplay } from '../../../components/PhoneInput.j
 import { camelizeRow, camelizeRows } from '../../../lib/case.js';
 import { ClipboardList, Check, X, AlertTriangle, Trash2, RefreshCw, Calendar, DollarSign, Grid3X3, User, CreditCard, Ban, Edit3, Plus, Minus, FileText, Printer } from 'lucide-react';
 import { buildReceiptData } from '../../../lib/receipt.js';
+import { mergeOrderItems } from '../../../lib/orderItems.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ported verbatim from website/src/pages/admin/AdminOrders.jsx (~2145 lines) —
@@ -264,8 +265,18 @@ function describeAuditEntry(h, t) {
   const d = h.details || {};
   const n = (v) => (v === null || v === undefined ? '?' : v);
   switch (h.action) {
-    case 'order_created':
-      return t('admin.orders.hist.created', { count: Array.isArray(d.items) ? d.items.length : 0 });
+    case 'order_created': {
+      // List WHAT the order started with, not just how many lines. Without this
+      // the log can tell you every later change but never what was there to
+      // begin with — which is exactly what you need to reconstruct an order.
+      // The item list is already stored in `details`; it was simply not rendered.
+      const list = Array.isArray(d.items)
+        ? d.items.map((i) => `${i.item || '?'} × ${i.quantity}`).join(', ')
+        : '';
+      return list
+        ? `${t('admin.orders.hist.created', { count: d.items.length })}: ${list}`
+        : t('admin.orders.hist.created', { count: 0 });
+    }
     case 'item_added':
       return t('admin.orders.hist.itemAdded', { item: n(d.item), qty: n(d.quantity) });
     case 'item_removed':
@@ -284,6 +295,13 @@ function describeAuditEntry(h, t) {
       return t('admin.orders.hist.statusChanged', { from: n(d.from), to: n(d.to) });
     case 'order_deleted':
       return t('admin.orders.hist.deleted');
+    // A second payment arrived for an order that was already paid, and the
+    // backend absorbed it without recording the money twice. Surfaced here on
+    // purpose rather than kept silent: if one terminal or one member of staff
+    // generates these repeatedly it points at a UI or habit worth fixing, and
+    // that pattern is only visible if the event is shown.
+    case 'duplicate_payment_ignored':
+      return t('admin.orders.hist.duplicatePaymentIgnored');
     default:
       return h.action;
   }
@@ -361,7 +379,12 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
     let alive = true;
     setHistoryLoading(true);
     ordersAPI.getHistory(selectedOrder.id)
-      .then(res => { if (alive) setHistory(camelizeRows(res.data || [])); })
+      // NOTE: pos-app's api client is NOT axios — `unwrap()` in api/client.js
+      // already returns `camelizeKeys(res.data)`, so what arrives here IS the
+      // array, already camelised. Reading `res.data` (axios habit) gave
+      // undefined on every call, which is why the panel always said "no changes
+      // recorded" even though the backend had rows. Do not re-camelise either.
+      .then(rows => { if (alive) setHistory(Array.isArray(rows) ? rows : []); })
       .catch(() => { if (alive) setHistory([]); })
       .finally(() => { if (alive) setHistoryLoading(false); });
     return () => { alive = false; };
@@ -741,15 +764,36 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
       // already on the order unchanged or decreased. Best-effort, never
       // blocks/affects the save that already succeeded.
       try {
-        const oldQtyByItem = Object.fromEntries(
-          (editingOrder.items || []).map(it => [it.menuItemId || it.id, Number(it.quantity || 1)])
-        );
-        const diffItems = editFormData.items
-          .map(it => ({ it, delta: Number(it.quantity || 1) - (oldQtyByItem[it.menuItemId] || 0) }))
+        // MUST SUM, not overwrite — see pos/TablesScreen.jsx for the full
+        // explanation. Object.fromEntries kept only the last row per product, so
+        // an order with repeated rows for one item understated its previous
+        // quantity and reprinted the difference on every single edit.
+        const oldQtyByItem = (editingOrder.items || []).reduce((acc, it) => {
+          const k = it.menuItemId || it.id;
+          if (k) acc[k] = (acc[k] || 0) + Number(it.quantity || 0);
+          return acc;
+        }, {});
+        // BOTH sides must be summed per product. `editFormData.items` is a RAW
+        // row list (openEditModal maps order.items one-to-one, no merging), so
+        // comparing each row individually against the summed old total is wrong
+        // in both directions: three KFC rows of 1 + 1.5 + 1.5 each compared
+        // against a total of 4 gives three NEGATIVE deltas, so a genuine
+        // addition printed NOTHING; and had the old side not been summed it
+        // would have printed everything. Aggregate first, then diff once per
+        // product — the same shape the other two edit paths use.
+        const newQtyByItem = editFormData.items.reduce((acc, it) => {
+          const k = it.menuItemId;
+          if (!k) return acc;
+          if (!acc[k]) acc[k] = { qty: 0, name: it.name, unit: it.unit };
+          acc[k].qty += Number(it.quantity || 0);
+          return acc;
+        }, {});
+        const diffItems = Object.entries(newQtyByItem)
+          .map(([k, v]) => ({ k, v, delta: v.qty - (oldQtyByItem[k] || 0) }))
           .filter(({ delta }) => delta > 0)
-          .map(({ it, delta }) => {
-            const mi = allMenuItems.find(m => m.id === it.menuItemId);
-            return { name: it.name, quantity: delta, unit: mi?.unit || it.unit, notes: null, kitchenStation: mi?.kitchenStation };
+          .map(({ k, v, delta }) => {
+            const mi = allMenuItems.find(m => m.id === k);
+            return { name: v.name, quantity: delta, unit: mi?.unit || v.unit, notes: null, kitchenStation: mi?.kitchenStation };
           });
         if (diffItems.length > 0) {
           const printRes = await window.electronAPI.printKitchenTicket({
@@ -1181,10 +1225,28 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                       <span className="text-base font-bold text-green-600">{money(order.totalAmount || 0)}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button onClick={(e) => { e.stopPropagation(); openEditModal(order); }}
-                        className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition" title={t('common.edit', 'Edit')}>
-                        <Edit3 size={16} />
-                      </button>
+                      {/* A closed order's items are a financial record — the
+                          backend now rejects edits to one with 409 ORDER_CLOSED
+                          (see PUT /orders/:id). Disabling the control here means
+                          staff see WHY instead of getting an error only after
+                          filling in the form. The server check is the real
+                          defence; this is so the UI never invites the mistake. */}
+                      {(() => {
+                        const closed = ['paid', 'refunded', 'cancelled'].includes(order.status);
+                        return (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); if (!closed) openEditModal(order); }}
+                            disabled={closed}
+                            className={`p-2 rounded-lg transition ${closed
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'text-blue-600 hover:bg-blue-50'}`}
+                            title={closed
+                              ? t('admin.orders.editClosedTooltip', { status: order.status })
+                              : t('common.edit')}>
+                            <Edit3 size={16} />
+                          </button>
+                        );
+                      })()}
                       <button onClick={(e) => { e.stopPropagation(); setCancelTarget(order); }}
                         className="p-2 rounded-lg text-red-400 hover:bg-red-50 transition" title={t('orders.cancelOrder', 'Cancel Order')}>
                         <Ban size={16} />
@@ -1488,7 +1550,11 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                         </tr>
                       </thead>
                       <tbody className="space-y-1">
-                        {selectedOrder.items.map((item, idx) => (
+                        {/* Merge repeated rows for the same product — an order holds one
+                            row per add, so the same dish appeared several times here
+                            (e.g. "KFC 1" and "KFC 1.5" instead of "KFC 2.5"). The POS
+                            screens already merge; this list was missed. */}
+                        {mergeOrderItems(selectedOrder.items).map((item, idx) => (
                           <tr key={idx} className="border-b border-gray-200 last:border-0">
                             <td className="py-2 text-gray-900 font-medium">{item.name}</td>
                             <td className="py-2 text-center text-gray-600">{item.quantity}</td>

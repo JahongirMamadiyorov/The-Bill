@@ -3919,3 +3919,342 @@ all staff and are only ever called from Admin screens.
   open/close/transfer, shift clock-in/out and notification reads must be available to waitresses
   and cashiers. `/login` and `/register` are correctly unauthenticated.
 - Backend syntax clean across every file after all changes.
+
+## 2026-08-09 — "every edit reprints the whole order" — REAL cause found (not the watcher)
+
+Owner reported after deploying: ANY edit from ANY client (cashier, waiter, admin) reprints the
+entire order — adding one item, or even removing one, reprints everything.
+
+**Ruled out first, by testing rather than assuming:** the auto-print watcher's quantity-delta
+logic was extracted and run against all five scenarios (new order, edit with no change, add item,
+remove item, increase quantity) — correct in every case even though every row id changes on edit.
+The POS OrdersScreen client-side diff was also verified correct.
+
+**The real cause — in the OTHER two edit paths:**
+```js
+const oldQtyByItem = Object.fromEntries(rows.map(it => [it.menuItemId, it.quantity]));
+```
+`Object.fromEntries` keeps only the LAST pair for a duplicated key — it does not sum. An order
+holding several rows for one product (which is normal: every add creates a row) therefore recorded
+its OLD quantity as just the last row's. Four `Choy` rows (1+1+2+1 = 4) recorded as **1**. The edit
+list is merged to 4, so the diff computed 4−1 = **3** and printed three teas — on every edit, for
+every product appearing more than once, regardless of what was actually changed.
+
+Measured before/after:
+| Scenario | before | after |
+|---|---|---|
+| open + save, no change | prints Choy x2 | prints nothing |
+| add Non x1 | prints Choy x2 + Non x1 | prints Non x1 only |
+| remove Shashlik | prints Choy x2 | prints nothing |
+| increase Choy 4→6 | prints Choy x4 | prints Choy x2 |
+
+**Fixed in all three edit paths** — `pos/TablesScreen.jsx`, `admin/screens/OrdersScreen.jsx` (both
+genuinely broken, sources unmerged) and `pos/OrdersScreen.jsx` (source already merged so it was
+safe, changed anyway so it is correct by construction rather than by luck).
+
+**Root-cause note:** this was made worse by my own merge work — merging the edit list summed the
+NEW side while the OLD side still took last-row-wins, guaranteeing a positive delta. The
+`fromEntries` flaw predated it, but was masked while both sides were unmerged.
+
+### Order history panel showed nothing — my own read bug (2026-08-09)
+
+Owner reported "Order history is not working" — the panel said "No changes recorded for this order
+yet" on an order that had clearly been edited.
+
+**The backend was fine.** Verified directly: `order_audit_log` holds 1,676 rows, newest the same
+day, and the order in question (#1, `6dd36c90…`) had SEVEN correct entries with the right
+restaurant_id — creation by the waitress, three quantity changes by the cashier, an addition, and
+two more changes. Exactly the data the feature was built to capture.
+
+**The bug was in my Admin fetch:**
+```js
+.then(res => setHistory(camelizeRows(res.data || [])))
+```
+`pos-app`'s api client is NOT axios — `unwrap()` in `api/client.js` already returns
+`camelizeKeys(res.data)`, so what arrives IS the array, already camelised. Reading `res.data` on an
+array gives `undefined`, so the panel stored `[]` every single time. An axios habit applied to a
+client that doesn't behave like axios. Fixed to use the value directly, and the redundant
+re-camelisation removed.
+
+**Also fixed while here:** the Admin order-detail item table did not merge repeated rows, so the
+same dish showed twice (visible in the owner's screenshot as "KFC 1" and "KFC 1.5" instead of
+"KFC 2.5"). The POS screens already merged; this list was missed. Now uses `mergeOrderItems`.
+
+**Lesson worth keeping: `pos-app`'s `api.*` helpers return the DATA, not an axios envelope.**
+Any new call site must use the returned value directly — `res.data` is always undefined there.
+
+---
+
+## 2026-08-15 — Kitchen printer reprinted the whole order on every edit (ROOT CAUSE)
+
+**Symptom (reported repeatedly, survived three earlier "fixes"):** any edit to an open order
+reprinted the ENTIRE order to the kitchen, and the slips showed RAW UNMERGED rows — "KFC 1kg",
+"KFC 1.5kg", "KFC 1.5kg", "Cola 1.5l", "Cola 1.5l" — one line per database row.
+
+**Two wrong theories I burned before finding it** (recorded so they aren't repeated):
+1. "An old build is still running" — disproved by `Get-Process`, single install path.
+2. "The legacy print-agent is doing it" — disproved by `Get-Process node`, nothing running.
+Both were reasoning from plausibility instead of evidence. The answer was in the SQL all along.
+
+**Root cause — one missing column in one SELECT.** `autoPrintPendingItems()` in `main.js` keys
+its already-printed baseline on `menu_item_id`:
+
+```js
+const key = r.menu_item_id || `noitem:${r.item_id}`;
+```
+
+but the query feeding it used `menu_item_id` ONLY inside `LEFT JOIN menu_items m ON m.id =
+oi.menu_item_id` and never put it in the select list. So `r.menu_item_id` was `undefined` on
+every row and the key ALWAYS fell through to the row-id fallback. That produced both halves of
+the symptom at once:
+
+- the key was per-ROW rather than per-PRODUCT, so quantities never aggregated → one printed line
+  per raw row (the three KFC lines);
+- editing an order runs `DELETE FROM order_items` + full re-INSERT, so every row gets a NEW uuid
+  → every key was unseen → delta = full quantity → the whole order reprinted.
+
+The comment directly beneath the query already described this exact failure and stated the
+quantity-based rewrite had fixed it. The rewrite was correct but INERT, because the column it
+keys on was never selected. A correct algorithm silently fed undefined.
+
+**Fixes:**
+- `oi.menu_item_id` added to the select list, with a comment saying it is load-bearing.
+- Null-`menu_item_id` fallback changed from the row id to `name|notes`. Row ids are regenerated
+  by the delete+reinsert, so an id-based fallback reprints forever; ~3.4k historical rows have a
+  genuinely NULL `menu_item_id` and would have kept misbehaving.
+- **Key-schema migration guard.** Every terminal in the field holds a baseline full of old
+  `noitem:<uuid>` keys which can never match the new product-id keys — so the fix ITSELF would
+  have caused one final full-restaurant reprint on first launch. `printedOrderQtySchema` (now 2)
+  re-seeds the baseline silently instead of printing. Bump it on any future key-shape change.
+
+**Verified by simulation**, not by inspection: old keying prints all 4 raw rows for a
+one-item addition; new keying prints exactly `kfc x1`; a removal prints nothing.
+
+**Separate real bug found in the same pass** — `admin/screens/OrdersScreen.jsx` `saveEditedOrder`
+diffed each RAW row of `editFormData.items` against the SUMMED old total, so three KFC rows of
+1 + 1.5 + 1.5 each compared against 4 gave three NEGATIVE deltas and a genuine addition printed
+NOTHING. Both sides are now aggregated per product before diffing, matching the other paths.
+
+**Lesson: when a delta/tracking mechanism misbehaves, check that the key it depends on is
+actually populated before re-examining the algorithm.** `undefined || fallback` fails silently
+and turns a correct algorithm into its exact opposite.
+
+### Same day, from the owner's connection-log dump — TWO more bugs behind the same symptom
+
+The badge dump proved the missing-column fix was necessary but NOT sufficient. Two further
+defects, both independent of it:
+
+**2. Baseline purged by a resync → "printed absolutely all foods on entering the panel".**
+
+```js
+for (const id of Object.keys(printedQty)) if (!current[id]) delete printedQty[id];
+```
+
+`current` is built from the LOCAL database. `disconnectAndClear()` (login / user switch /
+ownership-marker mismatch) empties it, and the re-sync streams rows back progressively. A change
+event firing in that window found no rows for a still-open order, concluded it was closed, and
+DELETED its baseline — so when the rows landed, the entire order looked new. The log shows it
+precisely: `local-data-cleared 18:16:11` → `autoprint-ok order #1, 10 line(s)` at 18:16:14.608 →
+`autoprint-ok order #1, 9 line(s)` at 18:16:14.622, the same order twice, 14ms apart, mid-resync.
+
+Fixed two ways: the whole pass now returns early unless `db.currentStatus.hasSynced`, and pruning
+is done against orders the DB positively reports as CLOSED, skipped entirely while the orders
+table is empty. Absence is not proof of closure.
+
+**3. Orphan items printed once PER catch-all printer → two papers per Cola.**
+
+`buildPrintJobs`' fallback did `for (const target of targets)` over EVERY printer with no
+stations assigned. Any dish with no `kitchen_station` (Cola, here) therefore printed on all of
+them. This is the same duplicate-slip bug the station loop above it was rewritten to remove on
+2026-08-09 — the rewrite fixed the assigned-printer path and left the fallback fanning out.
+Now exactly one target: the first catch-all, else the first usable printer.
+
+**Verified by replaying the owner's actual log timeline in simulation:** old code prints 10 lines
+at the resync (matching the log), new code prints 1 (the added Cola), and a re-poll prints 0.
+
+Note for next time: the connection-event log was the single most valuable artifact in this whole
+investigation. Two of my theories died to `Get-Process`; all three real bugs were visible in the
+timestamps once the dump existed. Ask for it FIRST.
+
+### Sync gate on the POS Orders + Tables screens (same root cause, list side)
+
+The owner connected the printer bug to a separate field report: restaurants whose POS had been
+switched off while waiters kept taking orders on their phones saw a "wrong order list" when the
+terminal came back. The purge bug I had just fixed could NOT have caused that — `printedOrderQty`
+is printing state and nothing reads it to build the list — but the same underlying mistake was
+present on the list side and nobody had guarded it either.
+
+Every POS screen reads local SQLite directly (`psGetAll('SELECT * FROM orders ...')`) and renders
+the result as fact. `hasSynced` was referenced in exactly ONE place in the entire renderer — the
+topbar badge. So a terminal that had been off overnight answered that query instantly with
+yesterday's snapshot: missing every order taken on a phone while it was off, still listing orders
+long since paid. It self-heals via the 4s poll, but "how long" depends on the catch-up, and with
+~26k order_items that is not instant. Nothing on screen said the data was old.
+
+**Added:** `src/lib/useSyncGate.js` and `src/pages/pos/SyncGate.jsx`, wired into `pos/OrdersScreen`
+and `pos/TablesScreen`.
+
+The important distinction the hook draws — and the reason it is not just `if (!connected)`:
+
+- `hasSynced === false` → never reconciled this session, contents unknowable → show the syncing
+  state INSTEAD of the rows.
+- `hasSynced === true, connected === false` → was current, now offline → show the rows with a
+  banner giving their age. **Never blocks.** Offline service is the whole point of the local-first
+  design; Uzbek restaurants lose connectivity routinely and the cashier must keep working.
+
+Orders is additionally not gated while `editing`, so a dropped connection mid-edit cannot pull the
+screen out from under a cashier and lose their work.
+
+Verified: all touched files parse, the UZ dictionary has 269 unique keys with no duplicates (the
+duplicate-key mistake from the earlier i18n pass was specifically checked for), every `t()` literal
+in SyncGate.jsx resolves, and the `{time}` placeholder survives translation.
+
+## 2026-08-15 — "more items inside the order than were there": concurrent-edit corruption
+
+Owner reported that item lists inside orders were growing. Investigated against the live database
+rather than by reading code.
+
+**Found it, one order, by arithmetic:** of 4,101 non-cancelled orders, exactly ONE fails
+`total_amount = SUM(items) + tax − discount` — order #9, restaurant a0000000-...-0001, 2026-08-13.
+33 order_items rows worth 1,098,000 against a charged total_amount of 558,000.
+
+Its rows arrived in two batches 1.68s apart: 16 rows / 540,000 at 16:37:04.645, then 17 rows /
+558,000 at 16:37:06.324 — the identical list plus one Cola 1.5l. 540,000 + 558,000 = 1,098,000.
+
+**The audit log named the people.** 16:37:11.746 cashier ea0ee2e7 `paid` 540,000 cash;
+16:37:12.904 waiter c0632b75 `item_qty_changed` Cola 1.5l 1 → 2. Two staff, two devices, one
+order, the same second.
+
+**Mechanism.** `PUT /orders/:id` replaces the item list wholesale (DELETE all, re-INSERT). Its
+existence check was a plain `SELECT` — no row lock anywhere in the file. Under READ COMMITTED two
+overlapping saves interleave: the waiter's DELETE ran before the cashier's INSERT committed, so it
+removed only the rows it could see; both then inserted their full lists. 33 rows.
+
+**Fixed** by taking the order's row lock at the start of every mutating transaction —
+`SELECT ... FOR UPDATE` on `PUT /:id`, `PUT /:id/status`, `PUT /:id/pay`, `POST /:id/items`,
+`POST /:id/refund`. Mutations of a given order now queue instead of racing. One row, one table,
+taken first thing, so it cannot deadlock against itself. `PUT /:id/pay` gets the lock EARLY
+(before it computes anything) rather than relying on its own UPDATE, which locks far too late.
+
+**Scope of damage is one order.** A query for the signature (a later batch fully restating an
+earlier batch's menu items) returns exactly this one across the whole database — the window is
+~1.7s wide, so it needs genuinely simultaneous saves. Stock was NOT double-deducted: only one
+movement exists (+1 Cola), because each request diffed its own before/after correctly.
+
+**Not changed, deliberately — flagged instead:** `PUT /:id/pay` has no `AND status <> 'paid'`
+guard, so a double-submitted payment writes a second cash_flow row and inflates takings. That
+alters payment semantics (refund-then-repay, split settlement) and is the owner's call, not a
+silent fix.
+
+Method note: the theory that survived was the third one. The first two (stale build, print-agent)
+died to `Get-Process`, and a race sketch died to the stock-movement data. What settled it was the
+audit log this project added last week — it named both users and both actions to the millisecond.
+
+### Double-payment investigation (owner asked to investigate before deciding)
+
+Checked the live data rather than reasoning about the risk. **It has already happened, 7 times.**
+
+Every one of the 7 orders shows `SUM(cash_flow) = EXACTLY 2 x total_amount` — not an approximate
+overlap, a clean double count:
+
+  order #3  d50c2df5  544,500 charged, 1,089,000 recorded   (+544,500)  2026-08-01
+  order #2  e223b96e  529,000 charged, 1,058,000 recorded   (+529,000)  2026-05-17
+  order #14 d7fae8f1  272,975 charged,   545,950 recorded   (+272,975)  2026-08-03
+  order #4  a2b1722d  177,000 charged,   354,000 recorded   (+177,000)  2026-08-01
+  order #16 f729e9ad   81,000 charged,   162,000 recorded    (+81,000)  2026-08-01
+  order #7  313cdde0   49,000 charged,    98,000 recorded    (+49,000)  2026-07-17
+  order #8  5f381c7d   29,000 charged,    58,000 recorded    (+29,000)  2026-08-01
+
+  TOTAL CASH TAKINGS OVERSTATED BY 1,682,475 so'm across two restaurants
+  (a0000000-...-0001 and 6a08845f-1566-4395-a7c1-7ce94c585383). None were refunded.
+
+The two "Partial split payment" duplicates are NOT in this list — splits legitimately write
+several cash rows, and they were excluded on purpose.
+
+**The gaps matter for the diagnosis.** Five are 1–20 seconds apart, consistent with a
+double-tapped Pay or a client retry after Render was slow to respond. But **one is 1,787 seconds
+— nearly 30 minutes.** No double-tap explains that. Someone re-ran a payment on an
+already-paid order half an hour later and the backend accepted it. So the row lock alone would
+NOT have prevented these: the missing `AND status <> 'paid'` guard is the actual hole, and it is
+open to slow re-submits, back-button retries and staff error alike.
+
+Four of the seven are the same restaurant on the same day (2026-08-01), which suggests a staff
+habit or a UI that invited the second tap, not pure chance.
+
+### Owner challenged the double-payment finding: "are you mistaking it with loan orders?"
+
+Right question to ask — a loan settled later could plausibly produce a second inflow row. Checked
+it instead of defending the conclusion. It does not explain them:
+
+- `Payment for order #X` is written in exactly ONE place (the pay route, `payment_method==='cash'`,
+  amount = `order.total_amount`). Nothing else in the codebase writes that description.
+- All 14 rows across the 7 orders: `payment_method='cash'`, ZERO rows in `loans`, no
+  `split_payments`, and each row equals the FULL order total — not a part-payment.
+
+So the double-payment finding stands. **But the challenge found a different real bug.**
+
+**Loan settlements never reach cash flow.** `PUT /:id/loan/pay` marks the loan paid
+(`UPDATE loans SET status='paid'`) and writes NO cash_flow row — no route in the codebase does.
+Live data: 6 loans settled, **800,317.60 so'm collected that appears nowhere in cash flow**.
+1 loan still outstanding, 544,525.00 owed.
+
+Net effect on the cash-flow picture: overstated 1,682,475 by the double payments, understated
+800,318 by the uncounted loan settlements. Two independent faults pulling opposite ways, which is
+exactly why neither showed up as an obvious total being wrong.
+
+Not fixed — recording loan repayments as income changes what the finance reports mean, and that
+is the owner's call. Flagged in STATUS.md.
+
+## 2026-08-15 — Defences built: double payment + post-payment editing (owner: "fix these issues")
+
+### 1. Double payment — absorbed, not rejected
+`PUT /:id/pay` now returns early if the order is already `paid`: responds SUCCESS with the order
+as it stands, writes no money rows, and logs a `duplicate_payment_ignored` audit entry.
+
+**Rejecting with a 4xx would have been the obvious choice and is the wrong one.** The dangerous
+case is a retry where the FIRST payment succeeded but the response was lost — the cashier already
+sees a failure. If the retry also errors they will assume no payment was taken and collect the
+cash AGAIN, turning a harmless duplicate database row into a customer charged twice in real life.
+Idempotent success is the only safe answer. A `refunded` order is still payable on purpose;
+refund-then-repay is a legitimate correction.
+
+The duplicate is surfaced in the Admin order history rather than hidden — if one terminal or one
+person generates these repeatedly that is a UI or training problem, and it is only visible if the
+event is recorded.
+
+### 2. Post-payment editing — 409 ORDER_CLOSED
+`PUT /:id` now refuses when status is paid/refunded/cancelled. This is the hole order #9 fell
+through: `POST /:id/items` already blocked paid orders, so the waiter's Cola arrived as a
+QUANTITY CHANGE through PUT, which had no state check at all. `POST /:id/items` also gained
+'refunded' (it was missing) and both now answer with the same `409 / code: ORDER_CLOSED` so the
+POS and phone can handle "this order is finished" in one place.
+
+The row lock stops writes interleaving, but a lock cannot say "this order is finished" — without
+the state check the waiter's edit would simply queue and apply cleanly a second after payment,
+which is the same corruption arriving in an orderly fashion. Both are needed.
+
+Admin's Edit button is disabled for closed orders with a tooltip naming the status, so staff see
+why instead of hitting the error after filling in the form. The server check remains the real
+defence.
+
+To correct a genuinely wrong closed order: refund and re-enter. That leaves a trail.
+
+### 3. Loan settlements now record cash
+Both branches of `PUT /:id/loan/pay` write a `cash_flow` inflow. Made idempotent with
+`AND status <> 'paid'` so the same button pressed twice cannot double-post — the exact mistake
+just fixed on the payment route.
+
+### 4. Live data corrected
+- Deleted the 7 duplicate payment rows (kept the original of each pair): **−1,682,475**
+- Backfilled 6 settled loan repayments, dated to `paid_at` so they land in the right period and
+  labelled "(backfilled 2026-08-15)" so they stay identifiable: **+800,317.60**
+- Net cash_flow IN: 1,204,083,879 → **1,203,201,722**, exactly the −882,157 predicted.
+- Order #9 repaired earlier to the 540,000 set that matches what was collected.
+
+**Verified after the fact, all zero:** duplicate payment rows, settled loans missing a cash row,
+orders where total ≠ items, orders with duplicated item batches. 11 open orders remain editable,
+4,090 paid orders are now protected, 1 outstanding loan will post cash when settled.
+
+Every destructive statement ran inside a transaction behind a `DO $$ ... RAISE EXCEPTION` guard
+asserting the exact expected pre-state, so a re-run or a wrong assumption aborts instead of
+deleting.

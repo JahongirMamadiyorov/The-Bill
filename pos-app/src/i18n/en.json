@@ -606,9 +606,11 @@
         "refunded": "Refunded — {reason}",
         "cancelled": "Order cancelled",
         "statusChanged": "Status changed from {from} to {to}",
-        "deleted": "Order deleted"
+        "deleted": "Order deleted",
+        "duplicatePaymentIgnored": "Duplicate payment ignored — the order was already paid"
       },
-      "kitchenPrintWarning": "Order saved, but some kitchen printers did not respond — check the ticket manually"
+      "kitchenPrintWarning": "Order saved, but some kitchen printers did not respond — check the ticket manually",
+      "editClosedTooltip": "This order is {status} and can no longer be edited"
     },
     "staff": {
       "title": "Staff Management",

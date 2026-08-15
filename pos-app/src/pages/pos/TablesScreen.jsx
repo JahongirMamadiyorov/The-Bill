@@ -11,6 +11,8 @@ import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
 import { buildReceiptData } from '../../lib/receipt.js';
 import { mergeOrderItems } from '../../lib/orderItems.js';
+import useSyncGate from '../../lib/useSyncGate.js';
+import { SyncGate, OfflineBanner } from './SyncGate.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tables screen — floor plan overview. Design handoff screen 6.
@@ -44,6 +46,7 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
   const symbol = settings.currencySymbol;
   const money  = (n) => fmtMoney(n, symbol);
 
+  const syncState = useSyncGate();
   const [tables,     setTables]     = useState([]);
   const [orders,     setOrders]     = useState([]);
   const [itemsByOrd, setItemsByOrd] = useState({});
@@ -316,9 +319,18 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
       // this screen never built a separate `snapshot` state the way
       // OrdersScreen.jsx did, so this is the equivalent existing mechanism,
       // not a new parallel one).
-      const oldQtyByItem = Object.fromEntries(
-        (itemsByOrd[selOrder.id] || []).map(it => [it.menuItemId, Number(it.quantity || 1)])
-      );
+      // MUST SUM, not overwrite (fixed 2026-08-09). An order can hold SEVERAL
+      // rows for the same product — each add creates a row. Object.fromEntries
+      // keeps only the LAST pair, so four Choy rows (1+1+2+1) recorded the old
+      // quantity as 1 instead of 4. The edit list is merged, so the diff then
+      // saw 4-1=3 and reprinted three teas — on EVERY edit, for every product
+      // that appeared more than once. This is why "any tiny change reprints the
+      // whole order".
+      const oldQtyByItem = (itemsByOrd[selOrder.id] || []).reduce((acc, it) => {
+        const k = it.menuItemId;
+        if (k) acc[k] = (acc[k] || 0) + Number(it.quantity || 0);
+        return acc;
+      }, {});
       const res = await window.electronAPI.ordersUpdate(selOrder.id, {
         order_type: editType,
         table_id:   editType === 'dine_in' ? (editTable?.id || null) : null,
@@ -403,6 +415,12 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
     </div>
   );
 
+  // Same reasoning as OrdersScreen — see the comment there and useSyncGate.js.
+  // A stale floor plan is arguably worse than a stale order list: it drives
+  // whether a cashier believes a table is free, so an un-reconciled copy can
+  // seat guests at an occupied table or hide an order that needs its bill.
+  if (syncState.gated) return <SyncGate lang={lang} />;
+
   return (
     <div style={{ flex: 1, display: 'flex', gap: 16, minWidth: 0, minHeight: 0 }}>
       <style>{`@keyframes posspin { to { transform: rotate(360deg); } }`}</style>
@@ -421,6 +439,10 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
 
       {/* ══ Main column ══ */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14, overflow: 'hidden' }}>
+
+        {syncState.offline && (
+          <OfflineBanner lang={lang} lastSyncedAt={syncState.lastSyncedAt} />
+        )}
 
         {editing && pickTable ? (
           /* ── Floor plan picker (edit mode) ── */
