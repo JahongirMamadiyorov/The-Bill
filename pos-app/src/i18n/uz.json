@@ -607,7 +607,8 @@
         "cancelled": "Buyurtma bekor qilindi",
         "statusChanged": "Holat {from} dan {to} ga o'zgardi",
         "deleted": "Buyurtma o'chirildi",
-        "duplicatePaymentIgnored": "Takroriy to'lov e'tiborsiz qoldirildi — buyurtma allaqachon to'langan"
+        "duplicatePaymentIgnored": "Takroriy to'lov e'tiborsiz qoldirildi — buyurtma allaqachon to'langan",
+        "edited": "{item} tahrirlandi — {from} dan {to} ga"
       },
       "kitchenPrintWarning": "Buyurtma saqlandi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring",
       "editClosedTooltip": "Bu buyurtma {status} — uni endi tahrirlab bo'lmaydi"
@@ -966,6 +967,13 @@
       "amount": "Miqdor",
       "price": "Narx",
       "kitchenPrintWarning": "Buyurtma qabul qilindi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring"
+    },
+    "roles": {
+      "owner": "Egasi",
+      "admin": "Administrator",
+      "cashier": "Kassir",
+      "waiter": "Ofitsiant",
+      "kitchen": "Oshxona"
     }
   },
   "owner": {

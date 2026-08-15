@@ -324,27 +324,94 @@ async function connectPowerSync() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 const AUTO_PRINT_POLL_MS  = 8000;
-// Items belonging to an order THIS terminal just created/added to are marked
-// printed WITHOUT printing, because the renderer already printed them directly.
-// The window covers the gap between the write succeeding and the rows syncing back.
-const SELF_PRINT_WINDOW_MS = 3 * 60 * 1000;
+
+// ── Self-print bookkeeping — REWRITTEN 2026-08-15 ─────────────────────────────
+// When this terminal writes an order, the renderer prints that ticket itself,
+// immediately. The watcher must not print the same thing again when the rows
+// sync back a few seconds later.
+//
+// The OLD approach recorded "terminal X touched order Y at time T" and made the
+// watcher SKIP THE WHOLE ORDER for three minutes. That is far too blunt, and it
+// lost real tickets: any change by ANYONE ELSE inside that window was silently
+// swallowed and the kitchen never learned about it. Observed live 2026-08-15 on
+// order #2 — the cashier added Jiz at 19:00:28, which armed the window; waiter
+// Davron then changed Sezar 1->2 at 19:01:04 and KFC 1->2 at 19:01:34 from his
+// phone, and NEITHER printed. Suppressing by order and by clock cannot tell "I
+// already printed this" apart from "somebody just added something new".
+//
+// The replacement suppresses by QUANTITY instead: after a successful write this
+// terminal folds what it printed straight into the printed-quantity baseline.
+// The watcher then needs no special case at all — those items are already
+// accounted for, so they produce no delta, while anything anyone else adds
+// still produces a positive delta and prints. Same mechanism for both, no
+// timing window deciding what the kitchen gets told about.
+//
+// SETTLE window: the ONLY thing still time-based. Between the write returning
+// and PowerSync syncing the rows back, the local database still shows the OLD
+// contents. A watcher pass in that gap would see fewer items than the baseline
+// and, taking that for a removal, would LOWER the baseline back down — and then
+// reprint everything when the rows finally arrive. So for a short period after a
+// self-print the baseline is only ever raised, never lowered.
+const SELF_PRINT_SETTLE_MS = 90 * 1000;
 
 let autoPrintTimer   = null;
 let autoPrintRunning = false;
 let settingsCache    = { at: 0, value: null };
 
-// Record of orders this terminal wrote itself, so the watcher doesn't reprint them.
-function noteSelfPrinted(orderId) {
-  if (!orderId) return;
-  const list = (store.get('selfPrintedOrders') || [])
-    .filter((e) => Date.now() - e.at < SELF_PRINT_WINDOW_MS * 2);
-  list.push({ orderId, at: Date.now() });
-  store.set('selfPrintedOrders', list);
+// Normalises an items payload ([{ menu_item_id, quantity }, ...] as sent to the
+// backend) into the same { [menuItemId]: qty } shape the baseline uses.
+function itemsToQty(items) {
+  const out = {};
+  for (const it of Array.isArray(items) ? items : []) {
+    const key = it?.menu_item_id || it?.menuItemId;
+    if (!key) continue;
+    out[key] = (out[key] || 0) + (Number(it.quantity) || 0);
+  }
+  return out;
 }
 
-function wasSelfPrinted(orderId) {
-  return (store.get('selfPrintedOrders') || []).some(
-    (e) => e.orderId === orderId && Date.now() - e.at < SELF_PRINT_WINDOW_MS);
+// Fold what this terminal just printed into the baseline.
+//   mode 'absolute'  — the payload is the order's COMPLETE item list
+//                      (orders:create, orders:update, which replaces everything)
+//   mode 'increment' — the payload is only the NEW items (orders:addItems)
+// Either way the result is "everything the kitchen has now been told about",
+// which is exactly what the baseline means.
+function adoptSelfPrinted(orderId, items, mode) {
+  if (!orderId) return;
+  const qty  = itemsToQty(items);
+  const base = store.get('printedOrderQty') || {};
+  if (mode === 'increment') {
+    const cur = base[orderId] || {};
+    for (const [k, v] of Object.entries(qty)) cur[k] = (cur[k] || 0) + v;
+    base[orderId] = cur;
+  } else {
+    base[orderId] = qty;
+  }
+  store.set('printedOrderQty', base);
+
+  const stamps = store.get('selfPrintStamps') || {};
+  stamps[orderId] = Date.now();
+  // Drop stamps well past the settle window so this cannot grow without bound.
+  for (const [k, t] of Object.entries(stamps)) {
+    if (Date.now() - t > SELF_PRINT_SETTLE_MS * 4) delete stamps[k];
+  }
+  store.set('selfPrintStamps', stamps);
+}
+
+// True while a self-print for this order may not have synced back yet.
+function selfPrintSettling(orderId) {
+  const t = (store.get('selfPrintStamps') || {})[orderId];
+  return !!t && (Date.now() - t) < SELF_PRINT_SETTLE_MS;
+}
+
+// Element-wise maximum of two { key: qty } maps. Used to raise-but-never-lower
+// the baseline while a self-print settles.
+function mergeMax(a, b) {
+  const out = { ...(a || {}) };
+  for (const [k, v] of Object.entries(b || {})) {
+    out[k] = Math.max(Number(out[k]) || 0, Number(v) || 0);
+  }
+  return out;
 }
 
 // kitchen_show_* columns are NOT in the Sync Streams column list, so they can't
@@ -491,17 +558,22 @@ async function autoPrintPendingItems() {
       }
 
       if (deltas.length === 0) {
-        // Nothing new. Still write back the (possibly lower) baseline so a
-        // removal can't later look like an addition.
-        printedQty[orderId] = nowQty;
+        // Nothing new. Write back the (possibly lower) baseline so a removal
+        // can't later look like an addition — EXCEPT while a self-print from
+        // this terminal may still be in flight. In that gap the local rows are
+        // stale and "fewer items than the baseline" means "not synced yet", not
+        // "removed"; lowering here would reprint the lot a second later.
+        printedQty[orderId] = selfPrintSettling(orderId)
+          ? mergeMax(doneQty, nowQty)
+          : nowQty;
         continue;
       }
 
-      // This terminal printed these itself, right after its own write.
-      if (wasSelfPrinted(orderId)) {
-        printedQty[orderId] = nowQty;
-        continue;
-      }
+      // NOTE: there is deliberately no "skip because this terminal wrote it"
+      // branch here any more. What this terminal printed was folded into the
+      // baseline by adoptSelfPrinted() at write time, so it simply produces no
+      // delta. Anything ANYONE ELSE added still does, and still prints — which
+      // is precisely what the old order-wide, clock-based skip destroyed.
       if (!printers.length) continue;  // nothing configured — retry next poll
 
       const head = meta.head;
@@ -849,7 +921,8 @@ async function submitOrderWrite(method, path_, body) {
 // rows sync back a few seconds later and print a duplicate ticket.
 ipcMain.handle('orders:create', async (_event, payload) => {
   const res = await submitOrderWrite('POST', '/api/orders', { ...payload, client_prints_locally: true });
-  if (res?.ok) noteSelfPrinted(res.data?.id);
+  // Absolute: the payload IS the whole order, and the renderer printed all of it.
+  if (res?.ok) adoptSelfPrinted(res.data?.id, payload?.items, 'absolute');
   return res;
 });
 
@@ -862,10 +935,13 @@ ipcMain.handle('orders:pay', async (_event, { id, data }) =>
 // list, not a delta.
 ipcMain.handle('orders:update', async (_event, { id, data }) => {
   const res = await submitOrderWrite('PUT', `/api/orders/${id}`, data);
-  // The editing screen prints its own diff right after this returns, and the
-  // edit re-creates every order_items row with new ids — so without this marker
-  // the watcher saw the whole order as new and reprinted all of it.
-  if (res?.ok) noteSelfPrinted(id);
+  // Absolute: PUT replaces the ENTIRE item list, so the payload is the order's
+  // full contents afterwards. The editing screen printed the delta itself; the
+  // rest was printed when it was originally ordered. Either way the kitchen now
+  // knows about all of it, which is what the baseline records. (The edit also
+  // re-creates every order_items row with fresh ids — quantity-keyed tracking is
+  // immune to that, id-keyed tracking was not.)
+  if (res?.ok) adoptSelfPrinted(id, data?.items, 'absolute');
   return res;
 });
 
@@ -880,7 +956,9 @@ ipcMain.handle('orders:refund', async (_event, { id, data }) =>
 // not the full list (unlike orders:update, which replaces the whole list).
 ipcMain.handle('orders:addItems', async (_event, { id, data }) => {
   const res = await submitOrderWrite('POST', `/api/orders/${id}/items`, { ...data, client_prints_locally: true });
-  if (res?.ok) noteSelfPrinted(id);   // same anti-duplicate marker as orders:create
+  // Increment: this route APPENDS, so the payload is only the new items. They
+  // add to whatever the kitchen already knew about rather than replacing it.
+  if (res?.ok) adoptSelfPrinted(id, data?.items, 'increment');
   return res;
 });
 
@@ -1011,8 +1089,12 @@ function makeWriteHandler(method) {
           const isCreate   = method === 'POST' && tail === '/api/orders';
           const isAddItems = method === 'POST' && /^\/api\/orders\/[^/]+\/items$/.test(tail);
           const isEdit     = method === 'PUT'  && /^\/api\/orders\/[^/]+$/.test(tail);
-          if (isCreate)               noteSelfPrinted(res.body?.id);
-          else if (isAddItems || isEdit) noteSelfPrinted(m[1]);
+          // Same quantity-based bookkeeping as the Cashier's dedicated handlers
+          // (see adoptSelfPrinted). 'increment' for the append-only items route,
+          // 'absolute' for create and for the full-list-replacing edit.
+          if (isCreate)        adoptSelfPrinted(res.body?.id, data?.items, 'absolute');
+          else if (isAddItems) adoptSelfPrinted(m[1],         data?.items, 'increment');
+          else if (isEdit)     adoptSelfPrinted(m[1],         data?.items, 'absolute');
         }
       } catch { /* marking is best-effort; never fail the write over it */ }
 

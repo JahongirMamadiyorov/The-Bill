@@ -261,6 +261,46 @@ const paymentMethodLabel = (method, t) => {
 //
 // Falls back to the raw action code if a translation is missing — an unfamiliar
 // code is still more useful to a manager than a blank line.
+// Quantity + unit, the way the rest of the app renders them.
+//
+// Several products are sold by weight or volume, and for those "× 1.5" is
+// meaningless — it has to read "1.5 kg". Weighed units are appended with a
+// space; countable ones keep the "× n" form. Trailing zeros are dropped so a
+// whole number reads "2 kg", not "2.000 kg". A missing unit (older audit rows
+// written before the unit was recorded, or a deleted menu item) degrades to the
+// plain count rather than guessing.
+// Role codes as stored on the audit row -> the label a manager reads. Falls back
+// to the raw code so a role added later still shows something meaningful rather
+// than disappearing from the column.
+function roleLabel(role, t) {
+  const key = String(role || '').trim().toLowerCase();
+  if (!key) return '';
+  const KEYS = {
+    owner:       'admin.roles.owner',
+    admin:       'admin.roles.admin',
+    cashier:     'admin.roles.cashier',
+    new_cashier: 'admin.roles.cashier',
+    waitress:    'admin.roles.waiter',
+    new_waiter:  'admin.roles.waiter',
+    kitchen:     'admin.roles.kitchen',
+  };
+  const translated = KEYS[key] ? t(KEYS[key]) : null;
+  // t() returns the key itself when a translation is missing — treat that as
+  // "no translation" rather than printing a dotted key into the UI.
+  return translated && translated !== KEYS[key] ? translated : key.replace(/_/g, ' ');
+}
+
+const WEIGHED_UNITS = ['kg', 'g', 'l', 'ml'];
+function fmtAuditQty(qty, unit) {
+  if (qty === null || qty === undefined) return '?';
+  const num = Number(qty);
+  const q = Number.isFinite(num)
+    ? (Number.isInteger(num) ? String(num) : String(parseFloat(num.toFixed(3))))
+    : String(qty);
+  const u = String(unit || '').trim().toLowerCase();
+  return u && WEIGHED_UNITS.includes(u) ? `${q} ${u}` : `× ${q}`;
+}
+
 function describeAuditEntry(h, t) {
   const d = h.details || {};
   const n = (v) => (v === null || v === undefined ? '?' : v);
@@ -271,18 +311,27 @@ function describeAuditEntry(h, t) {
       // begin with — which is exactly what you need to reconstruct an order.
       // The item list is already stored in `details`; it was simply not rendered.
       const list = Array.isArray(d.items)
-        ? d.items.map((i) => `${i.item || '?'} × ${i.quantity}`).join(', ')
+        ? d.items.map((i) => `${i.item || '?'} ${fmtAuditQty(i.quantity, i.unit)}`).join(', ')
         : '';
       return list
         ? `${t('admin.orders.hist.created', { count: d.items.length })}: ${list}`
         : t('admin.orders.hist.created', { count: 0 });
     }
     case 'item_added':
-      return t('admin.orders.hist.itemAdded', { item: n(d.item), qty: n(d.quantity) });
+      return t('admin.orders.hist.itemAdded', { item: n(d.item), qty: fmtAuditQty(d.quantity, d.unit) });
     case 'item_removed':
-      return t('admin.orders.hist.itemRemoved', { item: n(d.item), qty: n(d.quantity) });
+      return t('admin.orders.hist.itemRemoved', { item: n(d.item), qty: fmtAuditQty(d.quantity, d.unit) });
+    // Shown as an EDIT rather than a bare "quantity changed": changing what is
+    // already on an order is a different, more consequential act than adding to
+    // it — it can remove food a customer was charged for — and the manager
+    // reading this list wants that to stand out. Both quantities carry the unit,
+    // so a weighed item reads "1 kg → 2 kg" instead of an ambiguous "1 → 2".
     case 'item_qty_changed':
-      return t('admin.orders.hist.qtyChanged', { item: n(d.item), from: n(d.from), to: n(d.to) });
+      return t('admin.orders.hist.edited', {
+        item: n(d.item),
+        from: fmtAuditQty(d.from, d.unit).replace(/^× /, ''),
+        to:   fmtAuditQty(d.to,   d.unit).replace(/^× /, ''),
+      });
     case 'table_changed':
       return t('admin.orders.hist.tableChanged');
     case 'paid':
@@ -1605,8 +1654,23 @@ export default function AdminOrdersScreen({ navigate, openOrderId, clearOpenOrde
                               hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
                         <span className="flex-1 text-gray-900">{describeAuditEntry(h, t)}</span>
-                        <span className="text-xs text-gray-500 whitespace-nowrap pt-0.5">
-                          {h.userName || h.user_name || t('admin.orders.historyUnknownUser')}
+                        {/* Name AND role. A name alone doesn't tell a manager
+                            whether the person was allowed to do what they did —
+                            "Davron changed the quantity" only means something
+                            once you know Davron is a waiter, not a cashier.
+                            user_role is already stored on every audit row and
+                            returned by the history endpoint; it was simply never
+                            displayed. Role sits under the name so the column
+                            stays narrow on the smaller terminal screens. */}
+                        <span className="text-xs text-gray-500 whitespace-nowrap pt-0.5 text-right leading-tight">
+                          <span className="block">
+                            {h.userName || h.user_name || t('admin.orders.historyUnknownUser')}
+                          </span>
+                          {(h.userRole || h.user_role) && (
+                            <span className="block text-[11px] text-gray-400">
+                              {roleLabel(h.userRole || h.user_role, t)}
+                            </span>
+                          )}
                         </span>
                       </li>
                     ))}

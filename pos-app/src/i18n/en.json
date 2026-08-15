@@ -607,7 +607,8 @@
         "cancelled": "Order cancelled",
         "statusChanged": "Status changed from {from} to {to}",
         "deleted": "Order deleted",
-        "duplicatePaymentIgnored": "Duplicate payment ignored — the order was already paid"
+        "duplicatePaymentIgnored": "Duplicate payment ignored — the order was already paid",
+        "edited": "Edited {item} — {from} to {to}"
       },
       "kitchenPrintWarning": "Order saved, but some kitchen printers did not respond — check the ticket manually",
       "editClosedTooltip": "This order is {status} and can no longer be edited"
@@ -966,6 +967,13 @@
       "amount": "Amount",
       "price": "Price",
       "kitchenPrintWarning": "Order placed, but some kitchen printers did not respond — check the ticket manually"
+    },
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "cashier": "Cashier",
+      "waiter": "Waiter",
+      "kitchen": "Kitchen"
     }
   },
   "owner": {

@@ -2883,3 +2883,19 @@ never been in a shipped build either — it ships with this same rebuild.
 - NOTE for future: 'refunded' orders remain payable by design (refund-then-repay). If in-place
   correction of a PAID order is ever needed, gate it behind owner/admin and log it as its own
   audit action — do not delete the ORDER_CLOSED check.
+
+### 2026-08-15 (evening) — two printing bugs from the field test, FIXED, NEEDS REBUILD
+- `main.js` — removed the 3-minute order-wide `wasSelfPrinted` skip that was swallowing waiters'
+  phone edits. Replaced with `adoptSelfPrinted()` quantity bookkeeping + a 90s raise-only settle
+  window. DO NOT reintroduce order-level suppression; it cannot tell own prints from others'.
+- `printEngine.js` — `mergeTicketLines()` in buildPrintJobs so one dish can never print twice on
+  a slip, whatever the caller sends.
+- OPEN: the Android app sends unmerged item lists on edit, creating duplicate order_items rows.
+  Printing is now immune, but the data duplication remains.
+
+### 2026-08-15 — order history improvements (needs BOTH deploys)
+- Backend: `unit` now recorded on order_created / item_added / item_removed / item_qty_changed.
+- pos-app: qty changes render as "Edited X — 1 kg to 2 kg"; staff role shown beside the name;
+  en/uz keys added for the edit label and all five roles.
+- Owner decision on record: waiters KEEP the ability to edit orders; the history just labels it.
+- Units appear on NEW audit rows only; existing rows render as plain counts by design.

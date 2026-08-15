@@ -193,8 +193,47 @@ function sendToPrinter(ip, port, escposStr) {
 //
 // Items with no kitchenStation set are grouped together under the printer's own
 // name, matching the previous catch-all behaviour rather than dropping them.
-function buildPrintJobs(printers, items) {
-  const jobs = [];
+// Collapse repeated lines for the SAME dish into one before anything is printed.
+//
+// An order legitimately holds several rows for one product (every add creates a
+// row), and not every caller merges them. The Android app in particular sends
+// the FULL item list on an edit WITHOUT merging — changing KFC from 1 to 2 there
+// arrives as two separate entries of 1 — so on 2026-08-15 the kitchen received a
+// slip listing "KFC 1kg" twice instead of "KFC 2kg". Reported as "printing the
+// same food twice".
+//
+// Doing it here rather than in each screen is deliberate: this is the single
+// choke point every ticket passes through — the two POS screens, the two Admin
+// screens and the auto-print watcher all end up in buildPrintJobs — so one guard
+// makes it impossible for ANY caller, present or future, to emit a ticket that
+// names the same dish twice. Keyed on the fields that make two lines genuinely
+// the same order line; different notes stay separate, because "no onions" is a
+// different instruction to the cook.
+function mergeTicketLines(items) {
+  const out = [];
+  const index = new Map();
+  for (const it of Array.isArray(items) ? items : []) {
+    const key = [
+      String(it?.name ?? '').trim().toLowerCase(),
+      String(it?.unit ?? '').trim().toLowerCase(),
+      String(it?.kitchenStation ?? '').trim().toLowerCase(),
+      String(it?.notes ?? '').trim().toLowerCase(),
+    ].join('|');
+    const seen = index.get(key);
+    if (seen) {
+      seen.quantity = (Number(seen.quantity) || 0) + (Number(it.quantity) || 0);
+    } else {
+      const copy = { ...it, quantity: Number(it.quantity) || 0 };
+      index.set(key, copy);
+      out.push(copy);
+    }
+  }
+  return out;
+}
+
+function buildPrintJobs(printers, rawItems) {
+  const items  = mergeTicketLines(rawItems);
+  const jobs   = [];
   const usable = printers.filter((p) => p && p.ip);
 
   // Which items reached at least one printer. Anything left over is routed

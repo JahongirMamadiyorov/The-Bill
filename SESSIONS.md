@@ -4258,3 +4258,97 @@ orders where total ≠ items, orders with duplicated item batches. 11 open order
 Every destructive statement ran inside a transaction behind a `DO $$ ... RAISE EXCEPTION` guard
 asserting the exact expected pre-state, so a re-run or a wrong assumption aborts instead of
 deleting.
+
+## 2026-08-15 (evening) — field test found two more printing bugs, both fixed
+
+Owner tested on the real terminal: cashier adding a food printed one correct slip, but a WAITER
+adding from his phone printed NOTHING, and a cashier edit printed the same food twice. The badge
+log plus the new Admin order-history panel identified both precisely — the history named every
+actor and action to the second:
+
+  00:00:01  Order created: KFC x1, Sezar x1, Suv x1      Davron (waiter)
+  00:00:32  Added Jiz x 1                                 kassa2 (cashier)
+  00:01:04  Changed Sezar quantity from 1 to 2            Davron (waiter)
+  00:01:34  Changed KFC quantity from 1 to 2              Davron (waiter)
+  00:01:55  Added Cola 1.5l x 1                           kassa2 (cashier)
+
+Print log for the same window: `autoprint-ok #2, 3 line(s)` (the create) and `autoprint-ok #2,
+1 line(s)` (the cashier's Jiz) — and then NOTHING for either of the waiter's changes.
+
+### Bug 1 — the self-print window swallowed other people's tickets
+`SELF_PRINT_WINDOW_MS = 3 minutes` and `wasSelfPrinted(orderId)` made the watcher skip the WHOLE
+ORDER for three minutes after this terminal wrote to it. The cashier's Jiz at 19:00:28 armed that
+window; the waiter's two changes at 19:01:04 and 19:01:34 fell inside it and were discarded. A
+suppression keyed on ORDER + CLOCK cannot distinguish "I already printed this" from "somebody
+else just added something new" — so it silently lost real kitchen tickets. Worse in a busy
+restaurant than in this test, because the window re-arms on every cashier action.
+
+**Replaced with quantity-level bookkeeping.** After a successful write the terminal folds what it
+printed into the printed-quantity baseline (`adoptSelfPrinted`): 'absolute' for create and for the
+full-list-replacing edit, 'increment' for the append-only items route. The watcher then needs no
+special case — self-printed items produce no delta, anyone else's additions still do. The
+`wasSelfPrinted` skip is gone entirely.
+
+The one thing still time-based is a 90s SETTLE window: between the write returning and PowerSync
+syncing the rows back, the local copy still shows the OLD contents, and a pass in that gap would
+read "fewer items than baseline" as a removal, lower the baseline, and reprint everything when
+the rows arrived. While settling the baseline is raised but never lowered (`mergeMax`).
+
+### Bug 2 — the same dish printed twice on one slip
+The Android app sends the FULL item list on an edit WITHOUT merging, so "change KFC 1 -> 2"
+arrives as two separate entries of 1 (visible in the database: two KFC rows and two Sezar rows
+sharing one created_at batch). The ticket then listed "KFC 1kg" twice.
+
+Fixed at the choke point — `mergeTicketLines()` inside `buildPrintJobs`, which every ticket from
+every caller passes through (both POS screens, both Admin screens, the watcher). No caller,
+present or future, can now emit a slip naming one dish twice. Keyed on name+unit+station+notes so
+different notes stay separate: "no onions" is a different instruction to the cook.
+
+Verified by simulation: two KFC x1 entries print as "KFC x2"; the same two with differing notes
+stay as two lines; and the replayed order #2 sequence now prints exactly "kfc x1, sezar x1" where
+the old code printed nothing.
+
+**Flagged, not fixed:** the Android app should merge before sending — it is creating duplicate
+order_items rows in the database, which is data hygiene independent of printing.
+
+## 2026-08-15 — order history: edited label, units, staff roles (owner-requested)
+
+### Decision taken first, because the data contradicted the request
+The owner said "waiters do not have possibility to edit anything already". They DO — the backend
+authorises `waitress` and `new_waiter` on `PUT /orders/:id`, and that is exactly how Davron's
+quantity change happened (all 6 rows rewritten in one batch at 19:01:32, which only the
+full-replace edit does). Raised it rather than coding to a false premise. **Owner chose: leave
+permissions as they are, just label these entries as "Edited" and show whoever did it.**
+
+### 1. Quantity changes now read as an edit
+`item_qty_changed` renders via `admin.orders.hist.edited` — "Edited KFC — 1 kg to 2 kg" instead of
+"Changed KFC quantity from 1 to 2". Changing what is already on an order is a more consequential
+act than adding to it (it can remove food a customer was charged for) and should stand out.
+
+### 2. Units carried through the whole audit path
+`unit` was never recorded, so weighed goods logged as "× 1.5" — meaningless for something sold by
+the kilo. Now threaded through every logging site:
+- `PUT /:id` before-snapshot selects `m.unit`; the after-side lookup returns the row not just the
+  name; `diffOrderItems` carries `unit` on added / removed / qty-changed.
+- `POST /:id/items` name lookup selects `unit`.
+- Order creation: a SEPARATE `menuUnitMap`, because `menuNameMap` holds plain strings and is also
+  used to build stock-movement descriptions — turning it into row objects would have written
+  "[object Object]" into those.
+
+Frontend `fmtAuditQty()` renders kg/g/l/ml as "1.5 kg" and countables as "× 2", trims trailing
+zeros ("1.000" -> "1 kg"), and degrades to a plain count when unit is absent — which is what every
+audit row written before today does, so old entries still read sensibly.
+
+### 3. Staff role shown beside every name
+`user_role` was ALREADY stored on every audit row and returned by the history endpoint — it had
+simply never been rendered. Now shown under the name. Verified populated across all 1,766 existing
+rows: waitress 1027, cashier 426, new_cashier 277, admin 36 — no nulls, so no entry loses its
+attribution. `new_cashier`/`new_waiter` map to the same labels as their base roles; unknown codes
+fall back to the raw code with underscores stripped rather than vanishing.
+
+A name alone doesn't tell a manager whether the person was allowed to do what they did —
+"Davron changed the quantity" only means something once you know Davron is a waiter.
+
+**Note:** units only appear on audit rows written from now on. Existing rows have no `unit` in
+their details and will keep rendering as plain counts. Backfilling is possible but would be
+guesswork for any product whose unit changed since.
