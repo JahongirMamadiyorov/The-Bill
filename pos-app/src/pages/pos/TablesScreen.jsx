@@ -201,7 +201,13 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
 
   const startEdit = () => {
     if (!selOrder) return;
-    const items = selItems.map(it => ({
+    // MERGE before editing (fixed 2026-08-09). An order can legitimately hold
+    // several rows for the same product (each add creates a row), but every edit
+    // handler below matches on menuItemId alone: `+` updated only the FIRST
+    // matching entry while `-` and remove hit ALL of them, so one tap on minus
+    // deleted four teas. Collapsing to one entry per product makes the steppers
+    // behave, and saving then writes one clean row per product.
+    const items = mergeOrderItems(selItems).map(it => ({
       menuItemId: it.menuItemId,
       name:  menuById[it.menuItemId]?.name || 'Item',
       price: Number(it.unitPrice || menuById[it.menuItemId]?.price || 0),

@@ -109,3 +109,20 @@ project. It is only ever added to, never silently changed — see Rule 0 below.
   local PowerSync data must run rows through a camelize+boolean-coercion helper first (see
   `pos-app/src/lib/case.js`) — this is the concrete instance of rule 3 (camelCase/snake_case
   checks) for this app.
+
+## 1b. "Required means required" (added 2026-08-09, at the project owner's explicit instruction)
+
+- **When the project owner states that something IS REQUIRED, do it. Do not offer options, do not
+  propose alternatives, do not ask which approach is preferred, do not argue the scope.** Stated
+  verbatim by the owner: *"When I tell you something is required, do it. Without any options, do
+  it."*
+- This SUPERSEDES rule 1.4 ("always plan and ask") and rule 1a (present ranked options) **for the
+  specific case where the owner has already said something is required**. Those rules still apply
+  when the owner is asking a question, requesting a recommendation, or where the requirement
+  itself is genuinely ambiguous.
+- Clarifying questions remain allowed ONLY where the instruction cannot be executed without an
+  answer (e.g. a missing file path or credential). They must not be used to re-litigate whether
+  the work should happen or how big it should be.
+- **"It will take a long time" is not a reason to narrow the scope.** The owner explicitly
+  anticipated that a full audit could take a long time and asked for it anyway. Do the whole job:
+  every file, every layer, not a representative sample.

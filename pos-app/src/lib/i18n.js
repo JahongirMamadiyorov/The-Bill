@@ -89,6 +89,10 @@ const UZ = {
     'Chek printeri hali sozlanmagan — Sozlamalar → Printerlar boʻlimidan qoʻshing',
   'Print Receipt': 'Chek chiqarish',
   'Print a receipt for this item': 'Bu taom uchun chek chiqarish',
+  // Found untranslated by the 2026-08-09 full audit — these render English on an
+  // Uzbek screen, and three of them appear exactly when something has gone wrong.
+  'Some kitchen printers did not respond — check the ticket manually':
+    "Ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring",
   // Per-terminal kitchen auto-print switch (pos/ProfileScreen.jsx)
   'This terminal': 'Ushbu terminal',
   'Print kitchen tickets for orders from phones': 'Telefondan kelgan buyurtmalarni oshxonaga chiqarish',

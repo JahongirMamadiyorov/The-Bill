@@ -195,16 +195,35 @@ function sendToPrinter(ip, port, escposStr) {
 // name, matching the previous catch-all behaviour rather than dropping them.
 function buildPrintJobs(printers, items) {
   const jobs = [];
+  const usable = printers.filter((p) => p && p.ip);
 
-  for (const printer of printers.filter((p) => p && p.ip)) {
+  // Which items reached at least one printer. Anything left over is routed
+  // explicitly at the end — a dish must NEVER be silently dropped, because the
+  // kitchen simply never cooks it and nobody finds out until the customer asks.
+  const covered = new Set();
+
+  // BEHAVIOUR CHANGE 2026-08-09: a printer with NO stations assigned now receives
+  // only what no station-assigned printer claimed, instead of receiving EVERY
+  // item. The old behaviour (inherited from the backend's kitchenPrint.js) meant
+  // a venue with two station printers plus one unassigned printer printed every
+  // dish TWICE — once at its station and once on the unassigned one. The common
+  // single-printer setup is unaffected: with nothing else to claim items, that
+  // printer still receives all of them.
+  for (const printer of usable) {
     const assignedStations = Array.isArray(printer.stations) ? printer.stations : [];
-    const catchAll = assignedStations.length === 0;
+    if (assignedStations.length === 0) continue;   // handled by the fallback below
 
     const printerItems = items.filter((item) => {
-      if (catchAll) return true;
       const station = (item.kitchenStation || '').trim();
-      if (!station) return true;
-      return assignedStations.some((st) => st.toLowerCase() === station.toLowerCase());
+      // An item with NO station must NOT go to every station-assigned printer.
+      // `return true` here (the original) meant a dish with no kitchen_station
+      // set printed on EVERY kitchen printer in the venue — invisible with one
+      // printer, but duplicate slips everywhere with two or more. Unstationed
+      // items are handled by the catch-all fallback below instead.
+      if (!station) return false;
+      // Station entries come from a JSONB column and are not guaranteed to be
+      // strings; String() prevents a non-string entry throwing on .toLowerCase().
+      return assignedStations.some((st) => String(st).toLowerCase() === station.toLowerCase());
     });
     if (printerItems.length === 0) continue;
 
@@ -221,11 +240,45 @@ function buildPrintJobs(printers, items) {
     }
 
     for (const { station, items: stationItems } of groups.values()) {
+      for (const it of stationItems) covered.add(it);
       jobs.push({
         printer,
         printerItems: stationItems,
         stationLabel: station || printer.name || 'KITCHEN',
       });
+    }
+  }
+
+  // Fallback for items no printer claimed — either they have no kitchen_station,
+  // or their station matches nothing configured. Prefer a catch-all printer (one
+  // with no stations assigned); if the venue has none, use the FIRST printer, so
+  // the food still gets cooked. Printing to a slightly wrong printer is
+  // recoverable; printing nowhere is not.
+  const orphans = items.filter((it) => !covered.has(it));
+  if (orphans.length > 0 && usable.length > 0) {
+    // Prefer an unassigned ("catch-all") printer; if the venue configured none,
+    // fall back to the FIRST printer so the food still gets cooked. Printing to
+    // a slightly wrong printer is recoverable; printing nowhere is not.
+    const catchAlls = usable.filter((p) => !Array.isArray(p.stations) || p.stations.length === 0);
+    const targets   = catchAlls.length ? catchAlls : [usable[0]];
+
+    for (const target of targets) {
+      // Group orphans by their own station so they still print as separate slips
+      // where a station name exists, rather than one mixed sheet.
+      const groups = new Map();
+      for (const item of orphans) {
+        const station = (item.kitchenStation || '').trim();
+        const key = station.toLowerCase();
+        if (!groups.has(key)) groups.set(key, { station, items: [] });
+        groups.get(key).items.push(item);
+      }
+      for (const { station, items: gItems } of groups.values()) {
+        jobs.push({
+          printer: target,
+          printerItems: gItems,
+          stationLabel: station || target.name || 'KITCHEN',
+        });
+      }
     }
   }
 

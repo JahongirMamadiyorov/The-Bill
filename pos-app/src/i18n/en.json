@@ -439,7 +439,8 @@
       "statusReservedTitle": "Reserved",
       "statusReservedSubtitle": "Reservation is active",
       "statusCleaningTitle": "Cleaning",
-      "statusCleaningSubtitle": "Being prepared for next guests"
+      "statusCleaningSubtitle": "Being prepared for next guests",
+      "kitchenPrintWarning": "Items added, but some kitchen printers did not respond — check the ticket manually"
     },
     "menu": {
       "title": "Menu Management",
@@ -606,7 +607,8 @@
         "cancelled": "Order cancelled",
         "statusChanged": "Status changed from {from} to {to}",
         "deleted": "Order deleted"
-      }
+      },
+      "kitchenPrintWarning": "Order saved, but some kitchen printers did not respond — check the ticket manually"
     },
     "staff": {
       "title": "Staff Management",
@@ -960,7 +962,8 @@
       "priceEach": "{price} each",
       "enterAmount": "Enter amount",
       "amount": "Amount",
-      "price": "Price"
+      "price": "Price",
+      "kitchenPrintWarning": "Order placed, but some kitchen printers did not respond — check the ticket manually"
     }
   },
   "owner": {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Loader2, Receipt, X, RotateCcw, CalendarDays, ChevronLeft, ChevronRight,
-  CheckCircle2, AlertCircle, ArrowLeft, Printer,
+  CheckCircle2, AlertCircle, Printer,
 } from 'lucide-react';
 import { T, card, pill, statusPill, uppercaseLabel, fmtMoney } from './tokens.js';
 import { loadCached, saveCached, timeAgo } from '../../lib/staleCache.js';

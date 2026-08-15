@@ -3637,3 +3637,285 @@ retry), the poll still catches it. A missed kitchen ticket is a lost sale.
 order still travels phone → Render → Postgres → PowerSync replication → terminal, which is
 typically 1-3 seconds and is outside this app's control. What was removed is the extra polling
 delay on this end.
+
+## 2026-08-09 (URGENT) — two regressions from my own merge change, found in production
+
+Owner deployed and reported: receipts printing unrelated foods, cashier panel disagreeing with the
+waiter, and orders being "broken" when a cashier edits them. **Both causes were mine, introduced
+by the mergeOrderItems work earlier the same day.**
+
+### Regression 1 — the ENTIRE CART collapsed into one receipt line
+
+`lineKey()` read the product id as `row.menuItemId ?? row.menu_item_id ?? row.id`. But a Menu cart
+entry is `{ item: <menu_items row>, qty }` — the id and price live on the NESTED `item`, so all
+three lookups returned undefined, every entry got an identical key, and the whole cart merged.
+Reproduced exactly: Osh x2 + Cola x1 + Non x3 printed as a single line **"Osh x6"** — wrong name,
+wrong price, summed quantity. This reached real customers' receipts.
+
+**Fixed** by unwrapping `.item` first, exactly as `normaliseItems()` already did. Also hardened:
+a row with NO identifiable product now gets a unique key so it can never merge with anything —
+a shared fallback key is precisely what caused this.
+
+Verified across four shapes: three different cart products stay three lines; a genuine repeat in
+the cart merges; order rows (the Choy case) merge; two unidentifiable rows stay separate.
+
+### Regression 2 — edit steppers corrupted quantities
+
+`startEdit` built one edit entry per DATABASE ROW, so an order holding four separate `Choy` rows
+produced four entries sharing one `menuItemId`. Every edit handler matches on that id alone:
+- `editAdd` → `findIndex` → incremented only the FIRST entry
+- `editDec` → `.map(...)` → decremented **ALL FOUR** at once
+- `editRemove` → filtered all → removed all four
+
+Measured: **pressing minus once took Choy from 4 to 1.** Saving then wrote that back, so the order
+was genuinely corrupted — which is also why the cashier panel no longer matched what the waiter
+had entered.
+
+**Fixed** by merging in `startEdit` on both `pos/OrdersScreen.jsx` and `pos/TablesScreen.jsx`, so
+there is exactly one entry per product. Saving now also writes one clean row per product, which
+permanently removes the duplicate rows for any order that gets edited.
+
+**Admin's edit modal was NOT affected** — checked rather than assumed: it updates by ARRAY INDEX
+(`items.map((it, i) => i === idx ...)`), which handles duplicate rows correctly.
+
+**Lesson for the file's header:** `mergeOrderItems` is called with two structurally different
+shapes (cart wrapper vs flat row). Any future key/field logic in `lib/orderItems.js` must be
+tested against BOTH, and the unit test above should be the first thing run after touching it.
+
+## 2026-08-09 — FULL PRINTING AUDIT (owner-mandated deep check, all layers)
+
+Owner required a line-by-line audit of everything touching the new POS app and printing: backend,
+PowerSync, database, Android app, frontend. New RULES.md §1b added at his instruction ("when I
+tell you something is required, do it, without any options"). Findings below, severity-ordered.
+Everything marked FIXED is verified by execution, not by reading.
+
+### CRITICAL — FIXED — every order EDIT reprinted the whole order to the kitchen
+The auto-print watcher tracked printed rows by `order_items.id`. But editing an order runs
+`DELETE FROM order_items` + full re-INSERT, so **every row gets a new uuid**. After any edit the
+watcher saw the entire order as new and reprinted all of it — tickets full of food ordered hours
+earlier. This is the "printer printing a lot of checks with absolutely not related foods".
+**Rewritten to track QUANTITY PER PRODUCT PER ORDER** (`printedOrderQty`), which is immune to id
+churn and also handles additions, removals and re-syncs. Only positive deltas print.
+
+### CRITICAL — FIXED — Admin-created orders printed twice
+Admin writes go through the GENERIC `api:post`/`api:put` passthrough, not the Cashier's dedicated
+`orders:*` IPC handlers, so `noteSelfPrinted()` was never called. Admin printed its own ticket,
+then the watcher printed it again. Added path-matched marking in `makeWriteHandler` for
+`POST /api/orders`, `POST /api/orders/:id/items`, `PUT /api/orders/:id` — and deliberately NOT for
+`/pay`, `/refund`, `/status`, which don't print. All 8 path cases unit-tested.
+`orders:update` (the POS edit path) was also unmarked — fixed.
+
+### CRITICAL — FIXED — phone "Add items" has NEVER printed anything
+`RestaurantApp` `handleAddItems` deliberately uses **`PUT /orders/:id`** (its own comment explains
+why: PUT works on `bill_requested` orders). But the backend triggers kitchen printing ONLY from
+`POST /` (line 892) and `POST /:id/items` (line 1454) — **`PUT /:id` has no print trigger at
+all**. So a waitress adding items from her phone produced no ticket by any route, ever. This
+predates all of this session's work and exactly matches the reported symptom. Now covered by the
+quantity-delta watcher, which prints the delta.
+
+### HIGH — FIXED — unstationed items printed on EVERY kitchen printer
+`buildPrintJobs` did `if (!station) return true`, so a dish with no `kitchen_station` was sent to
+every station-assigned printer — invisible with one printer, a duplicate slip on each with two or
+more. **59 menu items currently have no kitchen_station**, so this was live. Same bug found and
+fixed in the backend's `utils/kitchenPrint.js` so the two don't drift.
+
+### HIGH — FIXED — items could be silently DROPPED
+After fixing the above, an item whose station matched no printer would have printed nowhere.
+Added an explicit fallback: unclaimed items go to a catch-all printer, or to the first printer if
+none is configured. A dish printing on a slightly wrong printer is recoverable; a dish printing
+nowhere is not. Verified across four printer layouts — nothing lost, nothing duplicated.
+
+### HIGH — FIXED — catch-all printers duplicated every dish
+A printer with no stations assigned received ALL items, including those already sent to station
+printers. Two station printers + one unassigned = every dish twice. Changed so an unassigned
+printer receives only what nothing else claimed. **The common single-printer setup is unaffected.**
+
+### MEDIUM — FIXED — partial print failure was mishandled
+If some stations printed and others failed, the watcher skipped advancing the baseline and
+reprinted the successful slips next poll. Now advances on partial success and logs the failure
+loudly — a duplicate is recoverable, a missing dish is not.
+
+### VERIFIED CLEAN
+- **PowerSync**: programmatic cross-check of EVERY local query in `src/**` + `main.js` against
+  `powersync/schema.js` and the sync-rule column lists — no missing columns, no table gaps. The
+  `created_at`/`custom_stations` bug class is fully closed.
+- **Print call sites**: all 5 `printReceipt` and all 6 `printKitchenTicket` sites pass the correct
+  `printers`/`show`; `AdminShell` and `NewOrderModal` both receive `settings`.
+- **Database**: 0 orphaned `order_items` (menu_item deleted); 3 restaurants have both kitchen and
+  receipt printers configured.
+
+### NOT FIXED — recorded for decision
+- **3,453 `order_items` have NULL `menu_item_id`** (13% of all rows). They print/display as
+  "Item". Confirmed HISTORICAL ONLY — Do'stlar 2, April to 14 July 2026, none since. Legacy data,
+  no live impact.
+- **`sendToPrinter` uses `client.destroy()` immediately after the write callback**, matching
+  `kitchenPrint.js` but differing from `routes/print.js`, which uses the graceful `client.end()`.
+  destroy() can in principle truncate before the socket flushes. Not observed, but it is the one
+  remaining plausible cause of a truncated slip.
+- **The print-agent DROPS items whose station matches no printer** (`index.js` line ~231,
+  "skipping"). Legacy path; the POS app now has an explicit fallback instead.
+- **Phone "Add items" replaces the whole item list via PUT**, so two people editing one order
+  concurrently is last-write-wins and can silently lose items.
+
+## 2026-08-09 — FULL-PROJECT AUDIT (second pass, owner-mandated, beyond printing)
+
+Owner required a second, whole-project audit. Everything below was found by executing checks, not
+by reading. All fixed items are verified.
+
+### SECURITY — FIXED — cross-restaurant write vulnerability in procurement
+`PATCH /api/procurement/delivery-items/:itemId/remove` and `.../update-qty` both did
+`UPDATE delivery_items ... WHERE id = $1` with **NO restaurant check**. An authenticated
+owner/admin at restaurant A could pass any delivery-item id — including restaurant B's — modify
+it, and the follow-up recalculation then rewrote **restaurant B's** `supplier_deliveries.total`.
+The route immediately above them scoped correctly (`WHERE id=$1 AND restaurant_id=$5`); these two
+were simply missed. Both now scoped via `delivery_items.restaurant_id` (which exists thanks to the
+2026-07-31 denormalisation migration). The 404 returns before the recalculation, so the hole is
+fully closed. `DELETE /deliveries/:id` was checked and is safe — it verifies the parent delivery
+first.
+
+Method: scanned every `UPDATE`/`DELETE` in every backend route for a user-supplied id used against
+a per-restaurant table with no `restaurant_id` in the SQL. 6 candidates, 4 confirmed safe
+(scoped indirectly via an already-verified parent), 2 genuine holes.
+
+### FIXED — printer-failure warnings displayed as a raw key
+`admin.newOrder.kitchenPrintWarning`, `admin.orders.kitchenPrintWarning` and
+`admin.tables.kitchenPrintWarning` were referenced but existed in NEITHER en.json nor uz.json.
+The call sites pass a fallback string as the second argument — but `LanguageContext`'s `t(key,
+params)` treats that as interpolation params, not a fallback, so a missing key returns THE KEY
+ITSELF. Result: when a kitchen printer failed, Admin displayed the literal text
+`admin.orders.kitchenPrintWarning`. Added to both dictionaries.
+
+### FIXED — untranslated string on the Cashier side
+`"Some kitchen printers did not respond — check the ticket manually"` was passed through `t()` but
+absent from the UZ dictionary, so it rendered in English on an Uzbek screen — again exactly when
+something had gone wrong. Added.
+
+**Process note on my own error here:** my first scan of `lib/i18n.js` only matched
+single-quoted dictionary keys, so five double-quoted entries looked missing and I re-added them,
+creating duplicate object keys (which silently override each other — the file's own header warns
+about this). Caught by the follow-up duplicate check and reverted. The checker now matches both
+quote styles; final state is 265 keys, zero duplicates, zero untranslated literals.
+
+### VERIFIED CLEAN
+- **Syntax**: `node --check` passes on every backend route/util and every pos-app main-process
+  file.
+- **Build**: all 40 pos-app renderer modules compile under esbuild.
+- **i18n**: 776 Admin dotted keys all resolve in both languages; 0 keys present in en.json but
+  missing from uz.json; POS dictionary has no duplicates and no untranslated literals.
+- **Multi-tenant scoping**: 93 raw scanner hits reviewed; all but the two above are scoped either
+  directly or via an already-verified parent id, or are one-time auto-migrations that are
+  intentionally global.
+- **PowerSync**: every local query's columns exist in both the client schema and the sync rules
+  (re-verified after this session's changes).
+
+### STILL OPEN — recorded, not fixed
+- `sendToPrinter` closes with `destroy()` rather than `end()` (matches kitchenPrint.js, differs
+  from routes/print.js). Theoretical truncation risk; unobserved.
+- print-agent drops items whose station matches no printer.
+- Phone "Add items" replaces the whole item list via PUT — concurrent edits are last-write-wins.
+- 3,453 historical `order_items` with NULL `menu_item_id` (Apr–14 Jul, one restaurant).
+
+## 2026-08-09 — THIRD PASS: hunting each bug CLASS, not just the instances
+
+Owner required a deep audit specifically of the three reported failure modes and anything related.
+Approach: for each root cause, search the WHOLE project for the same *pattern*, not just the file
+that broke.
+
+### CRITICAL — FIXED — the fix itself would have caused a printer storm on upgrade
+The rewrite from id-tracking to quantity-tracking introduced an upgrade hazard: terminals coming
+from the broken build already have `autoPrintSeeded = true` but no `printedOrderQty`. Seeding was
+gated on that old flag, so on first launch after the update the baseline would be EMPTY, every
+open order would look brand new, and the terminal would print the entire restaurant — exactly the
+storm being fixed. **Seeding now tests for the new `printedOrderQty` marker itself**, and deletes
+the obsolete `printedItemIds` key. Found by auditing leftovers, not by testing — it would only
+have shown up on a real upgrade at a live restaurant.
+
+### CLASS: "mutating a list by PRODUCT id when duplicates can exist" — swept
+22 call sites across pos-app, website and RestaurantApp.
+- **pos-app POS Orders/Tables** — the destructive one (minus hit all rows). Already fixed.
+- **website `CashierOrders.jsx` / `PayModal.jsx`, RestaurantApp `CashierOrders.js`** — CHECKED and
+  SAFE: they mutate by ARRAY INDEX (`(x, i) => i === idx`), which handles duplicates correctly.
+- **RestaurantApp waitress carts** — SAFE: the cart is built by tapping, and adding an existing
+  product increments it, so duplicate entries can never form.
+
+### CLASS: "function accepting two different object shapes" — regression-tested
+`mergeOrderItems` has 5 callers passing 3 different shapes (cart wrapper, camelCase local row,
+edit-shape). Added a 9-case regression check covering all of them plus snake_case REST rows,
+differing price, differing notes, missing id, and empty input. All pass. This is the class that
+caused the "Osh x6" receipt.
+
+### CLASS: "list read with no deterministic ORDER BY" — swept
+Re-scanned every local query. Four apparent hits were regex artifacts (the SQL contains quoted
+status values that truncated the capture) — verified by hand that `main.js`'s auto-print query and
+`Cashier.jsx` both do have `ORDER BY`. Two genuine ones are `SELECT DISTINCT` lookups feeding
+pickers (kitchen stations, table sections) where the result is merged/deduped, so order is
+immaterial. No action needed.
+
+### LEFTOVERS — FIXED
+- `PRINTED_IDS_MAX` — dead constant from the replaced id-based tracker. Removed.
+- `ArrowLeft` — imported in `HistoryScreen.jsx`, never used. Removed.
+- Obsolete `printedItemIds` store key now deleted on upgrade (see above).
+
+### DEAD CODE — FLAGGED, NOT REMOVED
+`pos-app/src/pages/Cashier.jsx` is a legacy pre-POS screen that is **no longer routed** — `/cashier`
+renders `RolePlaceholder`. It still compiles and is maintained by accident. Left in place because
+deleting a whole screen is the owner's call, not a bug fix.
+
+### FINAL VERIFICATION (all green)
+`node --check` on main.js, printEngine.js, orders.js, procurement.js, kitchenPrint.js; full esbuild
+of all 40 pos-app renderer modules; both i18n JSON files valid; 265 POS dictionary keys with zero
+duplicates and zero untranslated literals.
+
+## 2026-08-09 — FOURTH PASS: areas the first three did not cover
+
+Deliberately audited NEW ground: timezone/date correctness, money arithmetic, authorization
+coverage and input validation. Three real problems found, two of them serious.
+
+### SECURITY (highest severity of the whole audit) — FIXED — unauthenticated SSRF
+`POST /api/print/receipt` had **no authentication of any kind** — `routes/print.js` never imported
+the auth middleware and has no `router.use`, while being mounted publicly at `/api/print`.
+The route takes `printerIp` and `printerPort` **from the request body** and opens a TCP connection
+to them from the server, writing caller-supplied bytes. That is an unauthenticated **server-side
+request forgery**: anyone on the internet could make the Render server connect to arbitrary
+hosts/ports and send arbitrary data — usable to probe services reachable from inside the hosting
+network. Fixed with `router.use(authenticate, authorize('owner','admin','cashier','new_cashier'))`.
+Verified safe: the website's `printAPI` already attaches a Bearer token via its axios interceptor,
+and pos-app does not use this route at all (it prints over the LAN itself).
+
+### DATA CORRECTNESS — FIXED — every financial report was on the wrong day boundary
+The database session ran in **UTC** while the restaurants are in **Asia/Tashkent (UTC+5)**. Every
+report buckets by local calendar day via `paid_at::date`, `DATE(created_at)` or `CURRENT_DATE`,
+all of which resolve in the session timezone — so the business day rolled over at **05:00 local**.
+Anything sold between local midnight and 5am counted as the PREVIOUS day's revenue.
+**Measured against live data: 62 orders already mis-attributed** (1.7% of all orders fall in that
+window). It also meant `daily_number` reset at 5am rather than midnight, so a late-night order
+carried the previous day's numbering.
+
+Fixed once, centrally, in `config/db.js`: the pool now sets `timezone=Asia/Tashkent` via connection
+`options` AND re-asserts `SET TIME ZONE` on every new connection (some poolers ignore the startup
+parameter). This corrects every existing query at once instead of rewriting dozens and having the
+next new one get it wrong again. `timestamptz` values are still stored as UTC — only casting and
+rendering change, so no stored data is altered. Verified: a 01:30 Tashkent order now books to its
+own local day instead of the previous one. Hardcodes Uzbekistan, documented as needing to become a
+per-restaurant setting if the product ever runs in a second timezone.
+
+### PRIVILEGE — FIXED — financial records writable by any logged-in user
+`routes/finance.js` had `router.use(authenticate)` with **no role check**, so any authenticated
+user — including a waitress — could create, edit and delete expenses, loans and budgets, and read
+the restaurant's whole financial summary (9 write routes). Restricted to `owner`/`admin`. Verified
+safe: every caller is an Admin-panel screen. Same treatment for `menu.js`'s
+`POST /upload-image`, `POST /stations` and `DELETE /stations/:name`, which were likewise open to
+all staff and are only ever called from Admin screens.
+
+### VERIFIED CLEAN
+- **Money arithmetic**: all **3,976** paid orders satisfy `total = items + tax − discount` exactly,
+  zero unexplained variance, no rounding drift. The 33 orders whose total differs from their items
+  are all explained precisely by a recorded discount or tax.
+- **Input validation / data integrity**: zero order_items with quantity <= 0, zero negative unit
+  prices, zero negative menu prices, zero discounts exceeding the order value, zero negative
+  warehouse stock, zero negative loans.
+- **Authorization**: full sweep of every write route accounting for router-level middleware. The
+  remaining routes without role checks are correct by design — order create/pay/status, table
+  open/close/transfer, shift clock-in/out and notification reads must be available to waitresses
+  and cashiers. `/login` and `/register` are correctly unauthenticated.
+- Backend syntax clean across every file after all changes.

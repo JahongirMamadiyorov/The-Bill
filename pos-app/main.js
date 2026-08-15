@@ -324,7 +324,6 @@ async function connectPowerSync() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 const AUTO_PRINT_POLL_MS  = 8000;
-const PRINTED_IDS_MAX     = 4000;   // ring cap so the marker file can't grow forever
 // Items belonging to an order THIS terminal just created/added to are marked
 // printed WITHOUT printing, because the renderer already printed them directly.
 // The window covers the gap between the write succeeding and the rows syncing back.
@@ -401,40 +400,78 @@ async function autoPrintPendingItems() {
         ORDER BY oi.created_at ASC, oi.id ASC`
     );
 
-    const printed = new Set(store.get('printedItemIds') || []);
+    // ── Tracking is by QUANTITY PER PRODUCT PER ORDER, not by item row id ────
+    // Item ids are NOT stable: editing an order runs `DELETE FROM order_items`
+    // followed by a full re-INSERT, so every row gets a brand-new uuid. Id-based
+    // tracking therefore saw an edited order as entirely new and REPRINTED THE
+    // WHOLE ORDER to the kitchen — tickets full of food ordered hours earlier.
+    // That shipped on 2026-08-09 and caused the printer storm.
+    //
+    // Quantities survive that churn. Shape: { [orderId]: { [menuItemId]: qty } }.
+    // Each poll prints only the POSITIVE DELTA between what the order now holds
+    // and what has already been sent, which correctly handles: a new order, items
+    // added later, an edit that adds or removes, and re-syncs of unchanged rows.
+    const printedQty = store.get('printedOrderQty') || {};
 
-    // FIRST RUN: adopt everything currently on screen as already-printed instead
-    // of printing it. Without this, enabling the feature would spit out a ticket
-    // for every open order in the restaurant.
-    if (!store.get('autoPrintSeeded')) {
-      for (const r of rows) printed.add(r.item_id);
-      store.set('printedItemIds', [...printed].slice(-PRINTED_IDS_MAX));
-      store.set('autoPrintSeeded', true);
-      pushPsEvent('autoprint-seeded', `${rows.length} existing item(s) marked as already printed`);
-      return;
+    // Current totals per order per product.
+    const current = {};
+    const orderMeta = {};
+    for (const r of rows) {
+      const key = r.menu_item_id || `noitem:${r.item_id}`;
+      (current[r.order_id] = current[r.order_id] || {});
+      current[r.order_id][key] = (current[r.order_id][key] || 0) + (Number(r.quantity) || 0);
+      if (!orderMeta[r.order_id]) orderMeta[r.order_id] = { head: r, rowsByKey: {} };
+      orderMeta[r.order_id].rowsByKey[key] = r;   // any row for this product; used for name/station
     }
 
-    const fresh = rows.filter((r) => !printed.has(r.item_id));
-    if (fresh.length === 0) return;
-
-    // Group by order — one ticket set per order, not per item.
-    const byOrder = new Map();
-    for (const r of fresh) {
-      if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
-      byOrder.get(r.order_id).push(r);
+    // FIRST RUN: adopt the current state as already-printed rather than printing
+    // it, or enabling the feature would spit out a ticket for every open order.
+    //
+    // The condition tests for the QUANTITY marker itself, NOT the old
+    // `autoPrintSeeded` flag. Terminals upgrading from the id-based build already
+    // have `autoPrintSeeded = true` but no `printedOrderQty`, so keying off the
+    // flag would skip seeding, leave the baseline empty, and treat every open
+    // order as brand new — reprinting the entire restaurant on first launch.
+    // That is precisely the printer storm this rewrite exists to stop.
+    if (store.get('printedOrderQty') === undefined) {
+      store.set('printedOrderQty', current);
+      store.set('autoPrintSeeded', true);
+      // Drop the obsolete id-based marker so it can't confuse a later version.
+      store.delete('printedItemIds');
+      pushPsEvent('autoprint-seeded', `${Object.keys(current).length} open order(s) adopted as already printed`);
+      return;
     }
 
     const { printers, show } = await getKitchenSettings();
 
-    for (const [orderId, items] of byOrder) {
-      // This terminal already printed these directly after its own write.
-      if (wasSelfPrinted(orderId)) {
-        for (const r of items) printed.add(r.item_id);
+    for (const orderId of Object.keys(current)) {
+      const nowQty  = current[orderId];
+      const doneQty = printedQty[orderId] || {};
+      const meta    = orderMeta[orderId];
+
+      // Positive deltas only. A reduced quantity (item removed on an edit) just
+      // lowers the baseline — the kitchen is never told to "un-cook" something.
+      const deltas = [];
+      for (const key of Object.keys(nowQty)) {
+        const diff = nowQty[key] - (doneQty[key] || 0);
+        if (diff > 0) deltas.push({ key, qty: diff });
+      }
+
+      if (deltas.length === 0) {
+        // Nothing new. Still write back the (possibly lower) baseline so a
+        // removal can't later look like an addition.
+        printedQty[orderId] = nowQty;
         continue;
       }
-      if (!printers.length) continue;  // nothing configured — leave unmarked, retry later
 
-      const head = items[0];
+      // This terminal printed these itself, right after its own write.
+      if (wasSelfPrinted(orderId)) {
+        printedQty[orderId] = nowQty;
+        continue;
+      }
+      if (!printers.length) continue;  // nothing configured — retry next poll
+
+      const head = meta.head;
       const order = {
         dailyNumber:  head.daily_number,
         tableName:    head.table_name || (head.table_number ? `Table ${head.table_number}` : null),
@@ -443,28 +480,39 @@ async function autoPrintPendingItems() {
         customerPhone: head.customer_phone,
         deliveryAddress: head.delivery_address,
       };
-      const ticketItems = items.map((r) => ({
-        name: r.name || 'Item', quantity: r.quantity, unit: r.unit,
-        notes: r.notes || null, kitchenStation: r.kitchen_station,
-      }));
+      const ticketItems = deltas.map(({ key, qty }) => {
+        const r = meta.rowsByKey[key];
+        return {
+          name: r.name || 'Item', quantity: qty, unit: r.unit,
+          notes: r.notes || null, kitchenStation: r.kitchen_station,
+        };
+      });
 
       try {
         const res = await printKitchenTicket({ order, items: ticketItems, printers, show });
+
+        // PARTIAL FAILURE: some stations printed, others didn't. Advancing the
+        // baseline would lose the failed slips; NOT advancing would reprint the
+        // successful ones on the next poll. Advancing is the lesser harm — a
+        // duplicate ticket is recoverable, a missing dish is not — so the
+        // failure is recorded loudly instead.
         if (res?.failed?.length) {
-          // A configured printer didn't answer. Do NOT mark as printed — the next
-          // poll retries, which is what you want when a printer is briefly off.
           pushPsEvent('autoprint-failed',
-            `order #${head.daily_number}: ${res.failed.map((f) => f.printer).join(', ')}`);
-          continue;
+            `order #${head.daily_number}: ${res.failed.map((f) => `${f.printer}/${f.station || '-'}`).join(', ')}` +
+            (res.printed?.length ? ` (printed: ${res.printed.length})` : ''));
+          if (!res.printed?.length) continue;   // nothing got through — retry whole thing
         }
-        for (const r of items) printed.add(r.item_id);
-        pushPsEvent('autoprint-ok', `order #${head.daily_number}, ${items.length} item(s)`);
+
+        printedQty[orderId] = nowQty;
+        pushPsEvent('autoprint-ok', `order #${head.daily_number}, ${deltas.length} line(s)`);
       } catch (err) {
         pushPsEvent('autoprint-error', err?.message || String(err));
       }
     }
 
-    store.set('printedItemIds', [...printed].slice(-PRINTED_IDS_MAX));
+    // Drop orders that are no longer active so the marker can't grow unbounded.
+    for (const id of Object.keys(printedQty)) if (!current[id]) delete printedQty[id];
+    store.set('printedOrderQty', printedQty);
   } catch (err) {
     pushPsEvent('autoprint-error', err?.message || String(err));
   } finally {
@@ -757,8 +805,14 @@ ipcMain.handle('orders:pay', async (_event, { id, data }) =>
 // vs new item quantities and adjusts ingredient stock accordingly (see
 // orders.js stock_diff_items SAVEPOINT) — POS must always send the FULL items
 // list, not a delta.
-ipcMain.handle('orders:update', async (_event, { id, data }) =>
-  submitOrderWrite('PUT', `/api/orders/${id}`, data));
+ipcMain.handle('orders:update', async (_event, { id, data }) => {
+  const res = await submitOrderWrite('PUT', `/api/orders/${id}`, data);
+  // The editing screen prints its own diff right after this returns, and the
+  // edit re-creates every order_items row with new ids — so without this marker
+  // the watcher saw the whole order as new and reprinted all of it.
+  if (res?.ok) noteSelfPrinted(id);
+  return res;
+});
 
 ipcMain.handle('orders:refund', async (_event, { id, data }) =>
   submitOrderWrite('POST', `/api/orders/${id}/refund`, data));
@@ -888,6 +942,25 @@ function makeWriteHandler(method) {
       if (res.status < 200 || res.status >= 300) {
         return { ok: false, error: res.body?.error || `Request failed (${res.status})`, status: res.status };
       }
+
+      // The Admin panel creates orders / adds items / saves edits through THIS
+      // generic passthrough rather than the Cashier's dedicated orders:* handlers,
+      // and prints its kitchen ticket itself immediately afterwards. Without
+      // marking them here the auto-print watcher printed every Admin order a
+      // second time. Matches: POST /api/orders, POST /api/orders/:id/items,
+      // PUT /api/orders/:id — but NOT /pay, /refund or /status, which don't print.
+      try {
+        const m = path_.match(/^\/api\/orders(?:\/([^/?]+))?(\/items)?(?:[/?].*)?$/);
+        if (m) {
+          const tail = path_.replace(/\?.*$/, '');
+          const isCreate   = method === 'POST' && tail === '/api/orders';
+          const isAddItems = method === 'POST' && /^\/api\/orders\/[^/]+\/items$/.test(tail);
+          const isEdit     = method === 'PUT'  && /^\/api\/orders\/[^/]+$/.test(tail);
+          if (isCreate)               noteSelfPrinted(res.body?.id);
+          else if (isAddItems || isEdit) noteSelfPrinted(m[1]);
+        }
+      } catch { /* marking is best-effort; never fail the write over it */ }
+
       return { ok: true, data: res.body };
     } catch (err) {
       return { ok: false, error: err.message || 'Network error — is the backend reachable?' };

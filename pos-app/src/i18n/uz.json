@@ -439,7 +439,8 @@
       "statusReservedTitle": "Band qilingan",
       "statusReservedSubtitle": "Band qilish faol",
       "statusCleaningTitle": "Tozalanmoqda",
-      "statusCleaningSubtitle": "Keyingi mehmonlar uchun tayyorlanmoqda"
+      "statusCleaningSubtitle": "Keyingi mehmonlar uchun tayyorlanmoqda",
+      "kitchenPrintWarning": "Mahsulotlar qo'shildi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring"
     },
     "menu": {
       "title": "Menyuni boshqarish",
@@ -606,7 +607,8 @@
         "cancelled": "Buyurtma bekor qilindi",
         "statusChanged": "Holat {from} dan {to} ga o'zgardi",
         "deleted": "Buyurtma o'chirildi"
-      }
+      },
+      "kitchenPrintWarning": "Buyurtma saqlandi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring"
     },
     "staff": {
       "title": "Xodimlarni boshqarish",
@@ -960,7 +962,8 @@
       "addingItems": "Qo'shilmoqda...",
       "enterAmount": "Miqdorni kiriting",
       "amount": "Miqdor",
-      "price": "Narx"
+      "price": "Narx",
+      "kitchenPrintWarning": "Buyurtma qabul qilindi, lekin ba'zi oshxona printerlari javob bermadi — chekni qo'lda tekshiring"
     }
   },
   "owner": {
