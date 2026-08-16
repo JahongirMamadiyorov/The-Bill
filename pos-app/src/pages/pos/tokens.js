@@ -93,6 +93,19 @@ export const card = {
   background: T.surface,
   borderRadius: T.rCard,
   boxShadow: T.cardShadow,
+  // Hairline added 2026-08-17. The shared card was shadow-only, and
+  // T.cardShadow is deliberately very soft (0.06 alpha) — on the mint page
+  // background that reads as no edge at all, so cards looked like flat white
+  // areas rather than surfaces. Reported as "the borders are invisible".
+  //
+  // This is the design system's OWN value, not a new invention: the handoff
+  // README lists "Hairline borders: #EEF1F1 / #F0F2F1" under its colour spec,
+  // and T.line is already used exactly this way in 18+ places across the POS
+  // screens. The shared `card` token simply never picked it up.
+  //
+  // Safe for layout: index.css sets `box-sizing: border-box` globally, so the
+  // 1px does not change any card's outer size.
+  border: `1px solid ${T.line}`,
 };
 
 export const uppercaseLabel = {

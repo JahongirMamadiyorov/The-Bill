@@ -31,6 +31,46 @@
    order. Scoped under :where(.admin-panel) (see AdminShell.jsx's root div)
    so this has zero effect outside the Admin panel — the cashier POS screens
    never see it. */
+/* ── THE BORDER RULE — this is why borders were invisible (fixed 2026-08-17) ──
+   Reported as "the borders are invisible like disappeared" across the whole
+   Admin panel: cards, table rows, dividers, input outlines.
+
+   CAUSE. Tailwind's `border` utility sets ONLY `border-width: 1px`. It never
+   sets `border-style`. The style comes from Preflight, which declares
+   `border: 0 solid` on every element — width zero, but style SOLID, so the
+   moment a utility raises the width the border appears. This file deliberately
+   skips Preflight (see the top of the file), so `border-style` stayed at its
+   CSS initial value of `none`, and `border-width: 1px` with `border-style:
+   none` paints NOTHING. Every one of the ~800 border utilities in the ported
+   Admin pages was silently doing nothing.
+
+   The scoped stand-in below covers button/input/select/textarea only, so it
+   never reached the div-based cards where most borders live.
+
+   FIX. Reinstate exactly the one Preflight declaration that matters, and
+   nothing else — no margins, no font resets, no heading changes, so the
+   deliberate "no Preflight" decision above still holds for everything else.
+
+   `border-color` is set to gray-200 as well: Tailwind v4 (this project is on
+   4.2) changed the default from gray-200 to `currentColor`, so the 214 bare
+   `border` / `border-b` / `border-t` classes in these pages — the ones that
+   never name a colour — would otherwise draw in the element's TEXT colour,
+   i.e. near-black hairlines all over a light UI. The ported markup was written
+   against the v3 default; this restores it. The 231 `border-gray-200`, 22
+   `border-gray-300`, `border-blue-*` etc. are utility classes and override
+   this normally.
+
+   Written with :where() + `*` so total specificity is 0,0,0 — every utility
+   class (0,1,0) still wins — and scoped to .admin-panel so the cashier POS
+   screens, which are 100% inline-styled, are completely unaffected. */
+:where(.admin-panel) *,
+:where(.admin-panel) *::before,
+:where(.admin-panel) *::after {
+  border-width: 0;
+  border-style: solid;
+  border-color: var(--color-gray-200, #e5e7eb);
+}
+
 :where(.admin-panel) button,
 :where(.admin-panel) input,
 :where(.admin-panel) select,

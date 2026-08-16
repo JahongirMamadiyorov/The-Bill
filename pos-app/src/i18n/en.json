@@ -1179,6 +1179,30 @@
       "showQtyUnit": "Quantity with measurement unit",
       "showNotes": "Item notes",
       "showTimestamp": "Timestamp"
+    },
+    "hours": {
+      "title": "Working hours",
+      "hint": "Closing time decides which day a sale counts under in reports",
+      "mon": "Monday",
+      "tue": "Tuesday",
+      "wed": "Wednesday",
+      "thu": "Thursday",
+      "fri": "Friday",
+      "sat": "Saturday",
+      "sun": "Sunday",
+      "open": "Open",
+      "closed": "Closed",
+      "closedAllDay": "Closed all day",
+      "pastMidnight": "runs past midnight — counts under this day",
+      "applyToAll": "Apply Monday’s hours to every day",
+      "about": {
+        "title": "What this setting does",
+        "what": "Working hours record when the restaurant opens and closes. The closing time also decides which day a sale is counted under in History and reports.",
+        "lateNight": "Closing after midnight — for example 18:00 to 03:00 — means an order taken at 02:00 is counted as part of that night, not as the next day. Your takings for one night stay together on one day.",
+        "always24": "Open 24 hours: set every day from 00:00 to 00:00. Each day then ends at midnight.",
+        "notBlocked": "Nothing is blocked outside these hours. Staff can always keep taking orders — the cashier screen only shows a small reminder.",
+        "ifEmpty": "If you leave this empty, nothing changes: every day ends at midnight, as before."
+      }
     }
   },
   "cashier": {

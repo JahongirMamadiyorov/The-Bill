@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { T, card, pill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
 import { t } from '../../lib/i18n.js';
+import { businessToday } from '../../lib/businessDate.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile screen — design handoff screen 14.
@@ -22,7 +23,11 @@ import { t } from '../../lib/i18n.js';
 // Writes: shiftsClockIn / shiftsClockOut (new IPC, Step 8).
 // ─────────────────────────────────────────────────────────────────────────────
 
-function isoDate(d) { return d.toISOString().slice(0, 10); }
+// isoDate comes from lib/businessDate.js — the local calendar date. The old
+// inline version used toISOString(), i.e. the UTC date, so between local
+// midnight and 05:00 these 'today' stats silently reported YESTERDAY's
+// figures to the cashier. Same root cause as the lost-order report on
+// 2026-08-17; see lib/businessDate.js.
 function elapsedLabel(fromIso) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(fromIso).getTime()) / 60000));
   const h = Math.floor(mins / 60), m = mins % 60;
@@ -65,7 +70,10 @@ export default function ProfileScreen({ user, settings, lang }) {
 
   const loadStats = async () => {
     try {
-      const today = isoDate(new Date());
+      // Business day, not calendar day: on a late shift the cashier's own
+      // 'today' must match the night being served, or their figures read 0
+      // while they are still working. See lib/businessDate.js.
+      const today = businessToday(settings?.workingHours);
       const qs = new URLSearchParams({ waitress_id: user.id, status: 'paid', from: today, to: today, limit: '500' });
       const res = await window.electronAPI.apiGet(`/api/orders?${qs.toString()}`);
       if (!res?.ok) return;

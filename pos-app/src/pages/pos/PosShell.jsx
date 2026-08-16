@@ -8,6 +8,7 @@ import { T, card, initials } from './tokens.js';
 import { TableIcon } from './icons.jsx';
 import { useSettings } from './useSettings.js';
 import { t, tt } from '../../lib/i18n.js';
+import { isOpenNow } from '../../lib/businessDate.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POS Terminal shell — sidebar + top bar + active screen.
@@ -495,6 +496,31 @@ export default function PosShell({ session, onLogout, screens = {} }) {
             flex item keeps its default `min-width: auto` and grows to fit whatever
             the screen renders, pushing the Cashier order panel off the right edge
             once a restaurant has enough categories/menu items. */}
+        {/* Outside working hours — a statement, not an obstacle.
+            Nothing is blocked: a shift that runs long is normal and the cashier
+            must be able to keep serving. This exists so an unusual hour is
+            VISIBLE, and because closing time now decides which business day a
+            sale counts under — so a cashier working past close should know the
+            takings are landing on the night that just ended. Silent when no
+            hours are configured (`known: false`), so restaurants that never fill
+            this in never see it. */}
+        {(() => {
+          const s = isOpenNow(settings?.workingHours);
+          if (!s.known || s.open) return null;
+          return (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '9px 14px', marginBottom: 12,
+              background: T.amberBg, border: `1px solid ${T.amber}22`,
+              borderRadius: T.rCard, color: T.amber,
+              fontFamily: T.font, fontSize: 12.5, fontWeight: 700,
+            }}>
+              <Clock size={15} />
+              <span>{t('Outside working hours — sales still count for the last open day', lang)}</span>
+            </div>
+          );
+        })()}
+
         <div style={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
           {Screen ? <Screen {...screenProps} /> : <Placeholder label={t(active.label, lang)} lang={lang} />}
         </div>

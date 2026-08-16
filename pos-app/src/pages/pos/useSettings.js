@@ -12,6 +12,9 @@ const CACHE_KEY = 'pos.restaurantSettings';
 
 const DEFAULTS = {
   restaurantName: null,
+  // Per-weekday hours (2026-08-17). Empty = not configured, which every consumer
+  // must treat as "midnight boundary, always open" — i.e. unchanged behaviour.
+  workingHours: {},
   currencySymbol: "so'm",
   taxRate: 0,
   taxEnabled: false,
@@ -55,6 +58,10 @@ function translate(row) {
   if (!row || typeof row !== 'object') return DEFAULTS;
   return {
     restaurantName:           row.restaurant_name ?? null,
+    // Kept as the raw object. Guarded because an array or null here would make
+    // the business-day lookups throw on every screen that reads it.
+    workingHours: (row.working_hours && typeof row.working_hours === 'object'
+      && !Array.isArray(row.working_hours)) ? row.working_hours : {},
     currencySymbol:           row.currency_symbol || "so'm",
     taxRate:                  Number(row.tax_rate || 0),
     taxEnabled:               row.tax_enabled === true,

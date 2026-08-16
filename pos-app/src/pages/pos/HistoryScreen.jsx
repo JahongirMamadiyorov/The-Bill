@@ -7,6 +7,7 @@ import { T, card, pill, statusPill, uppercaseLabel, fmtMoney } from './tokens.js
 import { loadCached, saveCached, timeAgo } from '../../lib/staleCache.js';
 import { t, tt } from '../../lib/i18n.js';
 import { buildReceiptData } from '../../lib/receipt.js';
+import { isoDate, businessDayFor } from '../../lib/businessDate.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // History screen — closed orders + refunds. Design handoff screens 7–10.
@@ -26,19 +27,34 @@ const CACHE_KEY = 'pos.history.cache.v1';
 const DATE_CHIPS = ['Today', 'Yesterday', 'This Week', 'Custom'];
 const REFUND_REASONS = ['Customer Complaint', 'Wrong Order', 'Duplicate Payment', 'Other'];
 
-function isoDate(d) { return d.toISOString().slice(0, 10); }
-function rangeFor(chip) {
-  const now = new Date();
-  if (chip === 'Today') return { from: isoDate(now), to: isoDate(now) };
+// isoDate now comes from lib/businessDate.js — it returns the LOCAL calendar
+// date. The version that used to live here was `d.toISOString().slice(0, 10)`,
+// which is the UTC date: for the five hours after local midnight it named
+// YESTERDAY, so this screen asked the backend for the wrong day and every late
+// order disappeared. That is what hid order #1 (paid, 153,000 so'm, taken at
+// 02:46) and had it reported as a lost order. See lib/businessDate.js.
+// `schedule` is restaurant_settings.working_hours. With none set (or 00:00
+// closes) businessDayFor() returns the plain calendar date, so these chips
+// behave exactly as before. With a past-midnight close, "Today" during the small
+// hours correctly still means the night that is currently being served.
+function rangeFor(chip, schedule) {
+  const now   = new Date();
+  const today = businessDayFor(now, schedule);
+  if (chip === 'Today') return { from: today, to: today };
   if (chip === 'Yesterday') {
-    const y = new Date(now); y.setDate(y.getDate() - 1);
-    return { from: isoDate(y), to: isoDate(y) };
+    // Step back a whole day from the BUSINESS day, not the clock — otherwise at
+    // 02:00 on a late shift "Yesterday" would land two nights back.
+    const base = new Date(`${today}T12:00:00`);   // midday avoids any DST edge
+    base.setDate(base.getDate() - 1);
+    const y = isoDate(base);
+    return { from: y, to: y };
   }
   if (chip === 'This Week') {
-    const start = new Date(now); start.setDate(start.getDate() - start.getDay());
-    return { from: isoDate(start), to: isoDate(now) };
+    const base = new Date(`${today}T12:00:00`);
+    base.setDate(base.getDate() - base.getDay());
+    return { from: isoDate(base), to: today };
   }
-  return { from: isoDate(now), to: isoDate(now) };
+  return { from: today, to: today };
 }
 
 export default function HistoryScreen({ user, settings, search, lang }) {
@@ -51,7 +67,7 @@ export default function HistoryScreen({ user, settings, search, lang }) {
   const [lastUpdated, setLastUpdated] = useState(cached?.savedAt || null);
   const [stale,   setStale]   = useState(false);
   const [chip,    setChip]    = useState('Today');
-  const [range,   setRange]   = useState(rangeFor('Today'));
+  const [range,   setRange]   = useState(() => rangeFor('Today', settings?.workingHours));
   const [showCal, setShowCal] = useState(false);
   const [customLabel, setCustomLabel] = useState('');
 
@@ -207,7 +223,7 @@ export default function HistoryScreen({ user, settings, search, lang }) {
           <button key={c} onClick={() => {
             setChip(c);
             if (c === 'Custom') setShowCal(true);
-            else setRange(rangeFor(c));
+            else setRange(rangeFor(c, settings?.workingHours));
           }} style={{
             padding: '8px 16px', borderRadius: T.rPill, border: 'none', cursor: 'pointer', fontFamily: T.font,
             background: chip === c ? T.green : T.surface, color: chip === c ? '#fff' : T.muted,

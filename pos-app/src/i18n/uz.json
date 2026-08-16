@@ -1179,6 +1179,30 @@
       "showQtyUnit": "Miqdor va o'lchov birligi",
       "showNotes": "Mahsulot izohlari",
       "showTimestamp": "Vaqt tamg'asi"
+    },
+    "hours": {
+      "title": "Ish vaqti",
+      "hint": "Yopilish vaqti savdo qaysi kunga tegishli ekanini belgilaydi",
+      "mon": "Dushanba",
+      "tue": "Seshanba",
+      "wed": "Chorshanba",
+      "thu": "Payshanba",
+      "fri": "Juma",
+      "sat": "Shanba",
+      "sun": "Yakshanba",
+      "open": "Ochiq",
+      "closed": "Yopiq",
+      "closedAllDay": "Kun bo‘yi yopiq",
+      "pastMidnight": "yarim tundan oshadi — shu kunga hisoblanadi",
+      "applyToAll": "Dushanba vaqtini barcha kunlarga qo‘llash",
+      "about": {
+        "title": "Bu sozlama nima qiladi",
+        "what": "Ish vaqti restoran qachon ochilishi va yopilishini belgilaydi. Yopilish vaqti, shuningdek, savdo Tarix va hisobotlarda qaysi kunga hisoblanishini ham belgilaydi.",
+        "lateNight": "Yarim tundan keyin yopilish — masalan, 18:00 dan 03:00 gacha — soat 02:00 da qabul qilingan buyurtma o‘sha kechaning bir qismi sifatida hisoblanadi, keyingi kun sifatida emas. Bir kechalik tushum bir kunda birga qoladi.",
+        "always24": "24 soat ochiq: har kuni 00:00 dan 00:00 gacha qilib qo‘ying. Shunda har bir kun yarim tunda tugaydi.",
+        "notBlocked": "Bu vaqtdan tashqarida hech narsa bloklanmaydi. Xodimlar istalgan vaqtda buyurtma qabul qilishi mumkin — kassa ekranida faqat kichik eslatma chiqadi.",
+        "ifEmpty": "Agar buni bo‘sh qoldirsangiz, hech narsa o‘zgarmaydi: har bir kun avvalgidek yarim tunda tugaydi."
+      }
     }
   },
   "cashier": {

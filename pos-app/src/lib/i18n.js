@@ -65,6 +65,13 @@ const UZ = {
   'Syncing…': 'Sinxronlanmoqda…',
   'Offline': 'Oflayn',
 
+  // ── Working hours banner (PosShell.jsx) ───────────────────────────────────
+  // Shown only when the restaurant HAS configured hours and is currently
+  // outside them. Deliberately reassuring rather than alarming: nothing is
+  // blocked, and it explains where the money is being counted.
+  'Outside working hours — sales still count for the last open day':
+    'Ish vaqtidan tashqari — savdo oxirgi ochiq kunga hisoblanadi',
+
   // ── Sync gate (SyncGate.jsx, used by Orders + Tables) ─────────────────────
   // Added 2026-08-15. These are NOT duplicates of 'Syncing…'/'Offline' above:
   // those two are the topbar badge's one-word states, these are the full-screen

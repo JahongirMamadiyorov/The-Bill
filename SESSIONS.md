@@ -4352,3 +4352,223 @@ A name alone doesn't tell a manager whether the person was allowed to do what th
 **Note:** units only appear on audit rows written from now on. Existing rows have no `unit` in
 their details and will keep rendering as plain counts. Backfilling is possible but would be
 guesswork for any product whose unit changed since.
+
+## 2026-08-15 (late) — duplicate slips on cashier edit/add: the ordering race
+
+After the previous build the owner reported the phone case FIXED (waiter additions print once) but
+cashier edits and additions printing TWICE again.
+
+**Cause — a race that marking-after-the-response can never fix.** This terminal does not write
+through PowerSync's upload queue; it POSTs to the Render backend and learns the result twice over:
+once as the HTTP response, once as replicated rows landing in the local database. Those two arrive
+in NO GUARANTEED ORDER. The backend commits, and from that moment PowerSync can replicate to this
+machine while the response is still travelling back to Uzbekistan.
+
+When replication wins, the watcher sees brand-new items BEFORE the handler has folded them into
+the baseline, prints them, and then the renderer prints its own ticket. Two slips, one action.
+
+Both the old `noteSelfPrinted` and the first `adoptSelfPrinted` marked the write only AFTER the
+response returned — by which time the duplicate has already come out of the printer. The
+quantity-based rewrite was still the right change (it is what fixed the phone case, by removing
+the order-wide blanket suppression), but it did not address ordering.
+
+**Fix: register the intent BEFORE the request leaves.** `withSelfWrite()` wraps every order write
+(orders:create / update / addItems, and the Admin generic passthrough for non-GET /api/orders
+paths). While any such write is in flight the watcher stands down completely — prints nothing,
+touches no baseline, retries next pass. Once the response lands, `adoptSelfPrinted` records the
+real quantities and the next pass proceeds against correct state. Deferring a ticket by a second
+is harmless; printing it twice is not.
+
+Guards on the guard: a stuck request cannot freeze printing — the flag is ignored past
+SELF_WRITE_MAX_MS (30s). Non-order paths are deliberately NOT wrapped, so an unrelated slow
+request never delays a real kitchen ticket. A throttled `autoprint-deferred` event is written to
+the connection log so the badge dump SHOWS the guard working instead of leaving it invisible.
+
+**Verification note worth remembering:** the first simulation of this reported "2 papers, WRONG"
+— but the simulation was at fault, not the code: it modelled the guard without modelling the
+baseline, so its watcher printed unconditionally. Rewritten to carry baseline + local rows it
+gives 1 paper for the cashier edit and 1 for a subsequent waiter addition. A test that does not
+model the mechanism under test will confidently report the wrong answer.
+
+## 2026-08-16 — owner confirmed: all 7 acceptance tests pass
+
+Rebuilt, deployed, and tested on the real terminal. Every check passed: cashier add prints one
+slip, cashier edit prints one slip containing only the added item, waiter phone additions print
+one slip, removals print nothing, an unstationed item prints once, paid orders reject edits, and
+the order history shows the edit label with units and staff roles.
+
+That closes the printing work that ran across this whole session — six distinct bugs, each found
+from evidence rather than inspection:
+  1. `oi.menu_item_id` missing from the auto-print SELECT (whole order reprinted on every edit)
+  2. print baseline purged during a resync (whole order reprinted on panel entry)
+  3. orphan items fanned out to every catch-all printer (two slips per unstationed dish)
+  4. order-wide 3-minute self-print suppression (swallowed waiters' phone edits entirely)
+  5. unmerged duplicate lines on a slip (same dish printed twice)
+  6. self-print marked after the HTTP response, which replication can beat (duplicate slips)
+
+Plus, on the data side: order-row locking, the duplicate-payment absorber, post-payment edit
+rejection, loan settlements posting cash income, and 2,482,792 so'm of cash-flow error corrected
+(-1,682,475 duplicate payments, +800,318 unrecorded loan repayments).
+
+The two tools that made this possible were both built during the session: the connection event log
+in the badge, and the order audit history. Every theory reasoned from code alone was wrong at least
+once; every bug was ultimately named by one of those two logs.
+
+## 2026-08-17 — "the borders are invisible like disappeared"
+
+Two separate causes, only one of them a bug.
+
+### Admin panel — a real bug, and a subtle one
+`admin.css` deliberately imports only `tailwindcss/theme.css` + `utilities.css`, skipping
+Preflight (documented at the top of that file, to avoid a global reset bleeding into the
+inline-styled cashier screens). That decision is sound, but it removed something load-bearing:
+
+**Tailwind's `border` utility sets ONLY `border-width: 1px`. It never sets `border-style`.**
+The style comes from Preflight's `border: 0 solid` on every element — width zero, style solid, so
+raising the width makes a border appear. Without Preflight, `border-style` stayed at its CSS
+initial value `none`, and width 1px + style none paints NOTHING. Every border utility in the
+ported Admin pages — roughly 800 of them across cards, table rows, dividers and inputs — was
+silently doing nothing.
+
+The existing scoped stand-in reset only covered button/input/select/textarea, so it never reached
+the div-based cards where most borders live.
+
+Fixed by reinstating exactly that one declaration, scoped and at zero specificity:
+```css
+:where(.admin-panel) *, :where(.admin-panel) *::before, :where(.admin-panel) *::after {
+  border-width: 0; border-style: solid; border-color: var(--color-gray-200, #e5e7eb);
+}
+```
+`border-color` is included because this project is on Tailwind 4.2, which changed the default from
+gray-200 to `currentColor` — the 214 bare `border`/`border-b`/`border-t` classes that never name a
+colour would otherwise have drawn near-black hairlines across a light UI once the style was
+restored. The 231 `border-gray-200` and other explicit utilities override it normally.
+
+`:where()` + `*` keeps total specificity at 0,0,0 so every utility still wins, and the
+`.admin-panel` scope means the cashier screens are untouched. The "no Preflight" decision stands
+for everything else — no margin, font or heading resets were added.
+
+### POS — not a regression, a gap in the shared token
+The POS `card` token was background + radius + shadow, with NO border, and `T.cardShadow` is
+deliberately very soft (0.06 alpha). On the mint page background that reads as no edge at all, so
+cards looked like flat white areas.
+
+Added `border: 1px solid ${T.line}`. This is the design system's own value, not an invention: the
+handoff README lists "Hairline borders: #EEF1F1 / #F0F2F1" in its colour spec and `T.line` is
+already used exactly this way in 18+ places across the POS screens — the shared token simply never
+picked it up. Verified no call site overrides `border` (the `...card` spreads only change
+borderRadius/boxShadow), and `box-sizing: border-box` is set globally in index.css so the 1px
+changes no card's outer size.
+
+## 2026-08-17 — "we have lost one order in history" — nothing was lost
+
+Owner reported order #1, table Xoli 1, opened 02:48 today, missing from History (which showed
+"No orders in this range" and 0 sales for Today).
+
+**The order is safe.** Confirmed in the database: #1, status `paid`, 153,000 so'm, created
+2026-08-16 21:46:09 UTC = **2026-08-17 02:46:09 Tashkent**. Every item intact.
+
+**Cause — the same UTC/Tashkent boundary bug, this time on the CLIENT.**
+
+```js
+function isoDate(d) { return d.toISOString().slice(0, 10); }   // <- UTC date
+```
+
+`toISOString()` converts to UTC first. Uzbekistan is UTC+5, so for the five hours after local
+midnight the UTC date still names YESTERDAY. At 02:50 local the screen sent
+`from=2026-08-16&to=2026-08-16`, while the order's business day — as the BACKEND resolves it,
+in Asia/Tashkent — is 2026-08-17. No overlap, so the order simply wasn't in the answer.
+
+The server was right and the client was wrong. `backend/src/config/db.js` was switched to an
+Asia/Tashkent session timezone back in August, after this same class of bug mis-attributed 62
+orders' revenue; the client half was never audited. So the two halves agreed for 19 hours a day
+and disagreed for 5 — precisely the hours a late-serving Uzbek restaurant is still taking money.
+
+**Scope: every order between 00:00 and 05:00 local, every night**, on both screens that used the
+helper. The `Yesterday` chip was wrong in the same window too (it asked for 2026-08-15 at 02:50 on
+the 17th — two days back).
+
+**Fix.** New `src/lib/businessDate.js` with one correct implementation returning the LOCAL
+calendar date, used by HistoryScreen and ProfileScreen (which had its own identical copy, so the
+cashier's "today's sales" on the Profile screen silently showed yesterday's figures in the same
+window). Both local definitions deleted so a third copy can't drift.
+
+Using local date components is right precisely because the terminal's clock is set to the
+restaurant's own timezone — the same day the staff read off the wall, and the same day the backend
+resolves the query in. After 05:00 the old and new code produce identical output, so this changes
+nothing outside the broken window.
+
+**Flagged, NOT implemented — a business decision:** this treats a night as ending at midnight, so
+a 02:00 sale counts under the new day. Some restaurants count it under the night before. If that
+is wanted it belongs in `businessDate.js` alone (subtract a cutoff hour before reading the date)
+so every screen moves together.
+
+Note: `pages/Cashier.jsx` has the same pattern on a date-input `min` attribute, left alone — it is
+dead code (already flagged) and cosmetic there.
+
+## 2026-08-17 — Restaurant working hours (new feature)
+
+Owner asked for opening/closing times in Settings → Restaurant Info, noting "for 24h open
+restaurant the end day will be 00:00 everyday" — which is really a statement about when a BUSINESS
+DAY ends, the open question left by the lost-order bug earlier the same day.
+
+**Decisions taken (owner):** closing time DOES decide which day a sale counts under · per-weekday
+schedule · a quiet warning outside hours, nothing blocked.
+
+**Scope split deliberately.** 74 places across 9 backend route files bucket revenue by calendar
+day. Rewriting all of them in one sweep would change what historical numbers mean, and a scripted
+edit across 74 sites is exactly what went wrong with the ORDER BY pass earlier this month. So this
+round covers storage, editing, the cashier-facing boundary and the warning; applying the cutoff to
+backend reports is a separate, reviewed pass with before/after comparison on real data.
+
+**Storage.** `restaurant_settings.working_hours` jsonb, migration
+`add_working_hours_to_restaurant_settings`, with a COMMENT on the column explaining the semantics.
+Shape `{"mon":{"closed":false,"open":"09:00","close":"00:00"},...}`. The settings route is an
+explicit whitelist requiring a new column in FOUR places (destructure, INSERT list, ON CONFLICT,
+values) — all four done, plus server-side validation that rejects malformed times and drops
+half-filled rows, since a bad shape here would silently corrupt every business-day calculation.
+
+**The rule.** close `"00:00"` ends the day at midnight — that is both the 24-hour setup
+(00:00→00:00) and the behaviour of every screen before this existed. A close EARLIER than the open
+(and not 00:00) means the night runs past midnight, and those small hours belong to the day the
+night STARTED on. Empty/absent schedule behaves identically to before, so no existing restaurant
+is affected until an owner fills it in.
+
+**Where it applies now:** `lib/businessDate.js` gained `businessDayFor`, `businessToday` and
+`isOpenNow`; History's Today/Yesterday/This Week chips and Profile's own "today" stats use it.
+Note Yesterday steps back from the BUSINESS day, not the clock — otherwise at 02:00 on a late
+shift it would land two nights back.
+
+`isOpenNow` returns `{ open, known }` on purpose: with no schedule configured `known` is false and
+the POS banner stays silent rather than declaring a restaurant closed because nobody filled a form
+in.
+
+**Verified by simulation** across late-night, 24h, unconfigured and day-off schedules, including
+the exact reported case: at 02:46 under an 18:00–03:00 schedule, History's "Today" resolves to
+2026-08-16 and the order taken at 02:46 counts under the same day, so it appears where the cashier
+is looking. After close at 04:00 the banner appears and a sale counts under the new day.
+
+**Still open:** the 74 backend bucketing sites, and whether the Admin dashboard's "Today's
+Revenue" should follow the same boundary (it currently uses the calendar day).
+
+### In-app explanation of the working-hours setting (owner-requested)
+
+Owner asked for a description inside the app "so restaurant management knows what the function
+of it is". The one-line hint under the card title was not enough — it assumed the reader already
+knows what a business day is.
+
+Added `WorkingHoursAbout`, an info panel at the top of the Working hours card, written for a
+restaurant manager rather than a developer: concrete times, real examples, no jargon. It states
+the consequence at the point the setting is made, because closing time silently changes which day
+money is counted under and a manager who sets 03:00 without understanding that would later find
+takings on a day they did not expect.
+
+Four points, en + uz:
+  - what it is, and that closing time also decides which day a sale counts under
+  - late-night example: 18:00–03:00 means a 02:00 order belongs to that night, so one night's
+    takings stay together on one day
+  - 24 hours: set 00:00 to 00:00 every day; each day then ends at midnight
+  - nothing is blocked outside the hours — staff keep serving, the cashier only sees a reminder
+  - leaving it empty changes nothing: every day ends at midnight, as before
+
+Verified: 13 working-hours keys referenced by the UI, all present in both locales.

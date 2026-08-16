@@ -1,5 +1,22 @@
 # STATUS
 
+> ## ✔ 2026-08-16 — BUILT, DEPLOYED AND VERIFIED BY THE OWNER
+>
+> All 7 acceptance tests passed on the real terminal (owner confirmed). The POS build and the
+> Render backend deploy from 2026-08-15 are both live. There is no outstanding build.
+>
+> Verified working: cashier add (one slip), cashier edit (one slip, added item only), waiter phone
+> add (one slip), removal prints nothing, unstationed item prints once, paid orders reject edits
+> with 409, order history shows the edit label, units and staff roles.
+>
+> The printing subsystem is now considered STABLE. Before changing anything in it, read the
+> 2026-08-15 entries in SESSIONS.md — six separate bugs were fixed there and several of the
+> guards look redundant until you know which failure each one prevents. In particular do NOT:
+>   - reintroduce order-level or clock-based print suppression (it swallows other people's tickets)
+>   - move self-print marking to AFTER the HTTP response (replication can beat it; duplicate slips)
+>   - remove `oi.menu_item_id` from the auto-print query's SELECT list (it is load-bearing)
+>   - prune the print baseline on "absent from the local DB" (a resync then reprints everything)
+
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.
 
@@ -2899,3 +2916,42 @@ never been in a shipped build either — it ships with this same rebuild.
   en/uz keys added for the edit label and all five roles.
 - Owner decision on record: waiters KEEP the ability to edit orders; the history just labels it.
 - Units appear on NEW audit rows only; existing rows render as plain counts by design.
+
+### 2026-08-15 (late) — duplicate slips on cashier edit/add FIXED, NEEDS REBUILD
+- `withSelfWrite()` in main.js holds the watcher off for the DURATION of this terminal's order
+  writes. Marking after the response is too late: replication can beat the HTTP response back.
+- Wrapped: orders:create, orders:update, orders:addItems, Admin passthrough (non-GET /api/orders).
+- New `autoprint-deferred` line in the connection log confirms the guard firing.
+- DO NOT move the marking back to after the response — that is the bug, twice over now.
+
+## 2026-08-16 — owner verified all 7 tests pass
+Everything from the 2026-08-15 session is built, deployed and confirmed working on real hardware.
+Nothing is pending a build. Remaining open items are listed under "Open questions / unresolved"
+and in the entries above; none of them block daily operation.
+
+### 2026-08-17 — invisible borders FIXED, needs POS rebuild
+- `src/admin.css` — restored `border-style: solid` (+ gray-200 default colour) for the Admin
+  panel. Tailwind's `border` utility sets width only; the style comes from Preflight, which this
+  file skips on purpose. DO NOT remove this rule while Preflight stays skipped.
+- `src/pages/pos/tokens.js` — shared `card` token gained the design system's hairline
+  (`1px solid T.line`); it was shadow-only and read as flat.
+- Both are pos-app changes: `npm run build:win` required. No backend change.
+
+### 2026-08-17 — "lost order" was a client-side UTC date bug, FIXED, needs POS rebuild
+- Nothing was lost. Order #1 (paid, 153,000 so'm, 02:46 Tashkent) was always in the database.
+- `toISOString().slice(0,10)` gave the UTC date, so between 00:00 and 05:00 local both History and
+  Profile asked the backend for the WRONG DAY. Backend resolves dates in Asia/Tashkent.
+- New `src/lib/businessDate.js` is now the single source for the local calendar date; the two
+  duplicate local definitions are gone. NEVER use toISOString() to derive a calendar date here.
+- OPEN (business decision): should a post-midnight sale count under the previous night? Currently
+  it counts under the new calendar day.
+
+### 2026-08-17 — working hours feature, STAGE 1 DONE (needs both deploys)
+- DB: `restaurant_settings.working_hours` jsonb (migration applied to production).
+- Backend: settings route reads/writes/validates it. NEEDS RENDER DEPLOY.
+- pos-app: Admin editor (per weekday + "apply Monday to all"), business-day helper, History and
+  Profile use it, POS banner outside hours, en/uz strings. NEEDS `npm run build:win`.
+- STAGE 2 NOT DONE, deliberate: 74 calendar-day bucketing sites across 9 backend route files
+  (accounting, finance, reports, shifts, orders, loans, inventory, procurement, warehouse) still
+  use the plain calendar day. Do this as its own reviewed pass with before/after numbers.
+- Admin dashboard "Today's Revenue" also still uses the calendar day.

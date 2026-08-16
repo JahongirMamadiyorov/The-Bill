@@ -404,6 +404,50 @@ function selfPrintSettling(orderId) {
   return !!t && (Date.now() - t) < SELF_PRINT_SETTLE_MS;
 }
 
+// ── Writes in flight — closes a race adoptSelfPrinted alone cannot ───────────
+// This terminal does NOT write through PowerSync's upload queue; it POSTs to the
+// Render backend and learns the result twice over — once as the HTTP response,
+// and once as replicated rows arriving in the local database. THOSE TWO ARRIVE
+// IN NO GUARANTEED ORDER. The backend commits, and from that instant PowerSync
+// can replicate the change to this machine while the HTTP response is still
+// travelling back to Uzbekistan.
+//
+// When replication wins, the watcher sees brand-new items BEFORE the handler has
+// had a chance to fold them into the baseline, so it prints them — and then the
+// renderer prints its own ticket a moment later. Two slips for one action.
+// Marking the write only AFTER the response returns (which is what both the old
+// noteSelfPrinted and the first version of adoptSelfPrinted did) cannot fix
+// this: by then the duplicate has already come out of the printer.
+//
+// So the intent is registered BEFORE the request leaves. While any order write
+// from this terminal is in flight the watcher stands down completely — it prints
+// nothing and changes no baseline. Once the response lands, adoptSelfPrinted
+// records the real quantities and the next pass proceeds against correct state.
+// Deferring a ticket by a second or two is harmless; printing it twice is not.
+//
+// A stuck request cannot freeze printing forever: the flag is ignored once it is
+// older than SELF_WRITE_MAX_MS, so the watcher resumes even if a response never
+// arrives at all.
+const SELF_WRITE_MAX_MS = 30 * 1000;
+let selfWriteDepth = 0;
+let selfWriteSince = 0;
+let lastSelfWriteSkipLog = 0;
+
+function selfWriteInFlight() {
+  return selfWriteDepth > 0 && (Date.now() - selfWriteSince) < SELF_WRITE_MAX_MS;
+}
+
+// Runs an order write with the watcher held off for its duration.
+async function withSelfWrite(fn) {
+  if (selfWriteDepth === 0) selfWriteSince = Date.now();
+  selfWriteDepth++;
+  try {
+    return await fn();
+  } finally {
+    selfWriteDepth = Math.max(0, selfWriteDepth - 1);
+  }
+}
+
 // Element-wise maximum of two { key: qty } maps. Used to raise-but-never-lower
 // the baseline while a self-print settles.
 function mergeMax(a, b) {
@@ -449,6 +493,21 @@ async function autoPrintPendingItems() {
   if (autoPrintRunning) return;              // never overlap polls
   if (!store.get('session')) return;         // logged out
   if (store.get('kitchenAutoPrint') === false) return;  // disabled on this terminal
+  // A write from THIS terminal is in flight. Its rows may already have arrived
+  // by replication while its HTTP response has not, so anything new we can see
+  // right now might be our own — and the renderer is about to print it itself.
+  // Stand down entirely: print nothing, touch no baseline, retry next pass.
+  // See withSelfWrite() for why marking after the response is too late.
+  if (selfWriteInFlight()) {
+    // Logged (throttled) because this is the hard-to-observe half of the fix:
+    // if duplicate slips ever come back, the badge dump showing whether the
+    // watcher stood down is the difference between knowing and guessing.
+    if (Date.now() - lastSelfWriteSkipLog > 5000) {
+      lastSelfWriteSkipLog = Date.now();
+      pushPsEvent('autoprint-deferred', 'own write in flight — renderer prints this one');
+    }
+    return;
+  }
   autoPrintRunning = true;
 
   try {
@@ -920,7 +979,8 @@ async function submitOrderWrite(method, path_, body) {
 // returns (see each screen's printTicket). Without it the watcher would see the
 // rows sync back a few seconds later and print a duplicate ticket.
 ipcMain.handle('orders:create', async (_event, payload) => {
-  const res = await submitOrderWrite('POST', '/api/orders', { ...payload, client_prints_locally: true });
+  const res = await withSelfWrite(() =>
+    submitOrderWrite('POST', '/api/orders', { ...payload, client_prints_locally: true }));
   // Absolute: the payload IS the whole order, and the renderer printed all of it.
   if (res?.ok) adoptSelfPrinted(res.data?.id, payload?.items, 'absolute');
   return res;
@@ -934,7 +994,7 @@ ipcMain.handle('orders:pay', async (_event, { id, data }) =>
 // orders.js stock_diff_items SAVEPOINT) — POS must always send the FULL items
 // list, not a delta.
 ipcMain.handle('orders:update', async (_event, { id, data }) => {
-  const res = await submitOrderWrite('PUT', `/api/orders/${id}`, data);
+  const res = await withSelfWrite(() => submitOrderWrite('PUT', `/api/orders/${id}`, data));
   // Absolute: PUT replaces the ENTIRE item list, so the payload is the order's
   // full contents afterwards. The editing screen printed the delta itself; the
   // rest was printed when it was originally ordered. Either way the kitchen now
@@ -955,7 +1015,8 @@ ipcMain.handle('orders:refund', async (_event, { id, data }) =>
 // the kitchen (see orders.js POST /:id/items) — send only the NEW items here,
 // not the full list (unlike orders:update, which replaces the whole list).
 ipcMain.handle('orders:addItems', async (_event, { id, data }) => {
-  const res = await submitOrderWrite('POST', `/api/orders/${id}/items`, { ...data, client_prints_locally: true });
+  const res = await withSelfWrite(() =>
+    submitOrderWrite('POST', `/api/orders/${id}/items`, { ...data, client_prints_locally: true }));
   // Increment: this route APPENDS, so the payload is only the new items. They
   // add to whatever the kitchen already knew about rather than replacing it.
   if (res?.ok) adoptSelfPrinted(id, data?.items, 'increment');
@@ -1071,7 +1132,15 @@ function makeWriteHandler(method) {
       return { ok: false, error: 'Invalid API path' };
     }
     try {
-      const res = await request(method, path_, data ?? {}, token);
+      // Order writes go through withSelfWrite for the same reason the Cashier's
+      // dedicated handlers do: replication can deliver the rows before this
+      // response returns, and the watcher would print a ticket the Admin screen
+      // is itself about to print. Non-order paths are not wrapped — holding the
+      // watcher off for an unrelated request would delay real tickets.
+      const isOrderWrite = /^\/api\/orders(\/|$|\?)/.test(path_) && method !== 'GET';
+      const res = isOrderWrite
+        ? await withSelfWrite(() => request(method, path_, data ?? {}, token))
+        : await request(method, path_, data ?? {}, token);
       if (res.status < 200 || res.status >= 300) {
         return { ok: false, error: res.body?.error || `Request failed (${res.status})`, status: res.status };
       }

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from '../../../context/LanguageContext.jsx';
 import {
   Store, DollarSign, Percent, Receipt, Check, AlertCircle, AlertTriangle, X, UtensilsCrossed,
-  Printer, Wifi, Network, MonitorCheck, ChevronDown, ChevronUp, Plus, Trash2,
+  Printer, Wifi, Network, MonitorCheck, ChevronDown, ChevronUp, Plus, Trash2, Info,
 } from 'lucide-react';
 import { settingsAPI } from '../../../api/client.js';
 import { camelizeRows } from '../../../lib/case.js';
@@ -843,6 +843,150 @@ function PrintersPanel({ form, set, t }) {
 // Section panels
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Working hours (added 2026-08-17) ─────────────────────────────────────────
+// Per-weekday opening and closing times. More than a display: the CLOSING time
+// decides which business day a sale counts under. A restaurant open 18:00–03:00
+// takes its 02:00 sales as part of that night, not the new calendar date — which
+// is how a paid 02:46 order came to be reported as lost, its takings landing on
+// a day the cashier wasn't looking at.
+//
+// Setting close to 00:00 means the day ends at midnight, which is both the
+// 24-hour setup (00:00 → 00:00) and the behaviour of every screen before this
+// existed. Leaving the whole thing untouched does the same, so no restaurant is
+// affected until its owner deliberately fills this in.
+const WEEK = [
+  ['mon', 'settings.hours.mon'], ['tue', 'settings.hours.tue'], ['wed', 'settings.hours.wed'],
+  ['thu', 'settings.hours.thu'], ['fri', 'settings.hours.fri'], ['sat', 'settings.hours.sat'],
+  ['sun', 'settings.hours.sun'],
+];
+
+// In-app explanation of what this setting actually DOES.
+//
+// Working hours look like a cosmetic detail, but the closing time changes which
+// day money is counted under — a manager who sets 03:00 without understanding
+// that will later find takings on a day they did not expect. The consequence has
+// to be stated where the setting is made, not left in a manual nobody opens.
+// Written for a restaurant manager, not a developer: concrete times, real
+// examples, no jargon.
+function WorkingHoursAbout({ t }) {
+  return (
+    <div className="mx-5 mt-4 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3.5">
+      <div className="flex items-start gap-2.5">
+        <Info size={16} className="text-blue-600 mt-0.5 shrink-0" />
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-semibold text-blue-900">{t('settings.hours.about.title')}</p>
+
+          <p className="text-xs leading-relaxed text-blue-900/80">
+            {t('settings.hours.about.what')}
+          </p>
+
+          <ul className="flex flex-col gap-1.5 text-xs leading-relaxed text-blue-900/80">
+            <li className="flex gap-2">
+              <span className="text-blue-400">•</span>
+              <span>{t('settings.hours.about.lateNight')}</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-400">•</span>
+              <span>{t('settings.hours.about.always24')}</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-400">•</span>
+              <span>{t('settings.hours.about.notBlocked')}</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-400">•</span>
+              <span>{t('settings.hours.about.ifEmpty')}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkingHoursEditor({ value, onChange, t }) {
+  const hours = value && typeof value === 'object' ? value : {};
+
+  const update = (day, patch) => {
+    const cur = hours[day] || { closed: false, open: '09:00', close: '00:00' };
+    onChange({ ...hours, [day]: { ...cur, ...patch } });
+  };
+
+  // Copying Monday down is the difference between seven fiddly edits and one.
+  // Most restaurants keep the same hours all week; the per-day rows exist for
+  // the ones that don't.
+  const applyToAll = () => {
+    const src = hours.mon || { closed: false, open: '09:00', close: '00:00' };
+    onChange(Object.fromEntries(WEEK.map(([d]) => [d, { ...src }])));
+  };
+
+  return (
+    <div className="flex flex-col">
+      <WorkingHoursAbout t={t} />
+
+      <div className="h-2" />
+
+      {WEEK.map(([day, labelKey], i) => {
+        const entry  = hours[day] || { closed: false, open: '', close: '' };
+        const closed = entry.closed === true;
+        return (
+          <div
+            key={day}
+            className={`flex items-center gap-3 px-5 py-3 ${i > 0 ? 'border-t border-gray-100' : ''}`}
+          >
+            <span className="w-24 shrink-0 text-sm font-semibold text-gray-900">{t(labelKey)}</span>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Toggle checked={!closed} onChange={(v) => update(day, { closed: !v })} />
+              <span className="text-xs text-gray-500 w-14">
+                {closed ? t('settings.hours.closed') : t('settings.hours.open')}
+              </span>
+            </div>
+
+            {closed ? (
+              <span className="text-sm text-gray-400 italic">{t('settings.hours.closedAllDay')}</span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={entry.open || ''}
+                  onChange={(e) => update(day, { open: e.target.value })}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50 transition-colors"
+                />
+                <span className="text-gray-400 text-sm">—</span>
+                <input
+                  type="time"
+                  value={entry.close || ''}
+                  onChange={(e) => update(day, { close: e.target.value })}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50 transition-colors"
+                />
+                {/* Tell the owner what a past-midnight close actually means for
+                    their numbers, at the moment they set it, rather than leaving
+                    them to discover it in a report. */}
+                {entry.open && entry.close && entry.close !== '00:00' && entry.close <= entry.open && (
+                  <span className="text-xs text-blue-600 font-medium">
+                    {t('settings.hours.pastMidnight')}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="border-t border-gray-100 px-5 py-3">
+        <button
+          type="button"
+          onClick={applyToAll}
+          className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+        >
+          {t('settings.hours.applyToAll')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RestaurantInfoPanel({ form, set, t }) {
   return (
     <div className="flex flex-col gap-5">
@@ -859,6 +1003,14 @@ function RestaurantInfoPanel({ form, set, t }) {
             <TextInput value={form.phone} onChange={set('phone')} placeholder={t('settings.info.phonePlaceholder')} />
           </Field>
         </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title={t('settings.hours.title')}
+          desc={t('settings.hours.hint')}
+        />
+        <WorkingHoursEditor value={form.workingHours} onChange={set('workingHours')} t={t} />
       </Card>
 
       <Card>
@@ -1040,6 +1192,10 @@ export default function AdminSettingsScreen() {
     kitchenShowItemPrice: false,
     kitchenShowNotes: true,
     kitchenShowTimestamp: true,
+    // Per-weekday hours (2026-08-17). Round-trips on its own: load() spreads the
+    // camelised API data and handleSave() sends the whole form back through
+    // snakeizeKeys, so this arrives as working_hours without extra wiring.
+    workingHours: {},
   });
 
   const showToast = (type, msg) => {
@@ -1055,6 +1211,10 @@ export default function AdminSettingsScreen() {
         ...data,
         receiptPrinters: Array.isArray(data.receiptPrinters) ? data.receiptPrinters : [],
         kitchenPrinters: Array.isArray(data.kitchenPrinters) ? data.kitchenPrinters : [],
+        // Guard the shape: an array or null here would make the editor's
+        // Object lookups throw and take the whole Settings screen down.
+        workingHours: (data.workingHours && typeof data.workingHours === 'object'
+          && !Array.isArray(data.workingHours)) ? data.workingHours : {},
       }));
     } catch {
       showToast('err', t('settings.loadFailed'));
