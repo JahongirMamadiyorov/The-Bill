@@ -342,37 +342,6 @@ function TablePickerModal({ visible, onSelect, onClose }) {
 }
 
 
-function GuestCountSheet({ visible, table, onConfirm, onClose }) {
-  const { t } = useTranslation();
-  const [count, setCount] = useState(2);
-  useEffect(() => { if (visible) setCount(2); }, [visible]);
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.pickerSheet}>
-        <View style={styles.sheetHandle} />
-        <Text style={styles.pickerTitle}>{tableLabel(table, t)}</Text>
-        <Text style={styles.pickerSub}>{t('waitress.menu.howManyGuests', 'How many guests?')}</Text>
-        <View style={styles.guestRow}>
-          <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))} style={styles.guestBtn}>
-            <MaterialIcons name="remove" size={24} color={colors.primary} />
-          </TouchableOpacity>
-          <Text style={styles.guestCount}>{count}</Text>
-          <TouchableOpacity onPress={() => setCount(c => Math.min(20, c + 1))} style={styles.guestBtn}>
-            <MaterialIcons name="add" size={24} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-        <Text style={{ color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl, fontSize: 13 }}>
-          {t('waitress.menu.selectGuestRange', 'Select number of guests (1–20)')}
-        </Text>
-        <TouchableOpacity onPress={() => onConfirm(count)} style={styles.addToCartBtn}>
-          <MaterialIcons name="send" size={18} color={colors.white} style={{ marginRight: 8 }} />
-          <Text style={styles.addToCartTxt}>{t('waitress.menu.sendOrderBtn', 'Send Order')}</Text>
-        </TouchableOpacity>
-      </View>
-    </Modal>
-  );
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN SCREEN
@@ -493,88 +462,87 @@ export default function WaitressMenu() {
   const cartTotal = cart.reduce((s, c) => s + c.price * c.quantity, 0);
 
   // ── Table select ─────────────────────────────────────────────────────────
-  const handleTableSelect = useCallback(async (table) => {
+  // ── Table select ─────────────────────────────────────────────────────────
+  // Picking a table no longer sends anything. It records the target and opens
+  // the review sheet — for BOTH a free table and an occupied one.
+  //
+  // Previously the occupied branch did all its work right here, so adding to an
+  // existing order skipped the review entirely: choose a table and the food was
+  // already in the kitchen (reported 2026-08-17). The whole point of the review
+  // is that it is the last step before the kitchen, so it cannot be conditional
+  // on which kind of table was picked.
+  const handleTableSelect = useCallback((table) => {
     setShowTablePicker(false);
     setTargetTable(table);
+    setShowReview(true);
+  }, []);
 
-    if (table.status === 'free') {
-      setShowReview(true);
-    } else if (table.status === 'occupied') {
-      // Find active order on that table → add items
-      setSending(true);
-      try {
-        const res = await ordersAPI.getByTable(table.id);
-        const active = (res.data || []).filter(o => !['paid', 'cancelled'].includes(o.status));
-        if (active.length === 0) {
-          // No active order → treat as free table
-          setSending(false);
-          setShowReview(true);
-          return;
-        }
-        // Use PUT /orders/:id with merged items (existing + new) so
-        // Add Items works even on bill_requested orders regardless of
-        // backend deployment state.
-        const newItems = cart.map(c => ({
-          menu_item_id: c.menu_item_id,
-          quantity:     c.quantity,
-          unit_price:   c.price,
-        }));
-        let merged = newItems;
-        try {
-          const fresh = await ordersAPI.getById(active[0].id);
-          const prior = Array.isArray(fresh?.data?.items) ? fresh.data.items : [];
-          const priorMapped = prior.map(it => ({
-            menu_item_id: it.menu_item_id,
-            quantity:     Number(it.quantity || 0),
-            unit_price:   parseFloat(it.unit_price || 0),
-          }));
-          merged = [...priorMapped, ...newItems];
-        } catch (_) { /* fall back to just new items */ }
-        await ordersAPI.update(active[0].id, { items: merged });
-        setCart([]);
-        setDialog({
-          title: t('waitress.menu.orderSent', 'Order Sent!'),
-          message: t('waitress.menu.itemsAddedToTable', '{count} item(s) added to Table {table}.')
-            .replace('{count}', String(cartCount))
-            .replace('{table}', tableLabel(table, t)),
-          type: 'success',
-        });
-      } catch (e) {
-        setDialog({
-          title: t('common.error', 'Error'),
-          message: e?.response?.data?.error || t('waitress.menu.failedToSendOrder', 'Failed to send order. Please try again.'),
-          type: 'error',
-        });
-      } finally {
-        setSending(false);
-        setTargetTable(null);
-      }
-    }
-  }, [cart, cartCount]);
-
+  // ── Confirm from the review sheet → actually send ────────────────────────
+  // Branches on what the table turns out to hold, NOT on its cached status:
+  // `status === 'occupied'` can be stale, and a table that lost its order would
+  // otherwise fail to take a new one. Looking for a live order and falling back
+  // to creating one covers both without the waiter needing to know which.
   const handleConfirmSend = useCallback(async () => {
     if (!targetTable) return;
     setSending(true);
     try {
-      // guests_count is 1 because the waiter is no longer asked — the field
-      // remains in the API for Admin/POS, which can still set a real number.
-      await tablesAPI.open(targetTable.id, { guests_count: 1 });
-      await ordersAPI.create({
-        table_id: targetTable.id,
-        items: cart.map(c => ({ menu_item_id: c.menu_item_id, quantity: c.quantity, unit_price: c.price })),
-      });
+      const newItems = cart.map(c => ({
+        menu_item_id: c.menu_item_id,
+        quantity:     c.quantity,
+        unit_price:   c.price,
+      }));
+
+      let active = null;
+      if (targetTable.status === 'occupied') {
+        try {
+          const res = await ordersAPI.getByTable(targetTable.id);
+          active = (res.data || []).filter(o => !['paid', 'cancelled'].includes(o.status))[0] || null;
+        } catch (_) { /* treat as no active order */ }
+      }
+
+      if (!active) {
+        // guests_count is 1 because the waiter is no longer asked — the field
+        // remains in the API for Admin/POS, which can still set a real number.
+        await tablesAPI.open(targetTable.id, { guests_count: 1 });
+        await ordersAPI.create({ table_id: targetTable.id, items: newItems });
+        setDialog({
+          title: t('waitress.menu.orderSent', 'Order Sent!'),
+          message: t('waitress.menu.newOrderCreated', 'New order created for {table}.')
+            .replace('{table}', tableLabel(targetTable, t)),
+          type: 'success',
+        });
+      } else {
+        // PUT with the merged list (existing + new) rather than POST /items:
+        // PUT succeeds on a bill_requested order regardless of which backend
+        // version is deployed, so Add Items keeps working during a rollout.
+        let merged = newItems;
+        try {
+          const fresh = await ordersAPI.getById(active.id);
+          const prior = Array.isArray(fresh?.data?.items) ? fresh.data.items : [];
+          merged = [
+            ...prior.map(it => ({
+              menu_item_id: it.menu_item_id,
+              quantity:     Number(it.quantity || 0),
+              unit_price:   parseFloat(it.unit_price || 0),
+            })),
+            ...newItems,
+          ];
+        } catch (_) { /* fall back to just the new items */ }
+        await ordersAPI.update(active.id, { items: merged });
+        setDialog({
+          title: t('waitress.menu.orderSent', 'Order Sent!'),
+          message: t('waitress.menu.itemsAddedToTable', '{count} item(s) added to Table {table}.')
+            .replace('{count}', String(cartCount))
+            .replace('{table}', tableLabel(targetTable, t)),
+          type: 'success',
+        });
+      }
+
       setCart([]);
-      setShowReview(false);
-      setDialog({
-        title: t('waitress.menu.orderSent', 'Order Sent!'),
-        message: t('waitress.menu.newOrderCreated', 'New order created for {table}.')
-          .replace('{table}', tableLabel(targetTable, t)),
-        type: 'success',
-      });
     } catch (e) {
       setDialog({
         title: t('common.error', 'Error'),
-        message: e?.response?.data?.error || t('waitress.menu.failedToCreateOrder', 'Failed to create order. Please try again.'),
+        message: e?.response?.data?.error || t('waitress.menu.failedToSendOrder', 'Failed to send order. Please try again.'),
         type: 'error',
       });
     } finally {
@@ -582,7 +550,7 @@ export default function WaitressMenu() {
       setShowReview(false);
       setTargetTable(null);
     }
-  }, [targetTable, cart, t]);
+  }, [targetTable, cart, cartCount, t]);
 
   // ── Filtered items ────────────────────────────────────────────────────────
   const filtered = menuItems.filter(i => {
@@ -779,7 +747,9 @@ export default function WaitressMenu() {
         items={cart}
         tableName={targetTable ? tableLabel(targetTable, t) : ''}
         sending={sending}
-        mode="new"
+        // "Add to order" vs "Send to kitchen" — the waiter should be able to
+        // tell from the button which of the two is about to happen.
+        mode={targetTable?.status === 'occupied' ? 'add' : 'new'}
         onConfirm={handleConfirmSend}
         onClose={() => { setShowReview(false); setTargetTable(null); }}
       />

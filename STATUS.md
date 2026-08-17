@@ -2978,3 +2978,9 @@ open is listed at the end of the SESSIONS.md entry for this date.
 - NEEDS POS REBUILD: printRequestedBills() + getReceiptSettings() in pos-app/main.js and the
   isBill branch in printEngine.js — bills only print once the POS is rebuilt.
 - Bill printing uses the RECEIPT printer, not the kitchen one. Table intentionally stays open.
+
+### 2026-08-17 — Android review-sheet fix CONFIRMED WORKING by owner
+All 8 Android items done and verified on device. Outstanding deploys for the Android work:
+- RENDER: backend/routes/tables.js (notification translation keys). Migration already applied.
+- POS REBUILD: printRequestedBills() + getReceiptSettings() in main.js, isBill in printEngine.js —
+  waiter bill requests will not print until the POS is rebuilt.

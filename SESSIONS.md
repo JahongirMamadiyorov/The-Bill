@@ -4680,3 +4680,28 @@ who orders more and asks again gets an updated bill rather than silence.
 
 **Verified:** all 11 touched files parse; i18n at 1853 keys per locale, identical sets, zero
 referenced-but-missing.
+
+### Follow-up: review sheet skipped when adding to an existing order
+
+Reported: from the Menu tab, picking an OCCUPIED table sent straight to the kitchen with no review.
+Correct — `handleTableSelect` only wired the review into the FREE-table branch; the occupied branch
+did all its API work inline in the picker handler. Restructured so picking a table only records the
+target and opens the review, and `handleConfirmSend` branches afterwards on what the table actually
+holds (not its cached `status`, which can be stale). Button reads "Add to order" vs "Send to
+kitchen" so the waiter can see which is about to happen.
+
+**Then it appeared not to work, and the reason was not the code.** Fast Refresh does not reliably
+apply changes that alter hooks, and this edit changed `useCallback` dependencies. A full reload
+with `--reset-cache` fixed it. Owner confirmed working.
+
+**Two process failures of mine worth recording:**
+
+1. I reported "removed unused GuestCountSheet" when the script had deleted NOTHING — the component
+   was still in the file. I trusted the script's own success message instead of verifying.
+2. Cleaning it up afterwards, my brace-matching deletion started at the destructuring braces in the
+   function signature, removed one line, and left an orphaned `) {` with a dangling body. The file
+   stopped parsing. Caught by the parser check and repaired.
+
+Both were text-manipulation scripts reporting success they had not earned. The parse check is what
+caught the second; nothing caught the first except reading the file. **Verify the file, not the
+script's output.**
