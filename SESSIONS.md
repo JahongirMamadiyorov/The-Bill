@@ -4705,3 +4705,61 @@ with `--reset-cache` fixed it. Owner confirmed working.
 Both were text-manipulation scripts reporting success they had not earned. The parse check is what
 caught the second; nothing caught the first except reading the file. **Verify the file, not the
 script's output.**
+
+## 2026-08-17 — POS cashier edit grid: photos + inline stepper
+
+Owner: on the cashier's "Add items to Order #N" grid the dishes had no photos, and the ADD button
+looked identical whether an item was on the order once, three times, or not at all — so a cashier
+adding to an existing order could neither see what they were picking nor tell that the tap had
+registered.
+
+The POS Menu screen already had exactly the right card (photo, in-cart badge, green border,
+stepper); the edit grid had never been given it. Ported that card into BOTH edit grids —
+`pos/TablesScreen.jsx` and `pos/OrdersScreen.jsx` — rather than only the one in the screenshot,
+since the two edit modes are meant to be identical and would otherwise drift.
+
+Card now shows: 96px photo via `localPhotoSrc` (the app-photo:// disk cache, so no re-fetch from
+Render), an ImageOff placeholder when a dish has none, a quantity badge and green border once the
+item is on the order, and −/qty/+ replacing ADD at that point. Weighed goods keep going through
+the amount picker via the existing editAdd/editDec, so kg/l items are unaffected.
+
+Verified both files parse and that every helper the ported block needs (editAdd, editDec,
+editItems, StepBtn, formatQty, localPhotoSrc) exists in both.
+
+## 2026-08-17 — Table reservations from the cashier POS
+
+Owner: add a reserve function on the cashier Tables page, below "Start an order on Menu".
+Decisions: name + phone + date + time; a reserved table offers Seat guests or Cancel.
+
+**Nothing new was needed in the database.** `restaurant_tables` already carries
+`reservation_guest/phone/date/time` and a 'reserved' status — reservations live on the table row,
+there is no bookings table. The PowerSync schema and sync rules already include those columns, so
+the POS reads them locally with no rules change.
+
+**Backend: two narrow new routes rather than widening the existing one.**
+`PUT /api/tables/:id` already accepts the reservation fields, but it is restricted to
+owner/admin/waitress — a cashier would get 403 — and it also accepts name, capacity, section and
+shape, which are floor-layout fields a cashier has no business changing. Widening its role list to
+let cashiers reserve would have handed them the whole table editor. So:
+
+- `PUT /:id/reserve` — sets status + the four reservation fields, nothing else. Requires a guest
+  name (a booking nobody can be called by is not actionable). Returns 409 TABLE_OCCUPIED rather
+  than reserving a table whose guests are still sitting there, which would hide their live order.
+- `PUT /:id/unreserve` — only acts `WHERE status = 'reserved'`, so a mistaken tap cannot free a
+  table that has since been seated and would strand its order off the floor plan.
+
+Both are declared BEFORE the generic `/:id` route, or Express would match that first.
+
+**POS:** `Empty` gained an optional secondary action and an `extra` slot. A free table offers
+"Reserve table"; a reserved one shows who it is held for (name, phone, date · time) above the
+buttons — the cashier needs that before deciding anything — with "Cancel reservation" in a quieter
+outlined style. Seating is the existing primary action (start their order).
+
+The modal defaults the date to today and the time to the next half hour, since a booking taken at
+the till is nearly always for the same evening. Only the name is required.
+
+**Caught during the i18n pass:** my new keys duplicated 'Phone' and 'Reserved', which already
+existed. The file's own header warns a duplicate silently wins or loses by position. Removed mine
+and, more importantly, found the existing translation used "bron" for reservations while I had
+written "band" — which in this app means OCCUPIED, the neighbouring status. Aligned all seven
+strings to "bron" so the terminology matches what the rest of the screen already says.

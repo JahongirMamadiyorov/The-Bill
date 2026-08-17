@@ -2984,3 +2984,15 @@ All 8 Android items done and verified on device. Outstanding deploys for the And
 - RENDER: backend/routes/tables.js (notification translation keys). Migration already applied.
 - POS REBUILD: printRequestedBills() + getReceiptSettings() in main.js, isBill in printEngine.js —
   waiter bill requests will not print until the POS is rebuilt.
+
+### 2026-08-17 — POS edit grid restyled (needs POS rebuild)
+- pos/TablesScreen.jsx + pos/OrdersScreen.jsx: edit-mode menu cards now match the Menu screen —
+  photo, in-order badge, green border, inline -/qty/+ stepper.
+- Ships with the same `npm run build:win` as the bill-printing work.
+
+### 2026-08-17 — cashier table reservations DONE (both deploys needed)
+- RENDER: PUT /api/tables/:id/reserve + /unreserve (new, cashier-callable). Declared before the
+  generic /:id route — keep them there.
+- POS REBUILD: TablesScreen reserve button, reservation details panel, ReserveModal, i18n.
+- No migration: restaurant_tables already had reservation_guest/phone/date/time + 'reserved'.
+- Do NOT widen `PUT /api/tables/:id` to cashiers — it also edits name/capacity/section/shape.

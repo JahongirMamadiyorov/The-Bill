@@ -65,6 +65,20 @@ const UZ = {
   'Syncing…': 'Sinxronlanmoqda…',
   'Offline': 'Oflayn',
 
+  // ── Table reservations (TablesScreen.jsx, added 2026-08-17) ───────────────
+  'Reserve table': 'Stolni bron qilish',
+  'Reserve': 'Bron qilish',
+  'Cancel reservation': 'Bronni bekor qilish',
+  'Table reserved': 'Stol bron qilindi',
+  'Reservation cancelled': 'Bron bekor qilindi',
+  'Could not reserve this table': 'Bu stolni bron qilib bo‘lmadi',
+  'Could not cancel the reservation': 'Bronni bekor qilib bo‘lmadi',
+  'Guest name': 'Mehmon ismi',
+  'Who is the table for?': 'Stol kim uchun?',
+  'Date': 'Sana',
+  'Time': 'Vaqt',
+  'Saving…': 'Saqlanmoqda…',
+
   // ── Working hours banner (PosShell.jsx) ───────────────────────────────────
   // Shown only when the restaurant HAS configured hours and is currently
   // outside them. Deliberately reassuring rather than alarming: nothing is

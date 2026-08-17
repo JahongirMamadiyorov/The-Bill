@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Minus, Plus, X, Printer, Loader2, CheckCircle2, AlertCircle, Eye, ArrowLeftRight,
+  Minus, Plus, X, Printer, Loader2, CheckCircle2, AlertCircle, Eye, ArrowLeftRight, ImageOff,
 } from 'lucide-react';
 import { camelizeRows } from '../../lib/case.js';
 import { T, card, pill, statusPill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
@@ -536,21 +536,69 @@ export default function OrdersScreen({ user, settings, search, lang }) {
                   .filter(m => m.isAvailable !== false)
                   .filter(m => !editCat || m.categoryId === editCat)
                   .map(m => (
-                    <div key={m.id} style={{ ...card, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                        <div style={{ fontSize: 12.5, fontWeight: 800, color: T.greenDark, marginTop: 2 }}>
-                          {money(m.price)}{unitSuffix(m) ? ` / ${unitSuffix(m)}` : ''}
+                    /* Same card as the Menu screen's grid — photo, in-order
+                       badge, and a stepper once the item is on the order.
+                       Previously this was name + price + a permanent ADD
+                       button, so a cashier adding to an existing order could
+                       not see the dish they were picking and, having tapped
+                       ADD, got no feedback that anything had happened: the
+                       button looked identical whether the item was on the
+                       order once, three times or not at all. */
+                    (() => {
+                      const onOrder = editItems.find(x => x.menuItemId === m.id)?.qty || 0;
+                      return (
+                        <div key={m.id} style={{
+                          ...card, padding: 12, display: 'flex', flexDirection: 'column', gap: 8,
+                          border: onOrder ? `2px solid ${T.green}` : '2px solid transparent',
+                        }}>
+                          <div style={{
+                            height: 96, borderRadius: 12, overflow: 'hidden', background: T.chipBg,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+                          }}>
+                            {m.imageUrl
+                              ? <img src={localPhotoSrc(m.imageUrl)} alt={m.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <ImageOff size={26} color={T.faint} strokeWidth={1.5} />}
+                            {onOrder > 0 && (
+                              <span style={{
+                                position: 'absolute', top: 8, right: 8, minWidth: 22, height: 22, padding: '0 6px',
+                                borderRadius: T.rPill, background: T.green, color: '#fff', fontSize: 11, fontWeight: 800,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                {formatQty(m, onOrder)}
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 800, color: T.greenDark, marginTop: 2 }}>
+                              {money(m.price)}{unitSuffix(m) ? ` / ${unitSuffix(m)}` : ''}
+                            </div>
+                          </div>
+
+                          {onOrder > 0 ? (
+                            <div style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              background: T.greenTint, borderRadius: T.rBtn, padding: '5px 8px',
+                            }}>
+                              <StepBtn onClick={() => editDec(m.id)}><Minus size={13} strokeWidth={2.5} /></StepBtn>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: T.greenDark }}>
+                                {formatQty(m, onOrder)}
+                              </span>
+                              <StepBtn primary onClick={() => editAdd(m)}><Plus size={13} strokeWidth={2.5} /></StepBtn>
+                            </div>
+                          ) : (
+                            <button onClick={() => editAdd(m)} style={{
+                              border: 'none', borderRadius: T.rBtn, background: T.green, color: '#fff',
+                              padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                            }}>
+                              <Plus size={14} strokeWidth={2.5} /> {t('ADD', lang)}
+                            </button>
+                          )}
                         </div>
-                      </div>
-                      <button onClick={() => editAdd(m)} style={{
-                        border: 'none', borderRadius: T.rBtn, background: T.green, color: '#fff',
-                        padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      }}>
-                        <Plus size={14} strokeWidth={2.5} /> {t('ADD', lang)}
-                      </button>
-                    </div>
+                      );
+                    })()
                   ))}
               </div>
             </div>

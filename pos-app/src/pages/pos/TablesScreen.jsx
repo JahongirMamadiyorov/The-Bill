@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Loader2, Printer, CheckCircle2, AlertCircle, Minus, Plus, X, ArrowLeftRight,
+  Loader2, Printer, CheckCircle2, AlertCircle, Minus, Plus, X, ArrowLeftRight, ImageOff,
 } from 'lucide-react';
 import { camelizeRows } from '../../lib/case.js';
 import { T, card, pill, statusPill, uppercaseLabel, initials, fmtMoney } from './tokens.js';
@@ -11,6 +11,7 @@ import { isWeighedItem, unitSuffix, formatQty } from '../../lib/weighed.js';
 import { t, tt, tableFallbackLabel } from '../../lib/i18n.js';
 import { buildReceiptData } from '../../lib/receipt.js';
 import { mergeOrderItems } from '../../lib/orderItems.js';
+import { localPhotoSrc } from '../../lib/localPhoto.js';
 import useSyncGate from '../../lib/useSyncGate.js';
 import { SyncGate, OfflineBanner } from './SyncGate.jsx';
 
@@ -73,7 +74,42 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
   // type-an-amount flow as Menu's cart, see lib/weighed.js + AmountPickerModal.
   const [amountPicker, setAmountPicker] = useState(null);
 
+  // ── Reservations (2026-08-17) ───────────────────────────────────────────
+  // Held on restaurant_tables itself (reservation_guest/phone/date/time +
+  // status='reserved') — there is no separate bookings table. Writes go
+  // through the narrow PUT /tables/:id/reserve endpoint, which is the only
+  // table route a cashier is allowed to call.
+  const [reserveFor, setReserveFor] = useState(null);   // table being reserved
+
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
+
+  const submitReservation = async (form) => {
+    if (!reserveFor || busy) return;
+    setBusy(true);
+    try {
+      const res = await window.electronAPI.apiPut(`/api/tables/${reserveFor.id}/reserve`, {
+        reservation_guest: form.guest,
+        reservation_phone: form.phone || null,
+        reservation_date:  form.date  || null,
+        reservation_time:  form.time  || null,
+      });
+      if (!res?.ok) { showToast(res?.error || t('Could not reserve this table', lang), false); return; }
+      setReserveFor(null);
+      showToast(t('Table reserved', lang));
+      load();
+    } finally { setBusy(false); }
+  };
+
+  const cancelReservation = async (table) => {
+    if (!table || busy) return;
+    setBusy(true);
+    try {
+      const res = await window.electronAPI.apiPut(`/api/tables/${table.id}/unreserve`, {});
+      if (!res?.ok) { showToast(res?.error || t('Could not cancel the reservation', lang), false); return; }
+      showToast(t('Reservation cancelled', lang));
+      load();
+    } finally { setBusy(false); }
+  };
 
   const load = async (first = false) => {
     try {
@@ -503,21 +539,69 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
                   .filter(m => m.isAvailable !== false)
                   .filter(m => !editCat || m.categoryId === editCat)
                   .map(m => (
-                    <div key={m.id} style={{ ...card, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                        <div style={{ fontSize: 12.5, fontWeight: 800, color: T.greenDark, marginTop: 2 }}>
-                          {money(m.price)}{unitSuffix(m) ? ` / ${unitSuffix(m)}` : ''}
+                    /* Same card as the Menu screen's grid — photo, in-order
+                       badge, and a stepper once the item is on the order.
+                       Previously this was name + price + a permanent ADD
+                       button, so a cashier adding to an existing order could
+                       not see the dish they were picking and, having tapped
+                       ADD, got no feedback that anything had happened: the
+                       button looked identical whether the item was on the
+                       order once, three times or not at all. */
+                    (() => {
+                      const onOrder = editItems.find(x => x.menuItemId === m.id)?.qty || 0;
+                      return (
+                        <div key={m.id} style={{
+                          ...card, padding: 12, display: 'flex', flexDirection: 'column', gap: 8,
+                          border: onOrder ? `2px solid ${T.green}` : '2px solid transparent',
+                        }}>
+                          <div style={{
+                            height: 96, borderRadius: 12, overflow: 'hidden', background: T.chipBg,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+                          }}>
+                            {m.imageUrl
+                              ? <img src={localPhotoSrc(m.imageUrl)} alt={m.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <ImageOff size={26} color={T.faint} strokeWidth={1.5} />}
+                            {onOrder > 0 && (
+                              <span style={{
+                                position: 'absolute', top: 8, right: 8, minWidth: 22, height: 22, padding: '0 6px',
+                                borderRadius: T.rPill, background: T.green, color: '#fff', fontSize: 11, fontWeight: 800,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                {formatQty(m, onOrder)}
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 800, color: T.greenDark, marginTop: 2 }}>
+                              {money(m.price)}{unitSuffix(m) ? ` / ${unitSuffix(m)}` : ''}
+                            </div>
+                          </div>
+
+                          {onOrder > 0 ? (
+                            <div style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              background: T.greenTint, borderRadius: T.rBtn, padding: '5px 8px',
+                            }}>
+                              <StepBtn onClick={() => editDec(m.id)}><Minus size={13} strokeWidth={2.5} /></StepBtn>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: T.greenDark }}>
+                                {formatQty(m, onOrder)}
+                              </span>
+                              <StepBtn primary onClick={() => editAdd(m)}><Plus size={13} strokeWidth={2.5} /></StepBtn>
+                            </div>
+                          ) : (
+                            <button onClick={() => editAdd(m)} style={{
+                              border: 'none', borderRadius: T.rBtn, background: T.green, color: '#fff',
+                              padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                            }}>
+                              <Plus size={14} strokeWidth={2.5} /> {t('ADD', lang)}
+                            </button>
+                          )}
                         </div>
-                      </div>
-                      <button onClick={() => editAdd(m)} style={{
-                        border: 'none', borderRadius: T.rBtn, background: T.green, color: '#fff',
-                        padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: T.font,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      }}>
-                        <Plus size={14} strokeWidth={2.5} /> {t('ADD', lang)}
-                      </button>
-                    </div>
+                      );
+                    })()
                   ))}
               </div>
             </div>
@@ -591,7 +675,35 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
             icon={<TableIcon size={34} strokeWidth={1.5} />}
             title={selTable.name || tableFallbackLabel(selTable.tableNumber, lang)}
             sub={tt(lang, 'No active order — status: {status}', 'Faol buyurtma yo’q — holati: {status}', { status: statusPill(selTable.status || 'free', lang).label })}
+            /* Who the table is being held for. Shown above the buttons because
+               it is the thing a cashier needs before deciding whether to seat
+               someone else — the actions are meaningless without it. */
+            extra={selTable.status === 'reserved' ? (
+              <div style={{
+                marginTop: 6, padding: '10px 14px', borderRadius: T.rCard,
+                background: T.blueBg, color: T.blue, textAlign: 'center',
+                fontFamily: T.font, maxWidth: 260,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{selTable.reservationGuest || t('Reserved', lang)}</div>
+                {selTable.reservationPhone && (
+                  <div style={{ fontSize: 11.5, marginTop: 2 }}>{selTable.reservationPhone}</div>
+                )}
+                {(selTable.reservationDate || selTable.reservationTime) && (
+                  <div style={{ fontSize: 11.5, marginTop: 2 }}>
+                    {[selTable.reservationDate, selTable.reservationTime].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+              </div>
+            ) : null}
             action={{ label: t('Start an order on Menu', lang), onClick: () => setNav('menu') }}
+            /* Free table → offer to hold it. Reserved → offer to release it.
+               Seating the guests is the primary action above (start their
+               order), so this second slot is only ever the opposite action. */
+            action2={selTable.status === 'reserved'
+              ? { label: t('Cancel reservation', lang), onClick: () => cancelReservation(selTable), danger: true }
+              : selTable.status === 'occupied'
+                ? null
+                : { label: t('Reserve table', lang), onClick: () => setReserveFor(selTable) }}
           />
         ) : (
           <>
@@ -789,6 +901,14 @@ export default function TablesScreen({ user, settings, search, setNav, lang }) {
       )}
 
       {/* ══ Amount picker modal (weighed items, edit mode) ══ */}
+      <ReserveModal
+        table={reserveFor}
+        lang={lang}
+        busy={busy}
+        onSubmit={submitReservation}
+        onClose={() => setReserveFor(null)}
+      />
+
       <AmountPickerModal
         picker={amountPicker}
         symbol={symbol}
@@ -831,6 +951,103 @@ function FilterPill({ label, active, onClick }) {
   );
 }
 
+// ── Reserve-table modal ──────────────────────────────────────────────────────
+// Date defaults to today and time to the next round half-hour, because a
+// reservation taken at the till is nearly always for the same evening — the
+// cashier can still change both. Only the guest name is required; a booking
+// with no name is not a booking anyone can act on, whereas a missing phone or
+// time is merely less convenient.
+function ReserveModal({ table, lang, busy, onSubmit, onClose }) {
+  const todayIso = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const nextHalfHour = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 30 - (d.getMinutes() % 30), 0, 0);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const [guest, setGuest] = useState('');
+  const [phone, setPhone] = useState('');
+  const [date,  setDate]  = useState(todayIso());
+  const [time,  setTime]  = useState(nextHalfHour());
+
+  if (!table) return null;
+  const canSave = guest.trim().length > 0 && !busy;
+
+  const field = {
+    width: '100%', padding: '10px 12px', borderRadius: T.rBtn,
+    border: `1px solid ${T.line}`, fontFamily: T.font, fontSize: 13.5,
+    color: T.ink, background: T.surface, boxSizing: 'border-box',
+  };
+  const label = { fontSize: 11, fontWeight: 800, color: T.faint, textTransform: 'uppercase', letterSpacing: 0.4 };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 200, background: T.backdrop,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={busy ? undefined : onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        ...card, borderRadius: T.rCardLg, width: 380, padding: 22,
+        boxShadow: T.modalShadow, fontFamily: T.font,
+        display: 'flex', flexDirection: 'column', gap: 14,
+      }}>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: T.ink }}>{t('Reserve table', lang)}</div>
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2 }}>
+            {table.name || tableFallbackLabel(table.tableNumber, lang)}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <span style={label}>{t('Guest name', lang)}</span>
+          <input autoFocus value={guest} onChange={(e) => setGuest(e.target.value)}
+                 placeholder={t('Who is the table for?', lang)} style={field} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <span style={label}>{t('Phone', lang)}</span>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)}
+                 placeholder="+998 90 000 00 00" style={field} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={label}>{t('Date', lang)}</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={field} />
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span style={label}>{t('Time', lang)}</span>
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={field} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button onClick={onClose} disabled={busy} style={{
+            flex: 1, padding: '11px 0', borderRadius: T.rBtn, border: `1px solid ${T.line}`,
+            background: T.surface, color: T.ink, fontSize: 13, fontWeight: 700,
+            cursor: busy ? 'default' : 'pointer', fontFamily: T.font,
+          }}>
+            {t('Cancel', lang)}
+          </button>
+          <button
+            onClick={() => onSubmit({ guest: guest.trim(), phone: phone.trim(), date, time })}
+            disabled={!canSave}
+            style={{
+              flex: 1.4, padding: '11px 0', borderRadius: T.rBtn, border: 'none',
+              background: canSave ? T.green : T.line, color: '#fff',
+              fontSize: 13, fontWeight: 800, cursor: canSave ? 'pointer' : 'default',
+              fontFamily: T.font,
+            }}>
+            {busy ? t('Saving…', lang) : t('Reserve', lang)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StepBtn({ children, onClick, primary }) {
   return (
     <button onClick={onClick} style={{
@@ -844,12 +1061,17 @@ function StepBtn({ children, onClick, primary }) {
   );
 }
 
-function Empty({ icon, title, sub, action }) {
+// `action` is the primary suggestion, `action2` an optional secondary one
+// stacked beneath it (added 2026-08-17 for Reserve). Secondary is deliberately
+// quieter — outlined rather than filled — so the common action still reads
+// first on a screen a cashier scans dozens of times an hour.
+function Empty({ icon, title, sub, action, action2, extra }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.faint, gap: 8 }}>
       {icon}
       <div style={{ fontSize: 13.5, fontWeight: 700, color: T.muted }}>{title}</div>
       <div style={{ fontSize: 11.5 }}>{sub}</div>
+      {extra}
       {action && (
         <button onClick={action.onClick} style={{
           marginTop: 10, padding: '9px 18px', borderRadius: T.rBtn, border: 'none',
@@ -857,6 +1079,16 @@ function Empty({ icon, title, sub, action }) {
           cursor: 'pointer', fontFamily: T.font,
         }}>
           {action.label}
+        </button>
+      )}
+      {action2 && (
+        <button onClick={action2.onClick} style={{
+          marginTop: 2, padding: '9px 18px', borderRadius: T.rBtn,
+          border: `1px solid ${action2.danger ? T.coral + '55' : T.line}`,
+          background: T.surface, color: action2.danger ? T.coral : T.ink,
+          fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: T.font,
+        }}>
+          {action2.label}
         </button>
       )}
     </div>
