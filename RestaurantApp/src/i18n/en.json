@@ -65,7 +65,10 @@
     "noResults": "No results found",
     "confirmDelete": "Are you sure you want to delete this?",
     "actionCannotBeUndone": "This action cannot be undone.",
-    "reason": "Reason"
+    "reason": "Reason",
+    "editOrder": "Edit Order",
+    "staff": "Staff",
+    "table": "Table"
   },
   "login": {
     "title": "The Bill",
@@ -216,7 +219,8 @@
     "served": "Served",
     "billRequested": "Bill Requested",
     "paid": "Paid",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "closed": "Closed"
   },
   "orderTypes": {
     "dineIn": "Dine-In",
@@ -694,7 +698,14 @@
       "selectTable": "Select Table",
       "noTablesAvailable": "No tables available",
       "menuLabel": "Menu",
-      "off": "OFF"
+      "off": "OFF",
+      "amount": "Amount",
+      "enterAmount": "Enter amount",
+      "price": "Price"
+    },
+    "editOrder": {
+      "editOrderTitle": "Edit Order",
+      "editPaidOrder": "Edit Paid Order"
     }
   },
   "owner": {
@@ -956,10 +967,28 @@
       "thisMonth": "This Month",
       "lastMonth": "Last Month",
       "monthNames": [
-        "January","February","March","April","May","June",
-        "July","August","September","October","November","December"
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
       ],
-      "dayHeaders": ["Mo","Tu","We","Th","Fr","Sa","Su"],
+      "dayHeaders": [
+        "Mo",
+        "Tu",
+        "We",
+        "Th",
+        "Fr",
+        "Sa",
+        "Su"
+      ],
       "editExpenseTitle": "Edit Expense",
       "addLoanTitle": "Add Loan",
       "makePaymentTitle": "Make Payment",
@@ -1087,7 +1116,10 @@
       "noPhone": "No phone",
       "paymentFailed": "Payment failed",
       "couldNotLoadOrder": "Could not load order details",
-      "orderSentToKitchen": "Order sent to kitchen!"
+      "orderSentToKitchen": "Order sent to kitchen!",
+      "addPaymentNotes": "Add payment notes…",
+      "paid": "Paid",
+      "splitTotal": "Split total"
     },
     "tables": {
       "title": "Cashier Tables",
@@ -1214,7 +1246,17 @@
       "thisMonth": "This Month",
       "lastMonth": "Last Month",
       "allTime": "All Time",
-      "apply": "Apply"
+      "apply": "Apply",
+      "dates": "Dates",
+      "dueDate": "Due date",
+      "markAsPaid": "Mark as Paid",
+      "noItemsFound": "No items to show",
+      "notes": "Notes",
+      "orderInfo": "Order info",
+      "orderItems": "Order items",
+      "paidOn": "Paid on",
+      "paymentMethod": "Payment method",
+      "totalAmount": "Total amount"
     },
     "profile": {
       "ordersToday": "Orders Today",
@@ -1368,7 +1410,8 @@
       "all": "All",
       "noTablesSubtitle": "Tables will appear once added by admin",
       "freeCount": "{count} Free",
-      "occupiedCount": "{count} Occupied"
+      "occupiedCount": "{count} Occupied",
+      "mainFloor": "Main Floor"
     },
     "orders": {
       "title": "Orders",
@@ -1471,7 +1514,8 @@
       "newOrderCreatedFor": "New order created for Table {table} ({count} guest(s)).",
       "failedToSendOrder": "Failed to send order. Please try again.",
       "failedToCreateOrder": "Failed to create order. Please try again.",
-      "selectGuestRange": "Select number of guests (1–20)"
+      "selectGuestRange": "Select number of guests (1–20)",
+      "newOrderCreated": "New order created for {table}."
     },
     "notifications": {
       "title": "Notifications",
@@ -1598,6 +1642,14 @@
       "failedUpdateProfile": "Failed to update profile.",
       "requiredTitle": "Required",
       "errorTitle": "Error"
+    },
+    "review": {
+      "title": "Check the order",
+      "titleAdd": "Check the items to add",
+      "itemCount": "{n} item(s)",
+      "back": "Back",
+      "confirm": "Send to kitchen",
+      "confirmAdd": "Add to order"
     }
   },
   "kitchen": {
@@ -1877,7 +1929,9 @@
     "notesPlaceholder": "Add internal notes...",
     "paidOrderUpdated": "Paid order updated",
     "failedUpdatePaid": "Failed to update paid order",
-    "cancelOrderTitle": "Cancel Order"
+    "cancelOrderTitle": "Cancel Order",
+    "amount": "Amount",
+    "invalidAmount": "Enter a valid amount"
   },
   "language": {
     "title": "Language",
@@ -2069,7 +2123,8 @@
     "vat": "VAT",
     "selectTable": "Select table",
     "fullName": "Full name",
-    "leaveBlankKeepCurrent": "Leave blank to keep current"
+    "leaveBlankKeepCurrent": "Leave blank to keep current",
+    "orderNotes": "Add order notes..."
   },
   "labels": {
     "amountSom": "Amount (so'm)",
@@ -2093,5 +2148,15 @@
     "reasonForCancellation": "Reason for cancellation",
     "goBack": "Go Back",
     "cancelOrderShort": "Cancel Order"
+  },
+  "notif": {
+    "tableOpened": {
+      "title": "Table Opened",
+      "body": "{table} is now occupied."
+    },
+    "tableClosed": {
+      "title": "Table Closed",
+      "body": "{table} is now free."
+    }
   }
 }

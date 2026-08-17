@@ -65,7 +65,10 @@
     "noResults": "Natija topilmadi",
     "confirmDelete": "Haqiqatan ham o'chirmoqchimisiz?",
     "actionCannotBeUndone": "Bu amalni qaytarib bo'lmaydi.",
-    "reason": "Sabab"
+    "reason": "Sabab",
+    "editOrder": "Buyurtmani tahrirlash",
+    "staff": "Xodim",
+    "table": "Stol"
   },
   "login": {
     "title": "The Bill",
@@ -216,7 +219,8 @@
     "served": "Berilgan",
     "billRequested": "Hisob so'ralgan",
     "paid": "To'langan",
-    "cancelled": "Bekor qilingan"
+    "cancelled": "Bekor qilingan",
+    "closed": "Yopiq"
   },
   "orderTypes": {
     "dineIn": "Zalda",
@@ -694,7 +698,14 @@
       "selectTable": "Stol tanlash",
       "noTablesAvailable": "Stol mavjud emas",
       "menuLabel": "Menyu",
-      "off": "chegirma"
+      "off": "chegirma",
+      "amount": "Summa",
+      "enterAmount": "Summani kiriting",
+      "price": "Narxi"
+    },
+    "editOrder": {
+      "editOrderTitle": "Buyurtmani tahrirlash",
+      "editPaidOrder": "To'langan buyurtmani tahrirlash"
     }
   },
   "owner": {
@@ -956,10 +967,28 @@
       "thisMonth": "Shu oy",
       "lastMonth": "O'tgan oy",
       "monthNames": [
-        "Yanvar","Fevral","Mart","Aprel","May","Iyun",
-        "Iyul","Avgust","Sentabr","Oktabr","Noyabr","Dekabr"
+        "Yanvar",
+        "Fevral",
+        "Mart",
+        "Aprel",
+        "May",
+        "Iyun",
+        "Iyul",
+        "Avgust",
+        "Sentabr",
+        "Oktabr",
+        "Noyabr",
+        "Dekabr"
       ],
-      "dayHeaders": ["Du","Se","Ch","Pa","Ju","Sh","Ya"],
+      "dayHeaders": [
+        "Du",
+        "Se",
+        "Ch",
+        "Pa",
+        "Ju",
+        "Sh",
+        "Ya"
+      ],
       "editExpenseTitle": "Xarajatni tahrirlash",
       "addLoanTitle": "Qarz qo'shish",
       "makePaymentTitle": "To'lov qilish",
@@ -1087,7 +1116,10 @@
       "noPhone": "Telefon yo'q",
       "paymentFailed": "To'lov amalga oshmadi",
       "couldNotLoadOrder": "Buyurtma tafsilotlarini yuklab bo'lmadi",
-      "orderSentToKitchen": "Buyurtma oshxonaga yuborildi!"
+      "orderSentToKitchen": "Buyurtma oshxonaga yuborildi!",
+      "addPaymentNotes": "To'lov izohini qo'shing…",
+      "paid": "To'langan",
+      "splitTotal": "Bo'lingan jami"
     },
     "tables": {
       "title": "Kassir - Stollar",
@@ -1214,7 +1246,17 @@
       "thisMonth": "Shu oy",
       "lastMonth": "O'tgan oy",
       "allTime": "Barcha vaqt",
-      "apply": "Qo'llash"
+      "apply": "Qo'llash",
+      "dates": "Sanalar",
+      "dueDate": "To'lov muddati",
+      "markAsPaid": "To'landi deb belgilash",
+      "noItemsFound": "Ko'rsatadigan mahsulot yo'q",
+      "notes": "Izohlar",
+      "orderInfo": "Buyurtma ma'lumoti",
+      "orderItems": "Buyurtma tarkibi",
+      "paidOn": "To'langan sana",
+      "paymentMethod": "To'lov turi",
+      "totalAmount": "Umumiy summa"
     },
     "profile": {
       "ordersToday": "Bugungi buyurtmalar",
@@ -1368,7 +1410,8 @@
       "all": "Hammasi",
       "noTablesSubtitle": "Administrator tomonidan qo'shilgandan keyin stollar ko'rinadi",
       "freeCount": "{count} bo'sh",
-      "occupiedCount": "{count} band"
+      "occupiedCount": "{count} band",
+      "mainFloor": "Asosiy zal"
     },
     "orders": {
       "title": "Buyurtmalar",
@@ -1471,7 +1514,8 @@
       "newOrderCreatedFor": "{table}-stol uchun yangi buyurtma yaratildi ({count} ta mehmon).",
       "failedToSendOrder": "Buyurtma yuborishda xatolik. Qayta urinib ko'ring.",
       "failedToCreateOrder": "Buyurtma yaratishda xatolik. Qayta urinib ko'ring.",
-      "selectGuestRange": "Mehmonlar sonini tanlang (1–20)"
+      "selectGuestRange": "Mehmonlar sonini tanlang (1–20)",
+      "newOrderCreated": "{table} uchun yangi buyurtma yaratildi."
     },
     "notifications": {
       "title": "Bildirishnomalar",
@@ -1598,6 +1642,14 @@
       "failedUpdateProfile": "Profilni yangilashda xatolik.",
       "requiredTitle": "Majburiy",
       "errorTitle": "Xatolik"
+    },
+    "review": {
+      "title": "Buyurtmani tekshiring",
+      "titleAdd": "Qo'shiladigan taomlarni tekshiring",
+      "itemCount": "{n} ta taom",
+      "back": "Orqaga",
+      "confirm": "Oshxonaga yuborish",
+      "confirmAdd": "Buyurtmaga qo'shish"
     }
   },
   "kitchen": {
@@ -1877,7 +1929,9 @@
     "notesPlaceholder": "Ichki izoh qo'shish...",
     "paidOrderUpdated": "To'langan buyurtma yangilandi",
     "failedUpdatePaid": "To'langan buyurtmani yangilashda xatolik",
-    "cancelOrderTitle": "Buyurtmani bekor qilish"
+    "cancelOrderTitle": "Buyurtmani bekor qilish",
+    "amount": "Summa",
+    "invalidAmount": "To'g'ri summa kiriting"
   },
   "language": {
     "title": "Til",
@@ -2069,7 +2123,8 @@
     "vat": "QQS",
     "selectTable": "Stolni tanlang",
     "fullName": "To'liq ismi",
-    "leaveBlankKeepCurrent": "Joriysini saqlash uchun bo'sh qoldiring"
+    "leaveBlankKeepCurrent": "Joriysini saqlash uchun bo'sh qoldiring",
+    "orderNotes": "Buyurtma izohini qo'shing..."
   },
   "labels": {
     "amountSom": "Miqdor (so'm)",
@@ -2093,5 +2148,15 @@
     "reasonForCancellation": "Bekor qilish sababi",
     "goBack": "Orqaga qaytish",
     "cancelOrderShort": "Buyurtmani bekor qilish"
+  },
+  "notif": {
+    "tableOpened": {
+      "title": "Stol ochildi",
+      "body": "{table} band qilindi."
+    },
+    "tableClosed": {
+      "title": "Stol yopildi",
+      "body": "{table} bo'shadi."
+    }
   }
 }

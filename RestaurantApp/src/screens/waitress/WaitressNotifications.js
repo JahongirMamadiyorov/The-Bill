@@ -12,6 +12,34 @@ import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 
+// Render a notification in the reader's language.
+//
+// Rows written from 2026-08-17 carry `title_key`/`body_key` plus `body_params`;
+// the stored `title`/`body` remain as the English fallback for anything written
+// before that, and for clients that don't know about the keys. So: translate
+// when we can, show what the server said when we can't — never a blank line and
+// never a raw dotted key.
+function notifText(item, t) {
+  const fill = (str) => {
+    const params = item.body_params && typeof item.body_params === 'object' ? item.body_params : {};
+    return Object.keys(params).reduce(
+      (acc, k) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), String(params[k] ?? '')),
+      String(str ?? ''),
+    );
+  };
+  const tr = (key, fallback) => {
+    if (!key) return fallback;
+    const out = t(key, fallback);
+    // LanguageContext returns the key itself when it has no entry — treat that
+    // as "not translated" rather than printing "notif.tableOpened.title".
+    return (!out || out === key) ? fallback : out;
+  };
+  return {
+    title: tr(item.title_key, item.title),
+    body:  fill(tr(item.body_key, item.body)),
+  };
+}
+
 // ── Types this waitress should see (hide cashier/admin-only types) ───────────
 const WAITRESS_ALLOWED_TYPES = new Set([
   'order_ready',
@@ -61,6 +89,7 @@ const smartTimestamp = (isoStr, tFn) => {
 function NotifCard({ item, onPress, isNew }) {
   const { t } = useTranslation();
   const cfg = TYPE_CONFIG[item.type] || TYPE_CONFIG.default;
+  const txt = notifText(item, t);
 
   return (
     <TouchableOpacity
@@ -80,12 +109,12 @@ function NotifCard({ item, onPress, isNew }) {
       <View style={styles.cardContent}>
         <View style={styles.cardTop}>
           <Text style={[styles.cardTitle, isNew && styles.cardTitleUnread]} numberOfLines={1}>
-            {item.title}
+            {txt.title}
           </Text>
           {isNew && <View style={[styles.unreadDot, { backgroundColor: cfg.color }]} />}
         </View>
-        {item.body ? (
-          <Text style={styles.cardBody} numberOfLines={2}>{item.body}</Text>
+        {txt.body ? (
+          <Text style={styles.cardBody} numberOfLines={2}>{txt.body}</Text>
         ) : null}
         <Text style={styles.cardTime}>{smartTimestamp(item.created_at, t)}</Text>
       </View>

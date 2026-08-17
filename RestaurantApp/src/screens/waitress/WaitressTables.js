@@ -14,7 +14,9 @@ import { tablesAPI, menuAPI, ordersAPI, notificationsAPI } from '../../api/clien
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, shadow, typography, topInset, useLayout } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import OrderReviewSheet from '../../components/OrderReviewSheet';
 import { useTranslation } from '../../context/LanguageContext';
+import { tableLabel } from '../../utils/tableLabel';
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,42 +184,13 @@ function TableCard({ table, onPress }) {
   );
 }
 
-// ── Guest count picker ───────────────────────────────────────────────────────
-function GuestCountModal({ visible, table, onConfirm, onClose }) {
-  const { t } = useTranslation();
-  const [count, setCount] = useState(2);
-  useEffect(() => { if (visible) setCount(2); }, [visible]);
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
-        <Text style={styles.sheetSub}>{t('waitress.tables.howManyGuests','How many guests?')}</Text>
-        <View style={styles.guestRow}>
-          <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))} style={styles.guestBtn}>
-            <MaterialIcons name="remove" size={24} color={colors.primary} />
-          </TouchableOpacity>
-          <Text style={styles.guestCount}>{count}</Text>
-          <TouchableOpacity onPress={() => setCount(c => Math.min(20, c + 1))} style={styles.guestBtn}>
-            <MaterialIcons name="add" size={24} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-        <Text style={{ color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl, fontSize: 13 }}>
-          {t('waitress.tables.selectGuestsHint','Select number of guests (1-20)')}
-        </Text>
-        <Btn label={t('waitress.tables.continueToOrder','Continue to Order')} icon="arrow-forward" onPress={() => onConfirm(count)} />
-      </View>
-    </Modal>
-  );
-}
-
 // ── Menu order modal (create new OR add items) ───────────────────────────────
-function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categories, menuItems, onSend, onClose }) {
+function MenuOrderModal({ visible, table, mode, existingOrder, categories, menuItems, onSend, onClose }) {
   const { t } = useTranslation();
   const [selCat,      setSelCat]      = useState(null);
   const [cart,        setCart]        = useState([]);
   const [sending,     setSending]     = useState(false);
+  const [reviewing,   setReviewing]   = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialog,      setDialog]      = useState(null);
   const [amountPicker, setAmountPicker] = useState(null); // { item, value }
@@ -299,16 +272,24 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
     setAmountPicker(null);
   };
 
-  const handleSend = async () => {
+  // Send now opens the review sheet rather than firing the order. confirmSend
+  // below is what actually sends. See components/OrderReviewSheet for why.
+  const handleSend = () => {
     if (cart.length === 0) {
       setDialog({ title: t('waitress.tables.emptyCart','Empty Cart'), message: t('waitress.tables.emptyCartMsg','Add at least one item.'), type: 'warning' });
       return;
     }
+    setReviewing(true);
+  };
+
+  const confirmSend = async () => {
     setSending(true);
     try {
       await onSend(cart);
+      setReviewing(false);
       onClose();
     } catch (e) {
+      setReviewing(false);
       setDialog({ title: t('common.error','Error'), message: e.response?.data?.error || e.message || t('waitress.tables.failedSendOrder','Failed to send order'), type: 'error' });
     } finally { setSending(false); }
   };
@@ -323,9 +304,8 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
           </TouchableOpacity>
           <View>
             <Text style={styles.modalTitle}>
-              {mode === 'add' ? t('waitress.tables.addMoreItems','Add More Items') : `${t('waitress.tables.seatTablePrefix','Table')} ${table?.table_number || table?.name}`}
+              {mode === 'add' ? t('waitress.tables.addMoreItems','Add More Items') : tableLabel(table, t)}
             </Text>
-            {mode === 'new' && <Text style={styles.modalSub}>{guestCount} {guestCount !== 1 ? t('waitress.tables.guestPlural','guests') : t('waitress.tables.guestSingular','guest')}</Text>}
           </View>
           <View style={{ width: 36 }} />
         </View>
@@ -467,6 +447,17 @@ function MenuOrderModal({ visible, table, guestCount, mode, existingOrder, categ
 
         <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
 
+        {/* ── Review before it reaches the kitchen ────────────────────── */}
+        <OrderReviewSheet
+          visible={reviewing}
+          items={cart}
+          tableName={tableLabel(table, t)}
+          sending={sending}
+          mode={mode}
+          onConfirm={confirmSend}
+          onClose={() => setReviewing(false)}
+        />
+
         {/* ── Amount picker modal (kg / l weighed items) ──────────────── */}
         <Modal
           visible={!!amountPicker}
@@ -586,7 +577,7 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
     setDialog({
       title: t('waitress.tables.requestBillConfirm','Request Bill?'),
       message: t('waitress.tables.requestBillMessage','Table {name}\nTotal: {amount}\n\nSend bill request to cashier?')
-        .replace('{name}', String(table?.table_number || table?.name || ''))
+        .replace('{name}', tableLabel(table, t))
         .replace('{amount}', fmtMoney(order.total_amount)),
       type: 'info',
       confirmLabel: t('waitress.tables.requestBill','Request Bill'),
@@ -616,7 +607,7 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
             <MaterialIcons name="arrow-back" size={22} color={colors.textDark} />
           </TouchableOpacity>
           <View>
-            <Text style={styles.modalTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
+            <Text style={styles.modalTitle}>{tableLabel(table, t)}</Text>
             <Text style={styles.modalSub}>
               {order.guest_count ? `${order.guest_count} ${t('waitress.tables.guestsSuffix','guests')} · ` : ''}
               {fmtElapsed(table?.opened_at, t) || fmtElapsed(order.created_at, t)}
@@ -723,7 +714,7 @@ function ReservationModal({ visible, table, onSeatGuests, onClose }) {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
+        <Text style={styles.sheetTitle}>{tableLabel(table, t)}</Text>
         <View style={{ backgroundColor: '#DBEAFE', borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.xl }}>
           <Text style={{ color: '#1D4ED8', fontWeight: '700', fontSize: 15 }}>{t('waitress.tables.reservedStatus','Reserved')}</Text>
           <Text style={{ color: '#1D4ED8', fontSize: 13, marginTop: 4 }}>{table?.capacity} {t('waitress.tables.seatTableSuffix','seat table')}</Text>
@@ -750,7 +741,7 @@ function CleaningModal({ visible, table, onMarkClean, onClose }) {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>{t('waitress.tables.seatTablePrefix','Table')} {table?.table_number || table?.name}</Text>
+        <Text style={styles.sheetTitle}>{tableLabel(table, t)}</Text>
         {/* Status info */}
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.xl, flexDirection: 'row', alignItems: 'center' }}>
           <MaterialIcons name="cleaning-services" size={22} color="#D97706" style={{ marginRight: spacing.md }} />
@@ -796,10 +787,10 @@ export default function WaitressTables() {
   const [menuItems,  setMenuItems]  = useState([]);
   const [menuLoaded, setMenuLoaded] = useState(false);
 
-  // Flow phase: 'idle' | 'guest_count' | 'order' | 'active_order' | 'reservation'
+  // Flow phase: 'idle' | 'order' | 'active_order' | 'reservation'
+  // ('guest_count' removed 2026-08-17 — a free table goes straight to the menu)
   const [phase,       setPhase]      = useState('idle');
   const [flowTable,   setFlowTable]  = useState(null);
-  const [guestCount,  setGuestCount] = useState(2);
   const [flowOrder,   setFlowOrder]  = useState(null);
   const [orderMode,   setOrderMode]  = useState('new'); // 'new' | 'add'
   const [orderReload, setOrderReload]= useState(false);
@@ -871,7 +862,7 @@ export default function WaitressTables() {
   const handleTablePress = useCallback(async (table) => {
     if (table.status === 'free') {
       setFlowTable(table);
-      setPhase('guest_count');
+      startNewOrder();
     } else if (table.status === 'occupied') {
       // Any waitress can access any occupied table — no ownership restriction
       // Load active order for this table
@@ -886,14 +877,14 @@ export default function WaitressTables() {
           // No order found — open new order flow instead
           setPhase('idle');
           setDialog({
-            title: `${t('waitress.tables.seatTablePrefix','Table')} ${table.table_number || table.name}`,
+            title: tableLabel(table, t),
             message: t('waitress.tables.noActiveOrderFound','No active order found. Start a new order?'),
             type: 'info',
             confirmLabel: t('waitress.tables.newOrder','New Order'),
             onConfirm: () => {
               setDialog(null);
               setFlowTable(table);
-              setPhase('guest_count');
+              startNewOrder();
             },
           });
           return;
@@ -916,9 +907,12 @@ export default function WaitressTables() {
     }
   }, [user?.id, t]);
 
-  // ── Confirm guest count → open menu ─────────────────────────────────────
-  const handleGuestConfirm = useCallback(async (count) => {
-    setGuestCount(count);
+  // ── Start a new order on a free table ────────────────────────────────────
+  // The guest-count prompt was removed 2026-08-17 (owner): the waiter is stood
+  // at the table with the customer waiting, and answering "how many guests?"
+  // before every single order was pure friction for a number nothing downstream
+  // actually used. Tapping a free table now goes straight to the menu.
+  const startNewOrder = useCallback(async () => {
     setOrderMode('new');
     await loadMenu();
     setPhase('order');
@@ -926,8 +920,11 @@ export default function WaitressTables() {
 
   // ── Send new order ───────────────────────────────────────────────────────
   const handleSendOrder = useCallback(async (cart) => {
-    // 1. Open table with guest count
-    await tablesAPI.open(flowTable.id, { guests_count: guestCount });
+    // 1. Open the table. guests_count is sent as 1 because the waiter is no
+    //    longer asked for it (see startNewOrder) — the field stays in the API
+    //    for the Admin/POS side, which can still set a real number, but the
+    //    phone must not invent one it never collected.
+    await tablesAPI.open(flowTable.id, { guests_count: 1 });
     // 2. Create order
     await ordersAPI.create({
       table_id: flowTable.id,
@@ -935,7 +932,7 @@ export default function WaitressTables() {
     });
     // Optimistic: reload tables
     loadTables();
-  }, [flowTable, guestCount, loadTables]);
+  }, [flowTable, loadTables]);
 
   // ── Add items to existing order ──────────────────────────────────────────
   // Use PUT /orders/:id with merged items (existing + new) instead of
@@ -1005,8 +1002,8 @@ export default function WaitressTables() {
   // ── Seat guests from reservation ─────────────────────────────────────────
   const handleSeatGuests = useCallback((table) => {
     setFlowTable(table);
-    setPhase('guest_count');
-  }, []);
+    startNewOrder();
+  }, [startNewOrder]);
 
   // ── Mark cleaning table as clean (free) ──────────────────────────────────
   const handleMarkClean = useCallback(async () => {
@@ -1169,17 +1166,9 @@ export default function WaitressTables() {
       />
 
       {/* ── Modals ── */}
-      <GuestCountModal
-        visible={phase === 'guest_count'}
-        table={flowTable}
-        onConfirm={handleGuestConfirm}
-        onClose={() => setPhase('idle')}
-      />
-
       <MenuOrderModal
         visible={phase === 'order'}
         table={flowTable}
-        guestCount={guestCount}
         mode={orderMode}
         existingOrder={flowOrder}
         categories={categories}

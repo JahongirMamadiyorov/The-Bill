@@ -9,6 +9,7 @@ import { colors, topInset, spacing, radius, shadow } from '../../utils/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import api from '../../api/client';
+import { tableLabel } from '../../utils/tableLabel';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C   = '#0891B2';   // Cashier cyan
@@ -376,7 +377,7 @@ export default function CashierMenuPOS() {
               <MaterialIcons name="table-restaurant" size={16} color={selTable ? C : MUT} />
               <Text style={[s.tableBtnTxt, selTable && { color: TXT }]} numberOfLines={1}>
                 {selTable
-                  ? `Table ${selTable.tableNumber || selTable.name || selTable.id?.slice(-4)}`
+                  ? tableLabel(selTable, t)
                   : 'Select table (optional)...'}
               </Text>
               <MaterialIcons name={showTables ? 'expand-less' : 'expand-more'} size={18} color={MUT} />
@@ -390,7 +391,7 @@ export default function CashierMenuPOS() {
                   <TouchableOpacity key={t.id} onPress={() => { setSelTable(t); setShowTables(false); }}
                     style={[s.tableOption, selTable?.id === t.id && { backgroundColor: CL }]}>
                     <Text style={[{ fontSize: 13, color: TXT }, selTable?.id === t.id && { color: C, fontWeight: '600' }]}>
-                      Table {t.tableNumber || t.name || t.id?.slice(-4)}
+                      {tableLabel(t)}
                     </Text>
                     <Text style={{ fontSize: 11, color: MUT }}>{t.status || ''}</Text>
                   </TouchableOpacity>

@@ -2955,3 +2955,26 @@ and in the entries above; none of them block daily operation.
   (accounting, finance, reports, shifts, orders, loans, inventory, procurement, warehouse) still
   use the plain calendar day. Do this as its own reviewed pass with before/after numbers.
 - Admin dashboard "Today's Revenue" also still uses the calendar day.
+
+### 2026-08-17 (end) — working hours VERIFIED by owner
+Feature is live and confirmed working. Nothing pending a build.
+Highest-priority remaining item: Stage 2 of working hours — the 74 backend bucketing sites, so
+Admin reports follow the same closing-time boundary the cashier screens now use. Everything else
+open is listed at the end of the SESSIONS.md entry for this date.
+
+### 2026-08-17 — Android i18n gaps fixed (no rebuild needed, JS-only)
+- 26 translation keys were referenced in code but absent from BOTH en.json and uz.json, so those
+  screens rendered their English fallback in every language. All added; locales now 1842 keys,
+  identical sets, zero missing.
+- JS-only change: reload the bundle on the device (shake -> Reload), no Gradle rebuild.
+- Android session is USB-connected and running (device RZCT6060S1Y). Design issues still pending
+  the owner's screenshots.
+
+### 2026-08-17 — Android app: 8 owner-reported fixes DONE
+- JS-only (reload the bundle): table names, tab removal, paid-order item status, guest count,
+  menu grid + card redesign, order review sheet, notification rendering.
+- NEEDS RENDER DEPLOY: backend/routes/tables.js writes notification translation keys.
+  Migration `add_translation_keys_to_notifications` already applied to production.
+- NEEDS POS REBUILD: printRequestedBills() + getReceiptSettings() in pos-app/main.js and the
+  isBill branch in printEngine.js — bills only print once the POS is rebuilt.
+- Bill printing uses the RECEIPT printer, not the kitchen one. Table intentionally stays open.

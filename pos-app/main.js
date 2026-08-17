@@ -356,6 +356,7 @@ const SELF_PRINT_SETTLE_MS = 90 * 1000;
 
 let autoPrintTimer   = null;
 let autoPrintRunning = false;
+let billPrintRunning  = false;
 let settingsCache    = { at: 0, value: null };
 
 // Normalises an items payload ([{ menu_item_id, quantity }, ...] as sent to the
@@ -487,6 +488,153 @@ async function getKitchenSettings() {
   // so a terminal that started while offline picks them up once it reconnects.
   if (value.printers.length) settingsCache = { at: Date.now(), value };
   return value;
+}
+
+
+// Receipt-side settings (printers + branding). Separate from getKitchenSettings
+// because a venue's receipt printer and kitchen printers are different machines
+// with different flags; reusing the kitchen cache would have printed bills to
+// the grill. Cached the same way, and equally happy to fall back to defaults so
+// a terminal that starts offline still prints something sane once it connects.
+let receiptSettingsCache = { at: 0, value: null };
+async function getReceiptSettings() {
+  if (receiptSettingsCache.value && Date.now() - receiptSettingsCache.at < 5 * 60 * 1000) {
+    return receiptSettingsCache.value;
+  }
+  let row = null;
+  try {
+    const token = store.get('session')?.token;
+    const res = await request('GET', '/api/settings', null, token, 8000);
+    if (res.status >= 200 && res.status < 300) row = res.body;
+  } catch { /* offline — defaults below */ }
+
+  const value = {
+    printers: Array.isArray(row?.receiptPrinters) ? row.receiptPrinters
+            : Array.isArray(row?.receipt_printers) ? row.receipt_printers : [],
+    restaurantName: row?.restaurantName ?? row?.restaurant_name ?? '',
+    headerText:     row?.receiptHeader  ?? row?.receipt_header  ?? '',
+    footer:         row?.receiptFooter  ?? row?.receipt_footer  ?? '',
+    currency:       row?.currencySymbol ?? row?.currency_symbol ?? "so'm",
+    billLabel:      'BILL — NOT A RECEIPT',
+    show: {
+      logo:          (row?.receiptShowLogo        ?? row?.receipt_show_logo)         !== false,
+      orderNumber:   (row?.receiptShowOrderNumber ?? row?.receipt_show_order_number) !== false,
+      tableName:     (row?.receiptShowTableName   ?? row?.receipt_show_table_name)   !== false,
+      tax:           (row?.receiptShowTax         ?? row?.receipt_show_tax)          !== false,
+      serviceCharge: (row?.receiptShowServiceCharge ?? row?.receipt_show_service_charge) !== false,
+      footer:        (row?.receiptShowFooter      ?? row?.receipt_show_footer)       !== false,
+    },
+  };
+  if (value.printers.length) receiptSettingsCache = { at: Date.now(), value };
+  return value;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BILL REQUESTS — the waiter asks, this terminal prints (2026-08-17, owner)
+//
+// A waiter tapping "Hisob so'rash" on their phone only ever set the order's
+// status to 'bill_requested'; nothing printed anywhere. The phone cannot reach
+// the receipt printer — Uzbek restaurants are large and the printer is on a
+// wired LAN the phones aren't on — so the terminal has to do it, exactly as it
+// already does for kitchen tickets from phone orders.
+//
+// What comes out is a BILL, not a receipt: no payment method, no change line,
+// and a "NOT A RECEIPT" banner (see buildReceipt's isBill). Nothing has been
+// paid at this point and the customer is holding the slip to decide.
+//
+// The table is deliberately NOT closed. Requesting the bill is not paying; the
+// order stays open and live until the cashier takes the money.
+//
+// Idempotence: printedBillOrders remembers which orders have already had a bill
+// printed, so the poll cannot spew a fresh copy every 8 seconds. The entry is
+// cleared once the order leaves 'bill_requested', which means a customer who
+// asks again after ordering more food correctly gets an updated bill.
+// ═════════════════════════════════════════════════════════════════════════════
+async function printRequestedBills() {
+  if (billPrintRunning) return;
+  if (!store.get('session')) return;
+  if (store.get('kitchenAutoPrint') === false) return;  // same per-terminal switch
+  if (selfWriteInFlight()) return;
+  billPrintRunning = true;
+
+  try {
+    const db = await getPowerSync();
+    if (!db.currentStatus?.hasSynced) return;   // never act on a half-synced copy
+
+    const rows = await db.getAll(
+      `SELECT o.id, o.daily_number, o.status, o.total_amount, o.discount_amount,
+              o.tax_amount, o.order_type, o.customer_name, o.created_at,
+              t.name AS table_name, t.table_number
+         FROM orders o
+         LEFT JOIN restaurant_tables t ON t.id = o.table_id
+        WHERE o.status = 'bill_requested'`
+    );
+
+    const printed = store.get('printedBillOrders') || {};
+    const openIds = new Set(rows.map((r) => r.id));
+    // Forget orders that are no longer awaiting a bill, so the next request
+    // prints again rather than being suppressed forever.
+    for (const id of Object.keys(printed)) if (!openIds.has(id)) delete printed[id];
+
+    if (rows.length === 0) { store.set('printedBillOrders', printed); return; }
+
+    const settings = await getReceiptSettings();
+    if (!settings.printers.length) { store.set('printedBillOrders', printed); return; }
+
+    for (const o of rows) {
+      if (printed[o.id]) continue;
+
+      const items = await db.getAll(
+        `SELECT oi.quantity, oi.unit_price, m.name, m.unit
+           FROM order_items oi
+           LEFT JOIN menu_items m ON m.id = oi.menu_item_id
+          WHERE oi.order_id = ?
+          ORDER BY oi.created_at ASC, oi.id ASC`,
+        [o.id]
+      );
+      if (!items.length) continue;   // nothing to bill for yet
+
+      const money = (n) => Math.round(Number(n) || 0).toLocaleString('uz-UZ') + ' ' + (settings.currency || "so'm");
+      const receipt = {
+        isBill:        true,
+        billLabel:     settings.billLabel,
+        restaurantName: settings.restaurantName,
+        headerText:    settings.headerText,
+        footer:        settings.footer,
+        orderNum:      o.daily_number ? `#${o.daily_number}` : '',
+        tableName:     o.table_name || (o.table_number != null ? `Table ${o.table_number}` : ''),
+        dateTime:      new Date().toLocaleString('en-GB', { hour12: false }),
+        items: items.map((it) => ({
+          name:  it.name || 'Item',
+          qty:   Number(it.quantity) || 0,
+          unit:  it.unit,
+          total: money(Number(it.unit_price || 0) * (Number(it.quantity) || 0)),
+        })),
+        total:    money(o.total_amount),
+        discount: Number(o.discount_amount) > 0 ? money(o.discount_amount) : '',
+        tax:      Number(o.tax_amount) > 0 ? money(o.tax_amount) : '',
+        show:     settings.show,
+      };
+
+      try {
+        const res = await printReceipt({ receipt, printers: settings.printers });
+        if (res?.ok === false || res?.failed?.length) {
+          pushPsEvent('bill-print-failed', `order #${o.daily_number}: ${res?.error || 'printer did not respond'}`);
+          continue;   // leave it unmarked so the next poll retries
+        }
+        printed[o.id] = Date.now();
+        pushPsEvent('bill-printed', `order #${o.daily_number}`);
+      } catch (err) {
+        pushPsEvent('bill-print-failed', err?.message || String(err));
+      }
+    }
+
+    store.set('printedBillOrders', printed);
+  } catch (err) {
+    pushPsEvent('bill-print-error', err?.message || String(err));
+  } finally {
+    billPrintRunning = false;
+  }
 }
 
 async function autoPrintPendingItems() {
@@ -719,14 +867,24 @@ async function autoPrintPendingItems() {
 // Belt and braces — a missed kitchen ticket is a lost sale.
 function startAutoPrint() {
   if (autoPrintTimer) return;
-  autoPrintTimer = setInterval(autoPrintPendingItems, AUTO_PRINT_POLL_MS);
+  autoPrintTimer = setInterval(() => {
+    autoPrintPendingItems();
+    printRequestedBills();   // bills the waiters have asked for
+  }, AUTO_PRINT_POLL_MS);
 
   (async () => {
     try {
       const db = await getPowerSync();
       db.onChange(
         {
-          onChange: () => { autoPrintPendingItems(); },  // guarded against overlap internally
+          onChange: () => {
+            autoPrintPendingItems();   // guarded against overlap internally
+            // A bill request is a status change on `orders`, so the same
+            // listener covers it — the waiter taps and the bill comes out in
+            // about a second rather than waiting for the next 8s poll. The
+            // customer is stood at the till; that delay is the whole point.
+            printRequestedBills();
+          },
         },
         // Only these two tables matter; anything else would wake it needlessly.
         { tables: ['orders', 'order_items'] }

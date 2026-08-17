@@ -11,7 +11,9 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset, useLayout } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import OrderReviewSheet from '../../components/OrderReviewSheet';
 import { useTranslation } from '../../context/LanguageContext';
+import { tableLabel } from '../../utils/tableLabel';
 
 
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
@@ -33,6 +35,23 @@ const formatQtyLabel = (item, qty) => {
   }
   return String(qty);
 };
+
+// Pad a grid's data so the final row is always full.
+//
+// FlatList lays each row out with the cards at flex: 1, so a last row holding
+// two items in a three-column grid gives each of them HALF the screen — they
+// render visibly larger than every card above, which is what made the bottom of
+// the menu look broken. Appending invisible placeholders keeps the geometry
+// honest. Keys are prefixed so they can never collide with a real item id.
+function padGrid(rows, cols) {
+  if (!Array.isArray(rows) || cols < 2) return rows;
+  const remainder = rows.length % cols;
+  if (remainder === 0) return rows;
+  const ghosts = Array.from({ length: cols - remainder }, (_, i) => ({
+    id: `__ghost_${i}`, __ghost: true,
+  }));
+  return [...rows, ...ghosts];
+}
 
 const IMG_BASE = 'http://10.0.2.2:3000';
 
@@ -58,7 +77,9 @@ const ST = {
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Menu item card ────────────────────────────────────────────────────────────
-function MenuItemCard({ item, qty, onAdd, onRemove, onDetail }) {
+// `compact` = 3-or-more column grid. The card shrinks its avatar, image and
+// type so three fit legibly across a phone instead of two oversized ones.
+function MenuItemCard({ item, qty, onAdd, onRemove, onDetail, compact }) {
   const { t } = useTranslation();
   const avail = item.is_available !== false;
   const imgUri = resolveImgUrl(item.image_url);
@@ -74,44 +95,68 @@ function MenuItemCard({ item, qty, onAdd, onRemove, onDetail }) {
     >
       {/* Image or letter avatar — full width at top */}
       {imgUri ? (
-        <Image source={{ uri: imgUri }} style={styles.menuImg} resizeMode="contain" />
+        <Image source={{ uri: imgUri }} style={[styles.menuImg, compact && { height: 84 }]} resizeMode="contain" />
       ) : (
         <View style={[styles.menuAvatarWrap]}>
-          <View style={[styles.menuAvatar, {
+          <View style={[styles.menuAvatar, compact && { width: 46, height: 46, borderRadius: 14 }, {
             backgroundColor: selected ? colors.primary : avail ? colors.primaryLight : '#F3F4F6',
           }]}>
-            <Text style={{ fontSize: 28, fontWeight: '800', color: selected ? colors.white : avail ? colors.primary : colors.textMuted }}>
+            <Text style={{ fontSize: compact ? 20 : 28, fontWeight: '800', color: selected ? colors.white : avail ? colors.primary : colors.textMuted }}>
               {item.name.charAt(0).toUpperCase()}
             </Text>
           </View>
         </View>
       )}
 
-      {/* Card body */}
+      {/* Card body.
+          Every text here is pinned to a single line and allowed to shrink
+          rather than wrap. At three columns a card is ~105dp wide, and
+          "1,212,112 so'm" or "140,000 so'm / kg" wrapped onto two and three
+          lines, which is what made the grid look ragged — every card ended up
+          a different height and the prices broke mid-number. */}
       <View style={styles.menuCardBody}>
-        <Text style={[styles.menuName, !avail && { color: colors.textMuted }]} numberOfLines={2}>
+        <Text
+          style={[styles.menuName, compact && styles.menuNameCompact, !avail && { color: colors.textMuted }]}
+          numberOfLines={2}
+        >
           {item.name}
         </Text>
-        <Text style={[styles.menuPrice, !avail && { color: colors.textMuted }]}>
-          {fmtMoney(item.price)}{weighed ? ` / ${unitSuffix(item)}` : ''}
+
+        <Text
+          style={[styles.menuPrice, compact && styles.menuPriceCompact, !avail && { color: colors.textMuted }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+        >
+          {fmtMoney(item.price)}{weighed ? ` /${unitSuffix(item)}` : ''}
         </Text>
 
-        {/* Qty controls or add hint */}
+        {/* Qty controls, or a compact add affordance.
+            The old "Tap to add" label wrapped to two lines in every card and
+            said nothing the card itself doesn't — the whole card is the button.
+            At three columns it becomes a single + glyph; the roomier two-column
+            tablet layout keeps the words. */}
         {qty > 0 ? (
           <View style={styles.qtyRow}>
             <TouchableOpacity onPress={() => onRemove(item.id)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <MaterialIcons name={weighed ? 'delete-outline' : 'remove'} size={15} color={colors.primary} />
             </TouchableOpacity>
-            <Text style={styles.qtyNum}>{formatQtyLabel(item, qty)}</Text>
+            <Text style={styles.qtyNum} numberOfLines={1}>{formatQtyLabel(item, qty)}</Text>
             <TouchableOpacity onPress={() => onAdd(item)} style={styles.qtyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <MaterialIcons name={weighed ? 'edit' : 'add'} size={15} color={colors.primary} />
             </TouchableOpacity>
           </View>
         ) : avail ? (
-          <View style={styles.addHint}>
-            <MaterialIcons name="add-circle-outline" size={15} color={colors.primary} />
-            <Text style={styles.addHintTxt}>{t('waitress.menu.tapToAdd', 'Tap to add')}</Text>
-          </View>
+          compact ? (
+            <View style={styles.addDot}>
+              <MaterialIcons name="add" size={16} color={colors.primary} />
+            </View>
+          ) : (
+            <View style={styles.addHint}>
+              <MaterialIcons name="add-circle-outline" size={15} color={colors.primary} />
+              <Text style={styles.addHintTxt} numberOfLines={1}>{t('waitress.menu.tapToAdd', 'Tap to add')}</Text>
+            </View>
+          )
         ) : null}
       </View>
 
@@ -210,7 +255,7 @@ function TablePickerModal({ visible, onSelect, onClose }) {
     .filter(tb => {
       const q = tableSearch.trim().toLowerCase();
       if (!q) return true;
-      const name = String(tb.table_number || tb.name || '').toLowerCase();
+      const name = `${tb.name ?? ''} ${tb.table_number ?? ''}`.toLowerCase();
       return name.includes(q);
     });
 
@@ -279,7 +324,7 @@ function TablePickerModal({ visible, onSelect, onClose }) {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.tableRowName}>
-                      {t('cashier.walkin.table', 'Table')} {table.table_number || table.name}
+                      {tableLabel(table, t)}
                     </Text>
                     <Text style={[styles.tableRowStatus, { color: st.color }]}>
                       {statusLabel(table.status)}{table.status === 'occupied' && table.order_total > 0 ? ` · ${fmtMoney(table.order_total)}` : ''}
@@ -296,7 +341,7 @@ function TablePickerModal({ visible, onSelect, onClose }) {
   );
 }
 
-// ── Guest count sheet ─────────────────────────────────────────────────────────
+
 function GuestCountSheet({ visible, table, onConfirm, onClose }) {
   const { t } = useTranslation();
   const [count, setCount] = useState(2);
@@ -306,7 +351,7 @@ function GuestCountSheet({ visible, table, onConfirm, onClose }) {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={styles.pickerSheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.pickerTitle}>{t('cashier.walkin.table', 'Table')} {table?.table_number || table?.name}</Text>
+        <Text style={styles.pickerTitle}>{tableLabel(table, t)}</Text>
         <Text style={styles.pickerSub}>{t('waitress.menu.howManyGuests', 'How many guests?')}</Text>
         <View style={styles.guestRow}>
           <TouchableOpacity onPress={() => setCount(c => Math.max(1, c - 1))} style={styles.guestBtn}>
@@ -334,8 +379,16 @@ function GuestCountSheet({ visible, table, onConfirm, onClose }) {
 // ════════════════════════════════════════════════════════════════════════════
 export default function WaitressMenu() {
   const { t }       = useTranslation();
-  const { cols }    = useLayout();       // reactive — updates on rotation
-  const numCols     = cols(2, 4);
+  const { width }   = useLayout();       // reactive — updates on rotation
+  // 3 columns on phones, 4 on tablets (owner, 2026-08-17). Two columns made the
+  // cards enormous and forced a waiter to scroll through a short menu on a small
+  // screen — picking a dish should be one glance, not a hunt.
+  //
+  // Keyed on WIDTH, not orientation. The previous cols(2, 4) gave 2 in portrait
+  // and 4 in landscape, so a tablet held upright showed the same giant cards as
+  // a phone, and a phone turned sideways showed four cramped ones. 600dp is the
+  // standard Android tablet breakpoint (the sw600dp resource qualifier).
+  const numCols     = width >= 600 ? 4 : 3;
   const [categories, setCategories] = useState([]);
   const [menuItems,  setMenuItems]  = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -352,7 +405,10 @@ export default function WaitressMenu() {
 
   // Table picker flow
   const [showTablePicker, setShowTablePicker] = useState(false);
-  const [showGuestSheet,  setShowGuestSheet]  = useState(false);
+  // Guest-count sheet replaced by the order review sheet (2026-08-17, owner):
+  // the waiter is no longer asked how many guests, and instead confirms the
+  // food list before it reaches the kitchen.
+  const [showReview,      setShowReview]      = useState(false);
   const [targetTable,     setTargetTable]     = useState(null);
   const [sending,         setSending]         = useState(false);
 
@@ -442,8 +498,7 @@ export default function WaitressMenu() {
     setTargetTable(table);
 
     if (table.status === 'free') {
-      // Need guest count first
-      setShowGuestSheet(true);
+      setShowReview(true);
     } else if (table.status === 'occupied') {
       // Find active order on that table → add items
       setSending(true);
@@ -453,7 +508,7 @@ export default function WaitressMenu() {
         if (active.length === 0) {
           // No active order → treat as free table
           setSending(false);
-          setShowGuestSheet(true);
+          setShowReview(true);
           return;
         }
         // Use PUT /orders/:id with merged items (existing + new) so
@@ -481,7 +536,7 @@ export default function WaitressMenu() {
           title: t('waitress.menu.orderSent', 'Order Sent!'),
           message: t('waitress.menu.itemsAddedToTable', '{count} item(s) added to Table {table}.')
             .replace('{count}', String(cartCount))
-            .replace('{table}', String(table.table_number || table.name)),
+            .replace('{table}', tableLabel(table, t)),
           type: 'success',
         });
       } catch (e) {
@@ -497,22 +552,23 @@ export default function WaitressMenu() {
     }
   }, [cart, cartCount]);
 
-  const handleGuestConfirm = useCallback(async (guestCount) => {
-    setShowGuestSheet(false);
+  const handleConfirmSend = useCallback(async () => {
     if (!targetTable) return;
     setSending(true);
     try {
-      await tablesAPI.open(targetTable.id, { guests_count: guestCount });
+      // guests_count is 1 because the waiter is no longer asked — the field
+      // remains in the API for Admin/POS, which can still set a real number.
+      await tablesAPI.open(targetTable.id, { guests_count: 1 });
       await ordersAPI.create({
         table_id: targetTable.id,
         items: cart.map(c => ({ menu_item_id: c.menu_item_id, quantity: c.quantity, unit_price: c.price })),
       });
       setCart([]);
+      setShowReview(false);
       setDialog({
         title: t('waitress.menu.orderSent', 'Order Sent!'),
-        message: t('waitress.menu.newOrderCreatedFor', 'New order created for Table {table} ({count} guest(s)).')
-          .replace('{table}', String(targetTable.table_number || targetTable.name))
-          .replace('{count}', String(guestCount)),
+        message: t('waitress.menu.newOrderCreated', 'New order created for {table}.')
+          .replace('{table}', tableLabel(targetTable, t)),
         type: 'success',
       });
     } catch (e) {
@@ -523,9 +579,10 @@ export default function WaitressMenu() {
       });
     } finally {
       setSending(false);
+      setShowReview(false);
       setTargetTable(null);
     }
-  }, [targetTable, cart]);
+  }, [targetTable, cart, t]);
 
   // ── Filtered items ────────────────────────────────────────────────────────
   const filtered = menuItems.filter(i => {
@@ -634,7 +691,7 @@ export default function WaitressMenu() {
       {/* ── Items grid ── */}
       <FlatList
         style={{ flex: 1 }}
-        data={filtered}
+        data={padGrid(filtered, numCols)}
         keyExtractor={i => String(i.id)}
         numColumns={numCols}
         contentContainerStyle={{ padding: spacing.md, paddingBottom: cartCount > 0 ? 100 : 40 }}
@@ -647,12 +704,14 @@ export default function WaitressMenu() {
           />
         }
         renderItem={({ item }) => (
+          item.__ghost ? <View style={styles.menuCardGhost} /> :
           <MenuItemCard
             item={item}
             qty={getQty(item.id)}
             onAdd={addToCart}
             onRemove={removeFromCart}
             onDetail={setSelItem}
+            compact={numCols >= 3}
           />
         )}
         ListEmptyComponent={
@@ -714,12 +773,15 @@ export default function WaitressMenu() {
         onClose={() => setShowTablePicker(false)}
       />
 
-      {/* ── Guest count sheet ── */}
-      <GuestCountSheet
-        visible={showGuestSheet}
-        table={targetTable}
-        onConfirm={handleGuestConfirm}
-        onClose={() => { setShowGuestSheet(false); setTargetTable(null); }}
+      {/* ── Review before it reaches the kitchen ── */}
+      <OrderReviewSheet
+        visible={showReview}
+        items={cart}
+        tableName={targetTable ? tableLabel(targetTable, t) : ''}
+        sending={sending}
+        mode="new"
+        onConfirm={handleConfirmSend}
+        onClose={() => { setShowReview(false); setTargetTable(null); }}
       />
 
       <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
@@ -865,17 +927,25 @@ const styles = StyleSheet.create({
   cartSummaryTotal: { fontSize: 14, fontWeight: '800', color: colors.primary },
 
   // Menu grid card
-  menuCard:         { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, ...shadow.card, overflow: 'hidden', borderWidth: 1.5, borderColor: 'transparent' },
+  // minHeight keeps every card in a row the same height even when one name
+  // runs to two lines and its neighbour to one — without it the grid stepped.
+  menuCard:         { flex: 1, minHeight: 132, backgroundColor: colors.white, borderRadius: radius.lg, ...shadow.card, overflow: 'hidden', borderWidth: 1.5, borderColor: 'transparent' },
+  // Invisible filler for the last row (see padGrid) so two leftover items don't
+  // stretch to half the screen each.
+  menuCardGhost:    { flex: 1, minHeight: 132, backgroundColor: 'transparent' },
   menuCardSelected: { borderColor: colors.primary, backgroundColor: '#F0F7FF' },
   menuCardUnavail:  { opacity: 0.7 },
   menuAvatarWrap:   { alignItems: 'center', paddingTop: spacing.md, paddingBottom: 2 },
   menuAvatar:       { width: 64, height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   menuImg:          { width: '100%', height: 120, backgroundColor: '#F1F5F9' },
-  menuCardBody:     { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, alignItems: 'center' },
+  menuCardBody:     { paddingHorizontal: 6, paddingVertical: spacing.sm, alignItems: 'center', flex: 1, justifyContent: 'center' },
   menuName:         { fontSize: 13, fontWeight: '700', color: colors.textDark, textAlign: 'center', marginBottom: 3 },
   menuPrice:        { fontSize: 13, fontWeight: '800', color: colors.primary, textAlign: 'center' },
   addHint:          { flexDirection: 'row', alignItems: 'center', marginTop: 5, gap: 3 },
   addHintTxt:       { fontSize: 11, color: colors.primary, fontWeight: '600' },
+  menuNameCompact:  { fontSize: 12, lineHeight: 15, marginBottom: 2 },
+  menuPriceCompact: { fontSize: 12 },
+  addDot:           { marginTop: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
 
   // Qty row on card
   qtyRow:  { flexDirection: 'row', alignItems: 'center', marginTop: 8, backgroundColor: colors.primaryLight, borderRadius: radius.full, paddingHorizontal: 4 },

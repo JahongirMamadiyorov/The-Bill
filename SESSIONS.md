@@ -4572,3 +4572,111 @@ Four points, en + uz:
   - leaving it empty changes nothing: every day ends at midnight, as before
 
 Verified: 13 working-hours keys referenced by the UI, all present in both locales.
+
+## 2026-08-17 (end) — owner confirmed the working-hours feature works
+
+Built, deployed and verified. Closes a long session that ran from the printer duplication through
+to this feature.
+
+**What remains open, in priority order:**
+
+1. **Stage 2 of working hours** — 74 calendar-day bucketing sites across 9 backend route files
+   (accounting, finance, reports, shifts, orders, loans, inventory, procurement, warehouse) still
+   group revenue by the plain calendar day, so Admin reports and the dashboard's "Today's Revenue"
+   do NOT yet follow the closing time that History and Profile now respect. Until that is done the
+   two halves can disagree for a late-closing restaurant. Do it as its own reviewed pass WITH
+   before/after numbers on real data — never as a scripted sweep.
+2. **Android app sends unmerged item lists** on edit, creating duplicate order_items rows.
+   Printing is immune to it now, but the data duplication remains.
+3. Units appear only on audit rows written from 2026-08-17 onward; older rows render plain counts.
+4. Paid orders are immutable for everyone including owners (refund-and-re-enter to correct one).
+5. RLS disabled on ~35 Supabase tables — flagged long ago, never decided.
+
+## 2026-08-17 — Android app: language audit (26 missing translation keys)
+
+Owner moved to the phone app, reporting "design issues and language problems". Ran the language
+half as a code audit rather than waiting for screenshots.
+
+**The translation FILES were fine** — en.json and uz.json both had 1816 keys, identical sets, no
+gaps, and the only 12 values identical between languages were legitimately identical (brand name,
+phone formats, "English", "Administrator").
+
+**The bug was keys the code asks for that never existed in either file.** These screens call
+`t('some.key', 'English fallback')`, so a missing key silently renders its English fallback — in
+BOTH languages, permanently, with nothing to indicate anything is wrong. 26 of them:
+
+  waitress.tables.mainFloor · common.staff · common.table · common.editOrder · statuses.closed
+  admin.editOrder.editOrderTitle/editPaidOrder · admin.newOrder.amount/enterAmount/price
+  adminExtra.amount/invalidAmount · placeholders.orderNotes
+  cashier.loans.* (10) · cashier.orders.addPaymentNotes/paid/splitTotal
+
+All 26 added to both locales with Uzbek wording consistent with the surrounding entries.
+Now 1842 keys each, sets identical, zero referenced-but-missing, both files valid JSON.
+
+**Method note worth keeping:** the first scan looked for hardcoded English string literals and
+returned 389 "hits" across 29 screens. Sampling them showed they were almost all FALLBACKS inside
+correct `t(key, fallback)` calls, plus code comments — i.e. correct usage, not bugs. The real
+defect was invisible to that scan and only showed up by cross-referencing every key referenced in
+code against the locale files. Checking the shape of the thing (are the keys defined?) beat
+grepping for the symptom (does English appear in the source?).
+
+## 2026-08-17 — Android app: eight fixes from the owner's device testing
+
+### 1. Table names (17 sites)
+Code read `table.table_number || table.name` — number FIRST — so a waiter tapping "Xoli 1" saw
+"Table 1"/"Stol 1" in every sheet, modal, toast, dialog and notification. The table CARD already
+had it right, which is why it looked inconsistent rather than uniformly wrong. One shared
+`utils/tableLabel.js` now, used everywhere. Also fixed the table search, which only matched the
+number. NOTE: `NewCashierPOS.js` has no translation hook — passing `t` there would have been an
+undefined reference and crashed the screen; caught before it shipped.
+
+### 2. "Hisob so'ralgan" tab removed — and the trap in doing so
+`ACTIVE_STATUSES` did NOT contain 'bill_requested', so deleting the tab would have made those
+orders appear in NEITHER list: a waiter requests the bill and the order vanishes. Added it to
+Active, where the header count had always assumed it was. The two disagreed even before this.
+
+### 3. No item status on closed orders
+`itemStatus()` returns null for paid/cancelled/refunded; the chip is guarded rather than rendered
+empty. "Kutilmoqda" on a paid order read as though the kitchen still owed food.
+
+### 4. Guest-count prompt removed (both screens)
+WaitressTables AND WaitressMenu each had their own copy. `guests_count` now goes as 1 rather than
+a number the app never asked for; the field stays in the API for Admin/POS.
+
+### 5. Menu grid — 3 on phones, 4 on tablets
+Was `cols(2, 4)`: keyed on ORIENTATION, so a tablet held upright got the same giant cards as a
+phone. Now width-based at the 600dp breakpoint. Cards also rebuilt: every text pinned to one line
+with shrink-to-fit (prices like "1,212,112 so'm" were wrapping mid-number), a minHeight so rows
+align, "Tap to add" reduced to a + glyph when compact, and `padGrid()` fills the last row with
+invisible placeholders — two leftover items at flex:1 were rendering at half-screen each, which is
+what made the bottom of the menu look broken.
+
+### 6. Order review before the kitchen (new `components/OrderReviewSheet.js`)
+Both send paths now confirm the actual list first. Deliberately a confirmation, not a second
+editing surface — the menu behind it is where quantities change, and a second set of steppers
+could disagree with the first.
+
+### 7. Notification translation — needed a schema change
+Notifications are written by the BACKEND in English and stored as finished text, so no amount of
+app reloading could translate them. Migration `add_translation_keys_to_notifications` adds
+`title_key`, `body_key`, `body_params`; the backend writes both the English text (fallback, and
+for any consumer that doesn't know about keys) and the keys; the client translates at render time
+and falls back to the stored text for older rows. `body_params` carries the table's real NAME.
+
+### 8. Bill request prints at the POS, table stays open
+The waiter's tap only set a status; nothing printed anywhere, and the phone cannot reach the
+receipt printer. New `printRequestedBills()` watcher in pos-app mirrors the kitchen-ticket
+mechanism: fires on the same onChange listener (about a second, not the 8s poll), prints on the
+RECEIPT printer via a separate `getReceiptSettings()` — reusing the kitchen cache would have sent
+bills to the grill.
+
+What prints is a BILL, not a receipt: `isBill` suppresses the payment-method and change lines and
+adds a "NOT A RECEIPT" banner. Nothing has been paid and the customer is holding the slip.
+Verified both slips side by side: bill hides method+change and carries the banner, receipt still
+shows both and has no banner.
+
+Idempotent via `printedBillOrders`, cleared once the order leaves 'bill_requested' — so a customer
+who orders more and asks again gets an updated bill rather than silence.
+
+**Verified:** all 11 touched files parse; i18n at 1853 keys per locale, identical sets, zero
+referenced-but-missing.

@@ -13,6 +13,7 @@ import { ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useTranslation } from '../../context/LanguageContext';
+import { tableLabel } from '../../utils/tableLabel';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
@@ -84,9 +85,12 @@ function StatusBadge({ status }) {
 }
 
 // ── Filter tabs ───────────────────────────────────────────────────────────────
+// "Bill Req." removed 2026-08-17 (owner): requesting the bill is an ACTION the
+// waiter takes on an order, not a place they go looking for one. The order stays
+// in Active until it is paid, which is where the waiter expects to find it — a
+// separate tab just split the floor's live orders across two lists.
 const FILTERS = [
   { key: 'active',        labelKey: 'waitress.orders.tabActive',     labelFallback: 'Active' },
-  { key: 'bill_requested',labelKey: 'waitress.orders.tabBillReq',    labelFallback: 'Bill Req.' },
   { key: 'completed',     labelKey: 'waitress.orders.tabDoneToday',  labelFallback: 'Done Today' },
 ];
 
@@ -109,7 +113,7 @@ function OrderDetailModal({ visible, order, onClose, onMarkServed, onRequestBill
     setDialog({
       title: t('waitress.orders.requestBillConfirm','Request Bill?'),
       message: t('waitress.orders.requestBillMessage','Table {name}\nTotal: {amount}')
-        .replace('{name}', String(localOrder.table_number || '?'))
+        .replace('{name}', tableLabel(localOrder, t))
         .replace('{amount}', fmtMoney(localOrder.total_amount)),
       type: 'info',
       confirmLabel: t('waitress.orders.requestBill','Request Bill'),
@@ -139,6 +143,11 @@ function OrderDetailModal({ visible, order, onClose, onMarkServed, onRequestBill
   };
 
   const itemStatus = (item) => {
+    // A paid/closed order's items have no live kitchen state left to report —
+    // the food was served and the bill settled. Showing "Pending" on a finished
+    // order (reported 2026-08-17) reads as though the kitchen still owes food.
+    // Returning null hides the chip entirely; see the render guard below.
+    if (['paid', 'cancelled', 'refunded'].includes(localOrder.status)) return null;
     if (item.served_at)    return { label: t('waitress.orders.itemStatusServed','Served'),    color: '#7C3AED', bg: '#F5F3FF' };
     if (item.item_ready)   return { label: `${t('waitress.orders.itemStatusReadyCheck','Ready')} ✓`,  color: '#16A34A', bg: '#DCFCE7' };
     if (localOrder.status === 'ready') return { label: t('waitress.orders.itemStatusReady','Ready'), color: '#16A34A', bg: '#DCFCE7' };
@@ -162,7 +171,7 @@ function OrderDetailModal({ visible, order, onClose, onMarkServed, onRequestBill
             <MaterialIcons name="arrow-back" size={22} color={colors.textDark} />
           </TouchableOpacity>
           <View style={{ alignItems: 'center' }}>
-            <Text style={styles.modalTitle}>{t('waitress.orders.tablePrefix','Table')} {localOrder.table_number || '?'}</Text>
+            <Text style={styles.modalTitle}>{tableLabel(localOrder, t)}</Text>
             <Text style={styles.modalSub}>{fmtTime(localOrder.created_at)} · {localOrder.guest_count ? `${localOrder.guest_count} ${t('waitress.orders.guestsSuffix','guests')}` : ''}</Text>
           </View>
           <View style={{ width: 36 }} />
@@ -223,9 +232,15 @@ function OrderDetailModal({ visible, order, onClose, onMarkServed, onRequestBill
                   <Text style={styles.itemPrice}>{formatQtyLabel(item, item.quantity)}  {fmtMoney((item.unit_price || 0) * (parseFloat(item.quantity) || 0))}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                  <View style={{ backgroundColor: ist.bg, borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 4 }}>
-                    <Text style={{ color: ist.color, fontWeight: '700', fontSize: 12 }}>{ist.label}</Text>
-                  </View>
+                  {/* itemStatus() returns null once the order is paid/closed —
+                      a finished order has no kitchen state left to show. Guarded
+                      rather than rendered with empty values, so the row collapses
+                      cleanly instead of leaving a blank chip behind. */}
+                  {ist && (
+                    <View style={{ backgroundColor: ist.bg, borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 4 }}>
+                      <Text style={{ color: ist.color, fontWeight: '700', fontSize: 12 }}>{ist.label}</Text>
+                    </View>
+                  )}
                   {!item.served_at && !isLocked && (
                     <TouchableOpacity
                       onPress={() => handleItemServed(item.id)}
@@ -348,12 +363,17 @@ export default function WaitressActiveOrders() {
   }, [loadOrders]);
 
   // ── Filter orders ──────────────────────────────────────────────────────────
-  const ACTIVE_STATUSES = ['pending', 'sent_to_kitchen', 'preparing', 'ready', 'served'];
+  // 'bill_requested' belongs here (added 2026-08-17 with the removal of its own
+  // tab). An order whose bill has been asked for is still very much live — the
+  // customer is sitting there and has not paid. Without it in this list the
+  // order would appear in NEITHER tab and simply vanish from the waiter's view.
+  // The header count below already counted it as active, so the list and the
+  // badge disagreed even before the tab was removed.
+  const ACTIVE_STATUSES = ['pending', 'sent_to_kitchen', 'preparing', 'ready', 'served', 'bill_requested'];
 
   const filtered = orders.filter(o => {
-    if (filter === 'active')         return ACTIVE_STATUSES.includes(o.status);
-    if (filter === 'bill_requested') return o.status === 'bill_requested';
-    if (filter === 'completed')      return o.status === 'paid'; // backend already limits to today
+    if (filter === 'active')    return ACTIVE_STATUSES.includes(o.status);
+    if (filter === 'completed') return o.status === 'paid'; // backend already limits to today
     return true;
   });
 
@@ -428,7 +448,7 @@ export default function WaitressActiveOrders() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                     <Text style={styles.orderTable}>
-                      {item.table_name || (item.table_number ? `${t('waitress.orders.tablePrefix','Table')} ${item.table_number}` : item.customer_name || t('waitress.orders.walkIn','Walk-in'))}
+                      {item.table_name || item.table_number ? tableLabel(item, t) : (item.customer_name || t('waitress.orders.walkIn','Walk-in'))}
                     </Text>
                     <StatusBadge status={item.status} />
                     {cardPartial && (
@@ -460,7 +480,6 @@ export default function WaitressActiveOrders() {
             <MaterialIcons name="receipt-long" size={48} color={colors.border} />
             <Text style={styles.emptyTxt}>
               {filter === 'active'         ? t('waitress.orders.noActiveOrders','No active orders') :
-               filter === 'bill_requested' ? t('waitress.orders.noPendingBills','No pending bills') :
                t('waitress.orders.noCompletedToday','No completed orders today')}
             </Text>
             <Text style={styles.emptySubTxt}>

@@ -468,6 +468,16 @@ function buildReceipt(r) {
   // Optional tagline (restaurant_settings.receipt_header).
   if (r.headerText) d += CMD.CENTER + r.headerText + '\n';
 
+  // A requested bill must not be mistakable for a paid receipt — the customer
+  // is holding it while deciding what to pay. Banner rather than a footnote,
+  // because the two slips are otherwise near-identical and the difference
+  // matters to whoever is counting the till.
+  if (r.isBill) {
+    d += CMD.CENTER + CMD.BOLD_ON;
+    d += (r.billLabel || 'BILL — NOT A RECEIPT') + '\n';
+    d += CMD.BOLD_OFF;
+  }
+
   // Order number / table / timestamp.
   d += CMD.CENTER + CMD.BOLD_ON;
   const metaLine = [
@@ -526,13 +536,21 @@ function buildReceipt(r) {
   d += pad(L.total || 'TOTAL', WIDTH - String(r.total || '').length) + (r.total || '') + '\n';
   d += CMD.NORMAL + CMD.BOLD_OFF + rDashes();
 
-  // Payment method and change.
-  d += CMD.BOLD_ON;
-  d += pad(L.method || 'Method', WIDTH - String(r.method || '').length) + (r.method || '') + '\n';
-  if (r.change && r.change !== '0') {
-    d += pad(L.change || 'Change', WIDTH - String(r.change).length) + r.change + '\n';
+  // Payment method and change — ONLY on a real receipt.
+  //
+  // `r.isBill` marks the slip a waiter requests for the customer to check
+  // before paying (2026-08-17). Nothing has been paid at that point, so a
+  // "Method: Cash" line would be a statement about money that has not changed
+  // hands, on a slip the customer is holding. The bill shows what is owed and
+  // stops there; the real receipt prints after payment as it always did.
+  if (!r.isBill) {
+    d += CMD.BOLD_ON;
+    d += pad(L.method || 'Method', WIDTH - String(r.method || '').length) + (r.method || '') + '\n';
+    if (r.change && r.change !== '0') {
+      d += pad(L.change || 'Change', WIDTH - String(r.change).length) + r.change + '\n';
+    }
+    d += CMD.BOLD_OFF;
   }
-  d += CMD.BOLD_OFF;
 
   if (show.footer) {
     d += rDashes() + CMD.CENTER + CMD.BOLD_ON;
