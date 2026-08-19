@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, RefreshControl, Modal, ScrollView, StatusBar,
+  StyleSheet, ActivityIndicator, RefreshControl, Modal, ScrollView, StatusBar, Animated,
 } from 'react-native';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { loansAPI, ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
 import { useTranslation } from '../../context/LanguageContext';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const fmt = (n) => Number(parseFloat(n) || 0).toLocaleString('uz-UZ') + " so'm";
@@ -206,15 +207,18 @@ const LOAN_PAY_METHOD_KEYS = [
 ];
 
 function LoanPayModal({ visible, loan, onClose, onConfirm }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [method, setMethod] = useState('cash');
   if (!loan) return null;
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={LP.mask} activeOpacity={1} onPress={onClose} />
-      <View style={LP.sheet}>
-        <View style={LP.handle} />
+      <Animated.View style={[LP.sheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={LP.handle} />
         <Text style={LP.title}>{t('cashier.loans.collectLoanPayment', 'Collect Loan Payment')}</Text>
+          </View>
         <Text style={LP.sub}>{loan.customer_name} — {fmt(loan.amount)}</Text>
 
         <Text style={LP.sectionLbl}>{t('cashier.tables.paymentMethod', 'PAYMENT METHOD')}</Text>
@@ -235,13 +239,14 @@ function LoanPayModal({ visible, loan, onClose, onConfirm }) {
           <MaterialIcons name="check-circle" size={20} color="#fff" />
           <Text style={LP.confirmTxt}>{t('cashier.loans.confirmPaymentReceived', 'Confirm Payment Received')}</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
 
 // ── Loan Details Modal ────────────────────────────────────────────────────────
 function LoanDetailsModal({ visible, loan, onClose, onRequestPay }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [items,   setItems]   = useState([]);
   const [loading, setLoading] = useState(false);
@@ -266,8 +271,10 @@ function LoanDetailsModal({ visible, loan, onClose, onRequestPay }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={LD.mask} activeOpacity={1} onPress={onClose} />
-      <View style={LD.sheet}>
-        <View style={LD.handle} />
+      <Animated.View style={[LD.sheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={LD.handle} />
+          </View>
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
           {/* Header */}
           <View style={LD.headerRow}>
@@ -411,7 +418,7 @@ function LoanDetailsModal({ visible, loan, onClose, onRequestPay }) {
             <Text style={LD.payCtaTxt}>{t('cashier.loans.markAsPaid', 'Mark as Paid')}</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

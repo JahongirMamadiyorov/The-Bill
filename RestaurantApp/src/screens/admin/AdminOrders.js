@@ -24,13 +24,14 @@ import {
   View, Text, ScrollView, FlatList, TouchableOpacity, TextInput,
   StyleSheet, Modal, ActivityIndicator, RefreshControl,
   KeyboardAvoidingView, Platform, Animated, PanResponder,
-  LayoutAnimation, UIManager, StatusBar, Alert,
+  LayoutAnimation, UIManager, Alert,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { ordersAPI, menuAPI, tablesAPI, usersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import { useTranslation } from '../../context/LanguageContext';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const ACTIVE_STATUSES   = ['pending', 'sent_to_kitchen', 'preparing', 'ready', 'served', 'bill_requested'];
@@ -39,6 +40,27 @@ const PAYMENT_METHODS   = ['Cash', 'Card', 'Online'];
 const DELETE_REASONS    = ['Duplicate Entry', 'Wrong Table', 'Test Order', 'Other'];
 const CANCEL_REASONS    = ['Customer Left', 'Customer Changed Mind', 'Kitchen Issue', 'Wrong Order', 'Long Wait Time', 'Other'];
 const DISC_REASONS      = ['Manager Approved', 'Loyalty Customer', 'Complaint Resolution', 'Other'];
+const DISC_TYPES        = ['Percentage', 'Fixed'];
+// Payment methods arrive in two shapes: the POS/UI shape ('Cash', 'QR Code') and the
+// DB/API shape ('cash', 'qr_code'). Both map to the same label. The RAW value is what
+// gets stored and sent — only the visible text goes through here.
+const ORDER_PAY_METHOD_I18N = {
+  'Cash':    'paymentMethods.cash',      'cash':          'paymentMethods.cash',
+  'Card':    'paymentMethods.card',      'card':          'paymentMethods.card',
+  'QR Code': 'paymentMethods.qrCode',    'qr_code':       'paymentMethods.qrCode',
+  'Loan':    'paymentMethods.loan',      'loan':          'paymentMethods.loan',
+  'Online':  'paymentMethods.online',    'online':        'paymentMethods.online',
+  'bank_transfer': 'paymentMethods.bankTransfer',
+};
+function orderPayMethodLabel(method, t) {
+  const key = ORDER_PAY_METHOD_I18N[method];
+  return key ? t(key, method) : method;
+}
+function reasonLabel(list, i18nKey, r, t) {
+  const idx = list.indexOf(r);
+  const arr = t(i18nKey);
+  return (idx >= 0 && Array.isArray(arr) && arr[idx]) ? arr[idx] : r;
+}
 const ACTION_WIDTH      = 148; // px revealed on swipe
 
 const getStatusMeta = (t) => ({
@@ -74,6 +96,9 @@ function timeOnly(dateStr) {
 }
 
 // ─── DATE RANGE HELPERS ───────────────────────────────────────────────────────
+// Preset `id`s are the RAW sentinels compared against `preset` / passed to
+// getPresetRange(); only `label` is display copy. datePresetLabel() exists because the
+// summary row renders the selected preset by value, not by walking this list.
 const getDatePresets = (t) => [
   { id: 'Today',      label: t('periods.today') },
   { id: '7 Days',     label: t('periods.last7days') },
@@ -81,6 +106,11 @@ const getDatePresets = (t) => [
   { id: 'This Month', label: t('periods.thisMonth') },
   { id: 'Custom',     label: t('periods.custom') },
 ];
+
+function datePresetLabel(preset, t) {
+  const hit = getDatePresets(t).find(p => p.id === preset);
+  return hit ? hit.label : preset;
+}
 
 function getPresetRange(preset, customFrom, customTo) {
   const now   = new Date();
@@ -136,7 +166,7 @@ function PhoneField({ label, value, onChange }) {
       <Text style={pay.fieldLabel}>{resolvedLabel.toUpperCase()}</Text>
       <View style={[pay.input, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden', minHeight: 48, width: '100%' }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 6, alignSelf: 'stretch' }}>
-          <Text style={{ fontSize: 16 }}>🇺🇿</Text>
+          <MaterialIcons name="phone" size={15} color="#64748b" />
           <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>+998</Text>
         </View>
         <TextInput
@@ -186,14 +216,15 @@ const tst = StyleSheet.create({
 });
 
 // ─── RANGE CALENDAR PICKER MODAL ─────────────────────────────────────────────
-const AO_MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const AO_DAY_HDR = ['Mo','Tu','We','Th','Fr','Sa','Su'];
 const ao_today   = new Date();
 const ao_todayStr = `${ao_today.getFullYear()}-${String(ao_today.getMonth()+1).padStart(2,'0')}-${String(ao_today.getDate()).padStart(2,'0')}`;
 function aoFmt(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function aoMonday(d) { const x=new Date(d); x.setDate(x.getDate()-(x.getDay()+6)%7); return x; }
 
 function AOCalendarModal({ visible, onClose, from, to, onChange }) {
+  const { t } = useTranslation();
+  const AO_MONTHS = t('datePicker.months');
+  const AO_DAY_HDR = t('datePicker.days');
   const [viewYear,  setViewYear]  = useState(ao_today.getFullYear());
   const [viewMonth, setViewMonth] = useState(ao_today.getMonth());
   const [tempFrom,  setTempFrom]  = useState(from || ao_todayStr);
@@ -232,10 +263,10 @@ function AOCalendarModal({ visible, onClose, from, to, onChange }) {
   const P = colors.admin;
   const PL = '#EFF6FF';
   const presets = [
-    { label: 'Today',      f: ao_todayStr, t: ao_todayStr },
-    { label: 'This Week',  f: aoFmt(aoMonday(ao_today)), t: ao_todayStr },
-    { label: 'This Month', f: aoFmt(new Date(ao_today.getFullYear(),ao_today.getMonth(),1)), t: ao_todayStr },
-    { label: 'Last Month', f: aoFmt(new Date(ao_today.getFullYear(),ao_today.getMonth()-1,1)), t: aoFmt(new Date(ao_today.getFullYear(),ao_today.getMonth(),0)) },
+    { label: t('common.today'),          f: ao_todayStr, t: ao_todayStr },
+    { label: t('admin.orders.thisWeek'),  f: aoFmt(aoMonday(ao_today)), t: ao_todayStr },
+    { label: t('admin.orders.thisMonth'), f: aoFmt(new Date(ao_today.getFullYear(),ao_today.getMonth(),1)), t: ao_todayStr },
+    { label: t('admin.orders.lastMonth'), f: aoFmt(new Date(ao_today.getFullYear(),ao_today.getMonth()-1,1)), t: aoFmt(new Date(ao_today.getFullYear(),ao_today.getMonth(),0)) },
   ];
 
   return (
@@ -244,7 +275,7 @@ function AOCalendarModal({ visible, onClose, from, to, onChange }) {
         <View style={{ backgroundColor:'#fff', borderTopLeftRadius:24, borderTopRightRadius:24, maxHeight:'92%' }}>
           <View style={{ flexDirection:'row', alignItems:'center', gap:8, padding:16, borderBottomWidth:1, borderBottomColor:'#e2e8f0' }}>
             <MaterialIcons name="calendar-today" size={20} color={P} />
-            <Text style={{ fontSize:16, fontWeight:'800', color:'#0f172a' }}>Select Period</Text>
+            <Text style={{ fontSize:16, fontWeight:'800', color:'#0f172a' }}>{t('admin.orders.selectPeriod')}</Text>
             <TouchableOpacity onPress={onClose} style={{ marginLeft:'auto' }}>
               <MaterialIcons name="close" size={22} color="#64748b" />
             </TouchableOpacity>
@@ -252,19 +283,19 @@ function AOCalendarModal({ visible, onClose, from, to, onChange }) {
           <ScrollView contentContainerStyle={{ padding:16, paddingBottom:40 }}>
             <View style={{ flexDirection:'row', marginBottom:12 }}>
               <TouchableOpacity onPress={()=>setStep('from')} style={{ flex:1, borderWidth:2, borderColor:step==='from'?P:'#e2e8f0', borderRadius:12, padding:10, backgroundColor:step==='from'?PL:'#f8fafc' }}>
-                <Text style={{ fontSize:10, color:'#94a3b8', fontWeight:'700', marginBottom:2 }}>FROM</Text>
+                <Text style={{ fontSize:10, color:'#94a3b8', fontWeight:'700', marginBottom:2 }}>{t('common.from').toUpperCase()}</Text>
                 <Text style={{ fontSize:14, fontWeight:'800', color:'#0f172a' }}>{tempFrom}</Text>
               </TouchableOpacity>
               <View style={{ width:24, alignItems:'center', justifyContent:'center' }}>
                 <Text style={{ color:'#94a3b8', fontSize:18 }}>→</Text>
               </View>
               <TouchableOpacity onPress={()=>setStep('to')} style={{ flex:1, borderWidth:2, borderColor:step==='to'?P:'#e2e8f0', borderRadius:12, padding:10, backgroundColor:step==='to'?PL:'#f8fafc' }}>
-                <Text style={{ fontSize:10, color:'#94a3b8', fontWeight:'700', marginBottom:2 }}>TO</Text>
+                <Text style={{ fontSize:10, color:'#94a3b8', fontWeight:'700', marginBottom:2 }}>{t('common.to').toUpperCase()}</Text>
                 <Text style={{ fontSize:14, fontWeight:'800', color:'#0f172a' }}>{tempTo}</Text>
               </TouchableOpacity>
             </View>
             <Text style={{ textAlign:'center', color:'#94a3b8', fontSize:12, marginBottom:14 }}>
-              {step==='from' ? 'Tap a date to set start' : 'Tap a date to set end'}
+              {step==='from' ? t('admin.orders.tapSetStart') : t('admin.orders.tapSetEnd')}
             </Text>
             <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
               <TouchableOpacity onPress={prevMonth} style={{ width:36, height:36, borderRadius:10, backgroundColor:'#f1f5f9', alignItems:'center', justifyContent:'center' }}>
@@ -303,7 +334,7 @@ function AOCalendarModal({ visible, onClose, from, to, onChange }) {
             </View>
             <TouchableOpacity style={{ marginTop:16, backgroundColor:P, borderRadius:14, paddingVertical:14, alignItems:'center' }} onPress={()=>{onChange(tempFrom,tempTo);onClose();}}>
               <Text style={{ color:'#fff', fontWeight:'800', fontSize:14 }}>
-                Apply: {tempFrom===tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
+                {t('common.apply')}: {tempFrom===tempTo ? tempFrom : `${tempFrom} → ${tempTo}`}
               </Text>
             </TouchableOpacity>
           </ScrollView>
@@ -347,7 +378,7 @@ function PaidDatePicker({ preset, setPreset, customFrom, setCustomFrom, customTo
         onChange={(f, t) => { setCustomFrom(f); setCustomTo(t); }}
       />
       <View style={dp.summaryRow}>
-        <Text style={dp.summaryLabel}>{t('adminExtra.showingLabel')}: <Text style={dp.summaryBold}>{preset}</Text></Text>
+        <Text style={dp.summaryLabel}>{t('adminExtra.showingLabel')}: <Text style={dp.summaryBold}>{datePresetLabel(preset, t)}</Text></Text>
         <View style={dp.summaryRight}>
           <Text style={dp.summaryCount}>{filteredOrders.length} {t('adminExtra.ordersLabel')}</Text>
           <Text style={dp.summaryDot}>·</Text>
@@ -580,15 +611,18 @@ const sw = StyleSheet.create({
 
 // ─── ACTION SHEET ─────────────────────────────────────────────────────────────
 function ActionSheetModal({ order, onClose, onEdit, onDelete }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   if (!order) return null;
   return (
     <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={ash.overlay}>
         <TouchableOpacity style={ash.bg} activeOpacity={1} onPress={onClose} />
-        <View style={ash.sheet}>
-          <View style={ash.handle} />
+        <Animated.View style={[ash.sheet, swipe.style]}>
+          <View {...swipe.panHandlers}>
+            <View style={ash.handle} />
           <Text style={ash.orderRef}>{shortId(order)}</Text>
+          </View>
 
           <TouchableOpacity style={ash.option} onPress={() => { onClose(); onEdit(); }}>
             <View style={[ash.iconWrap, { backgroundColor: '#eff6ff' }]}><MaterialIcons name="edit" size={20} color="#2563EB" /></View>
@@ -603,7 +637,7 @@ function ActionSheetModal({ order, onClose, onEdit, onDelete }) {
           <TouchableOpacity style={ash.cancelRow} onPress={onClose}>
             <Text style={ash.cancelText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -624,6 +658,7 @@ const ash = StyleSheet.create({
 
 // ─── DELETE CONFIRM ───────────────────────────────────────────────────────────
 function DeleteConfirmModal({ order, onClose, onConfirm }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [reason,    setReason]    = useState('');
   const [otherText, setOtherText] = useState('');
@@ -644,7 +679,8 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
       <View style={dc.overlay}>
         <TouchableOpacity style={dc.bg} activeOpacity={1} onPress={onClose} />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={dc.sheetWrap}>
-          <View style={dc.sheet}>
+          <Animated.View style={[dc.sheet, swipe.style]}>
+            <View {...swipe.panHandlers}>
             <View style={dc.handle} />
 
             <View style={dc.header}>
@@ -653,6 +689,7 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
                 <MaterialIcons name="close" size={20} color="#475569" />
               </TouchableOpacity>
             </View>
+          </View>
 
             {/* Summary */}
             <View style={dc.summaryBox}>
@@ -684,7 +721,7 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
                     <View style={[dc.radio, reason === r && dc.radioFilled]}>
                       {reason === r && <View style={dc.radioDot} />}
                     </View>
-                    <Text style={[dc.reasonText, reason === r && dc.reasonTextActive]}>{r}</Text>
+                    <Text style={[dc.reasonText, reason === r && dc.reasonTextActive]}>{reasonLabel(DELETE_REASONS, 'admin.orders.deleteReasons', r, t)}</Text>
                   </TouchableOpacity>
                 ))}
                 {reason === 'Other' && (
@@ -702,7 +739,7 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
 
             <View style={dc.btnRow}>
               <TouchableOpacity style={dc.cancelBtn} onPress={onClose}>
-                <Text style={dc.cancelBtnText}>Cancel</Text>
+                <Text style={dc.cancelBtnText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[dc.deleteBtn, !canConfirm && { opacity: 0.38 }]}
@@ -711,10 +748,10 @@ function DeleteConfirmModal({ order, onClose, onConfirm }) {
               >
                 {deleting
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={dc.deleteBtnText}>Delete</Text>}
+                  : <Text style={dc.deleteBtnText}>{t('common.delete')}</Text>}
               </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -754,6 +791,7 @@ const dc = StyleSheet.create({
 
 // ─── CANCEL REASON MODAL ─────────────────────────────────────────────────────────
 function CancelReasonModal({ order, onClose, onConfirm }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [reason, setReason]       = useState('');
   const [otherText, setOtherText] = useState('');
@@ -775,26 +813,30 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
       <View style={cr.overlay}>
         <TouchableOpacity style={cr.bg} activeOpacity={1} onPress={onClose} />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={cr.sheetWrap}>
-          <View style={cr.sheet}>
+          <Animated.View style={[cr.sheet, swipe.style]}>
+            <View {...swipe.panHandlers}>
             <View style={cr.handle} />
 
             <View style={cr.header}>
-              <Text style={cr.title}>Cancel Order</Text>
+              <Text style={cr.title}>{t('admin.orders.cancelOrder')}</Text>
               <TouchableOpacity onPress={onClose} style={cr.closeXBtn}>
                 <MaterialIcons name="close" size={20} color="#475569" />
               </TouchableOpacity>
             </View>
+          </View>
 
             {/* Summary */}
             <View style={cr.summaryBox}>
+              {/* [reactKey, translatedLabel, value] — the React key stays a stable id so
+                  it does not change with the language. */}
               {[
-                ['Order', shortId(order)],
-                ['Table', order.table_name || (order.table_number ? `Table ${order.table_number}` : 'Walk-in')],
-                ['Total', money(order.total_amount)],
-              ].map(([k, v], i, arr) => (
-                <View key={k} style={[cr.summaryRow, i < arr.length - 1 && cr.summaryBorder]}>
+                ['order', t('common.order'), shortId(order)],
+                ['table', t('adminExtra.table'), order.table_name || (order.table_number ? `${t('adminExtra.table')} ${order.table_number}` : t('adminExtra.walkIn'))],
+                ['total', t('common.total'), money(order.total_amount)],
+              ].map(([id, k, v], i, arr) => (
+                <View key={id} style={[cr.summaryRow, i < arr.length - 1 && cr.summaryBorder]}>
                   <Text style={cr.summaryKey}>{k}</Text>
-                  <Text style={[cr.summaryVal, k === 'Total' && { color: colors.admin, fontWeight: '800' }]}>{v}</Text>
+                  <Text style={[cr.summaryVal, id === 'total' && { color: colors.admin, fontWeight: '800' }]}>{v}</Text>
                 </View>
               ))}
             </View>
@@ -814,7 +856,7 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
                   <View style={[cr.radio, reason === r && cr.radioFilled]}>
                     {reason === r && <View style={cr.radioDot} />}
                   </View>
-                  <Text style={[cr.reasonText, reason === r && cr.reasonTextActive]}>{r}</Text>
+                  <Text style={[cr.reasonText, reason === r && cr.reasonTextActive]}>{reasonLabel(CANCEL_REASONS, 'admin.orders.cancelReasons', r, t)}</Text>
                 </TouchableOpacity>
               ))}
               {reason === 'Other' && (
@@ -843,7 +885,7 @@ function CancelReasonModal({ order, onClose, onConfirm }) {
                   : <Text style={cr.confirmBtnText}>{t('ordersExtra.cancelOrderShort','Cancel Order')}</Text>}
               </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -932,6 +974,9 @@ const formatItemQty = (item) => {
 
 // ─── EDIT CURRENT ORDER (full-screen) ─────────────────────────────────────────
 function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
+  const swipe1 = useSheetSwipe(() => setShowTablePicker(false));
+  const swipe2 = useSheetSwipe(() => setShowWaitressPicker(false));
+  const swipe3 = useSheetSwipe(() => setAmountPicker(null));
   const { t } = useTranslation();
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
@@ -1071,7 +1116,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
         // server (backend does DELETE + INSERT of the provided items list).
         items:       items.map(i => ({ menu_item_id: i.menu_item_id || i.id, quantity: Number(i.quantity) || 1 })),
       });
-      showToast(`Order ${shortId(order)} updated`, 'success');
+      showToast(t('admin.orders.orderUpdatedToast', { id: shortId(order) }), 'success');
       onSaved();
       onClose();
     } catch (e) {
@@ -1230,12 +1275,14 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
           <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowTablePicker(false)}>
             <View style={pkr.overlay}>
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowTablePicker(false)} />
-              <View style={pkr.sheet}>
-                <View style={pkr.handle} />
+              <Animated.View style={[pkr.sheet, swipe1.style]}>
+                <View {...swipe1.panHandlers}>
+            <View style={pkr.handle} />
                 <Text style={pkr.title}>{t('admin.newOrder.selectTable','Select Table')}</Text>
+          </View>
                 <ScrollView>
                   {tables.map(tb => {
-                    const name = tb.name || (tb.table_number ? `Table ${tb.table_number}` : `Table ${tb.id}`);
+                    const name = tb.name || `${t('adminExtra.table')} ${tb.table_number || tb.id}`;
                     return (
                       <TouchableOpacity key={tb.id} style={pkr.option} onPress={() => { setTableId(tb.id); setTableName(name); setShowTablePicker(false); }}>
                         <Text style={pkr.optionText}>{name}</Text>
@@ -1244,7 +1291,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </Animated.View>
             </View>
           </Modal>
         )}
@@ -1254,9 +1301,11 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
           <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowWaitressPicker(false)}>
             <View style={pkr.overlay}>
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowWaitressPicker(false)} />
-              <View style={pkr.sheet}>
-                <View style={pkr.handle} />
+              <Animated.View style={[pkr.sheet, swipe2.style]}>
+                <View {...swipe2.panHandlers}>
+            <View style={pkr.handle} />
                 <Text style={pkr.title}>{t('placeholders.selectWaitress','Select Waitress')}</Text>
+          </View>
                 <ScrollView>
                   {staff.map(s => {
                     const name = s.full_name || s.name || s.email;
@@ -1268,7 +1317,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </Animated.View>
             </View>
           </Modal>
         )}
@@ -1278,9 +1327,11 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
           <Modal visible animationType="fade" transparent statusBarTranslucent onRequestClose={() => setAmountPicker(null)}>
             <View style={pkr.overlay}>
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setAmountPicker(null)} />
-              <View style={ap.sheet}>
-                <View style={pkr.handle} />
+              <Animated.View style={[ap.sheet, swipe3.style]}>
+                <View {...swipe3.panHandlers}>
+            <View style={pkr.handle} />
                 <Text style={ap.title}>{amountPicker.item?.name || amountPicker.item?.item_name}</Text>
+          </View>
                 <Text style={ap.sub}>
                   {money(Number(amountPicker.item?.price || amountPicker.item?.unit_price || 0))} / {unitSuffix(amountPicker.item?.unit)}
                 </Text>
@@ -1354,7 +1405,7 @@ function EditCurrentOrderModal({ order, onClose, onSaved, showToast }) {
                     <Text style={ap.btnConfirmText}>{amountPicker.localId != null ? t('common.save','Save') : t('common.add','Add')}</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </Animated.View>
             </View>
           </Modal>
         )}
@@ -1423,6 +1474,9 @@ const ap = StyleSheet.create({
 
 // ─── EDIT PAID ORDER (bottom sheet) ──────────────────────────────────────────
 function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
+  const swipe1 = useSheetSwipe(onClose);
+  const swipe2 = useSheetSwipe(() => setShowTablePicker(false));
+  const swipe3 = useSheetSwipe(() => setShowWaitressPicker(false));
   const { t } = useTranslation();
   const [saving,  setSaving]  = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1479,7 +1533,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
         payment_method: payMethod.toLowerCase(),
         notes:          notes      || undefined,
       });
-      showToast(`Order ${shortId(order)} updated`, 'success');
+      showToast(t('admin.orders.orderUpdatedToast', { id: shortId(order) }), 'success');
       onSaved();
       onClose();
     } catch (e) {
@@ -1494,8 +1548,9 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
         <View style={ep.overlay}>
           <TouchableOpacity style={ep.bg} activeOpacity={1} onPress={onClose} />
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={ep.sheetWrap}>
-            <View style={ep.sheet}>
-              <View style={ep.handle} />
+            <Animated.View style={[ep.sheet, swipe1.style]}>
+              <View {...swipe1.panHandlers}>
+            <View style={ep.handle} />
 
               {/* Header */}
               <View style={ep.header}>
@@ -1509,13 +1564,14 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                     : <Text style={ep.saveBtnText}>{t('common.save','Save')}</Text>}
                 </TouchableOpacity>
               </View>
+          </View>
 
               {/* Warning */}
               <View style={ep.warning}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                   <MaterialIcons name="warning" size={16} color="#c2410c" style={{ marginRight: 8, marginTop: 1 }} />
                   <Text style={ep.warningText}>
-                    This order is paid. Only administrative details can be changed.
+                    {t('admin.orders.paidOrderWarning')}
                   </Text>
                 </View>
               </View>
@@ -1526,7 +1582,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                   <ScrollView style={{ maxHeight: '70%' }} contentContainerStyle={ep.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
                     {/* Payment Method */}
-                    <FieldLabel>Payment Method</FieldLabel>
+                    <FieldLabel>{t('admin.orders.paymentMethod')}</FieldLabel>
                     <View style={ep.methodRow}>
                       {PAYMENT_METHODS.map(m => (
                         <TouchableOpacity
@@ -1534,18 +1590,18 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                           style={[ep.methodPill, payMethod === m && ep.methodPillActive]}
                           onPress={() => setPayMethod(m)}
                         >
-                          <Text style={[ep.methodText, payMethod === m && ep.methodTextActive]}>{m}</Text>
+                          <Text style={[ep.methodText, payMethod === m && ep.methodTextActive]}>{orderPayMethodLabel(m, t)}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
 
-                    <FieldLabel>Assigned Waitress</FieldLabel>
+                    <FieldLabel>{t('admin.orders.assignedWaitress')}</FieldLabel>
                     <SelectRow value={waitressName} placeholder={t('placeholders.selectWaitress','Select waitress')} onPress={() => setShowWaitressPicker(true)} />
 
                     <FieldLabel>{t('adminExtra.table','Table')}</FieldLabel>
                     <SelectRow value={tableName} placeholder={t('placeholders.selectTable','Select table')} onPress={() => setShowTablePicker(true)} />
 
-                    <FieldLabel>Internal Notes</FieldLabel>
+                    <FieldLabel>{t('admin.orders.internalNotes')}</FieldLabel>
                     <TextInput
                       style={ep.notesInput}
                       value={notes}
@@ -1558,7 +1614,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                     />
 
                     {/* Read-only items */}
-                    <FieldLabel>Order Items (Read-only)</FieldLabel>
+                    <FieldLabel>{t('admin.orders.orderItemsReadonly')}</FieldLabel>
                     {readonlyItems.map((it, idx) => (
                       <View key={idx} style={ep.readonlyRow}>
                         <View style={{ flex: 1 }}>
@@ -1570,14 +1626,14 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                     ))}
 
                     <View style={ep.totalBox}>
-                      <Text style={ep.totalLabel}>Total</Text>
+                      <Text style={ep.totalLabel}>{t('common.total')}</Text>
                       <Text style={ep.totalVal}>{money(orderTotal || Number(order.total_amount))}</Text>
                     </View>
 
                     <View style={{ height: 24 }} />
                   </ScrollView>
                 )}
-            </View>
+            </Animated.View>
           </KeyboardAvoidingView>
         </View>
 
@@ -1586,12 +1642,14 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
           <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowTablePicker(false)}>
             <View style={pkr.overlay}>
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowTablePicker(false)} />
-              <View style={pkr.sheet}>
-                <View style={pkr.handle} />
+              <Animated.View style={[pkr.sheet, swipe2.style]}>
+                <View {...swipe2.panHandlers}>
+            <View style={pkr.handle} />
                 <Text style={pkr.title}>{t('admin.newOrder.selectTable','Select Table')}</Text>
+          </View>
                 <ScrollView>
                   {tables.map(tb => {
-                    const name = tb.name || (tb.table_number ? `Table ${tb.table_number}` : `Table ${tb.id}`);
+                    const name = tb.name || `${t('adminExtra.table')} ${tb.table_number || tb.id}`;
                     return (
                       <TouchableOpacity key={tb.id} style={pkr.option} onPress={() => { setTableId(tb.id); setTableName(name); setShowTablePicker(false); }}>
                         <Text style={pkr.optionText}>{name}</Text>
@@ -1600,7 +1658,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </Animated.View>
             </View>
           </Modal>
         )}
@@ -1610,9 +1668,11 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
           <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowWaitressPicker(false)}>
             <View style={pkr.overlay}>
               <TouchableOpacity style={pkr.bg} activeOpacity={1} onPress={() => setShowWaitressPicker(false)} />
-              <View style={pkr.sheet}>
-                <View style={pkr.handle} />
+              <Animated.View style={[pkr.sheet, swipe3.style]}>
+                <View {...swipe3.panHandlers}>
+            <View style={pkr.handle} />
                 <Text style={pkr.title}>{t('placeholders.selectWaitress','Select Waitress')}</Text>
+          </View>
                 <ScrollView>
                   {staff.map(s => {
                     const name = s.full_name || s.name || s.email;
@@ -1624,7 +1684,7 @@ function EditPaidOrderModal({ order, onClose, onSaved, showToast }) {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </Animated.View>
             </View>
           </Modal>
         )}
@@ -1664,10 +1724,14 @@ const ep = StyleSheet.create({
 });
 
 // ─── LOAN DATE PICKER ────────────────────────────────────────────────────────
-const LOAN_MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const LOAN_DAY_HDRS    = ['Mo','Tu','We','Th','Fr','Sa','Su'];
-
+// Month names / weekday headers come from the shared datePicker arrays — a local
+// English array here would stay English in every language. datePicker.days is
+// Monday-first, which matches this grid's own `firstDow` calculation below, so it is
+// used as-is with no rotation.
 function LoanDatePickerSheet({ current, onSelect, onClose }) {
+  const { t } = useTranslation();
+  const LOAN_MONTH_NAMES = t('datePicker.monthsShort');
+  const LOAN_DAY_HDRS    = t('datePicker.days');
   const todayObj = new Date();
   const [viewYear,  setViewYear]  = useState(todayObj.getFullYear());
   const [viewMonth, setViewMonth] = useState(todayObj.getMonth());
@@ -1695,7 +1759,7 @@ function LoanDatePickerSheet({ current, onSelect, onClose }) {
     <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 32 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 8 }}>
         <MaterialIcons name="calendar-today" size={18} color={colors.admin} />
-        <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a', marginLeft: 4 }}>Select Due Date</Text>
+        <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a', marginLeft: 4 }}>{t('admin.orders.selectDueDateTitle')}</Text>
         <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
           <MaterialIcons name="close" size={20} color="#94a3b8" />
         </TouchableOpacity>
@@ -1742,6 +1806,7 @@ function LoanDatePickerSheet({ current, onSelect, onClose }) {
 
 // ─── PAYMENT SHEET ────────────────────────────────────────────────────────────
 function PaymentSheet({ visible, order, onClose, onPaid }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [method,      setMethod]      = useState('Cash');
   const [cashIn,      setCashIn]      = useState('');
@@ -1853,34 +1918,38 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
   ];
 
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <KeyboardAvoidingView style={pay.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <TouchableOpacity style={pay.bg} activeOpacity={1} onPress={onClose} />
-        <View style={pay.sheet}>
-          <View style={pay.handle} />
+        <Animated.View style={[pay.sheet, swipe.style]}>
+          <View {...swipe.panHandlers}>
+            <View style={pay.handle} />
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
             <MaterialIcons name="credit-card" size={20} color="#0f172a" style={{ marginRight: 8 }} />
-            <Text style={pay.title}>Collect Payment</Text>
+            <Text style={pay.title}>{t('admin.orders.collectPayment')}</Text>
             <TouchableOpacity onPress={onClose} style={{ marginLeft: 'auto' }}>
               <MaterialIcons name="close" size={22} color="#94a3b8" />
             </TouchableOpacity>
           </View>
+          </View>
           <Text style={pay.orderRef}>
-            {shortId(order)}  ·  {order.table_name || (order.table_number ? `Table ${order.table_number}` : (order.customer_name || 'Walk-in'))}
+            {shortId(order)}  ·  {order.table_name || (order.table_number ? `${t('adminExtra.table')} ${order.table_number}` : (order.customer_name || t('adminExtra.walkIn')))}
           </Text>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: '80%' }} keyboardShouldPersistTaps="handled">
             {/* Order total */}
-            <View style={pay.lineRow}><Text style={pay.lineLabel}>Order Total</Text><Text style={pay.lineVal}>{money(baseTotal)}</Text></View>
+            <View style={pay.lineRow}><Text style={pay.lineLabel}>{t('admin.orders.orderTotal')}</Text><Text style={pay.lineVal}>{money(baseTotal)}</Text></View>
 
             {/* Discount */}
-            <Text style={pay.fieldLabel}>Discount (Optional)</Text>
+            <Text style={pay.fieldLabel}>{t('admin.orders.discountOptional')}</Text>
             <View style={pay.discRow}>
-              {['Percentage', 'Fixed'].map(t => (
-                <TouchableOpacity key={t} style={[pay.discToggle, discType === t && pay.discToggleActive]}
-                  onPress={() => { setDiscType(t); setDiscVal(''); }}>
-                  <Text style={[pay.discToggleTxt, discType === t && pay.discToggleTxtActive]}>{t}</Text>
+              {/* Param renamed from `t` — it shadowed the translation function. `dt` stays
+                  the RAW value ('Percentage'/'Fixed') that discType is compared against. */}
+              {DISC_TYPES.map(dt => (
+                <TouchableOpacity key={dt} style={[pay.discToggle, discType === dt && pay.discToggleActive]}
+                  onPress={() => { setDiscType(dt); setDiscVal(''); }}>
+                  <Text style={[pay.discToggleTxt, discType === dt && pay.discToggleTxtActive]}>{reasonLabel(DISC_TYPES, 'admin.orders.discountTypes', dt, t)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1888,32 +1957,32 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
               placeholder={discType === 'Percentage' ? '0 — 100 %' : "0 so'm"} placeholderTextColor="#94a3b8" keyboardType="decimal-pad" />
             {discVal ? (
               <TouchableOpacity style={pay.reasonPicker} onPress={() => setShowReasons(true)}>
-                <Text style={pay.reasonTxt}>{discReason}</Text>
+                <Text style={pay.reasonTxt}>{reasonLabel(DISC_REASONS, 'admin.orders.discReasons', discReason, t)}</Text>
                 <MaterialIcons name="expand-more" size={18} color="#94a3b8" />
               </TouchableOpacity>
             ) : null}
             {discAmt > 0 && (
               <View style={[pay.lineRow, { marginTop: 4 }]}>
-                <Text style={[pay.lineLabel, { color: '#16a34a' }]}>Discount</Text>
+                <Text style={[pay.lineLabel, { color: '#16a34a' }]}>{t('common.discount')}</Text>
                 <Text style={[pay.lineVal, { color: '#16a34a' }]}>− {money(discAmt)}</Text>
               </View>
             )}
 
             {/* Total */}
             <View style={[pay.lineRow, pay.totalDivider]}>
-              <Text style={pay.totalLabel}>Total to Collect</Text>
+              <Text style={pay.totalLabel}>{t('admin.orders.totalToCollect')}</Text>
               <Text style={pay.totalVal}>{money(total)}</Text>
             </View>
 
             {/* Payment method selector */}
-            <Text style={pay.fieldLabel}>Payment Method</Text>
+            <Text style={pay.fieldLabel}>{t('admin.orders.paymentMethod')}</Text>
             <View style={pay.methodRow}>
               {PAY_METHODS.map(({ id, icon }) => (
                 <TouchableOpacity key={id}
                   style={[pay.methodPill, method === id && pay.methodPillActive]}
                   onPress={() => resetMethod(id)}>
                   <MaterialIcons name={icon} size={20} color={method === id ? colors.admin : '#94a3b8'} />
-                  <Text style={[pay.methodText, method === id && pay.methodTextActive]}>{id}</Text>
+                  <Text style={[pay.methodText, method === id && pay.methodTextActive]}>{orderPayMethodLabel(id, t)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1921,12 +1990,12 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
             {/* Cash */}
             {method === 'Cash' && (
               <View style={{ marginBottom: 8 }}>
-                <Text style={pay.fieldLabel}>Amount Received</Text>
+                <Text style={pay.fieldLabel}>{t('admin.orders.amountReceived')}</Text>
                 <TextInput style={pay.input} keyboardType="numeric" value={cashIn} onChangeText={setCashIn}
                   placeholder="0" placeholderTextColor="#94a3b8" />
                 {cashRcv >= total && cashRcv > 0 && (
                   <View style={pay.changeBox}>
-                    <Text style={pay.changeLbl}>Change to give back</Text>
+                    <Text style={pay.changeLbl}>{t('admin.orders.changeToGiveBack')}</Text>
                     <Text style={pay.changeAmt}>{money(change)}</Text>
                   </View>
                 )}
@@ -1939,7 +2008,7 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                 <View style={[pay.checkbox, cardOk && pay.checkboxOk]}>
                   {cardOk && <MaterialIcons name="check" size={13} color="#fff" />}
                 </View>
-                <Text style={pay.checkLbl}>Card payment confirmed on terminal</Text>
+                <Text style={pay.checkLbl}>{t('admin.orders.cardConfirmed')}</Text>
               </TouchableOpacity>
             )}
 
@@ -1948,13 +2017,13 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
               <View style={{ marginBottom: 8 }}>
                 <View style={pay.qrBox}>
                   <MaterialIcons name="qr-code" size={48} color="#e2e8f0" />
-                  <Text style={pay.qrLbl}>Customer scans to pay</Text>
+                  <Text style={pay.qrLbl}>{t('admin.orders.customerScansToPay')}</Text>
                 </View>
                 <TouchableOpacity style={[pay.checkRow, qrOk && pay.checkRowOk]} onPress={() => setQrOk(!qrOk)}>
                   <View style={[pay.checkbox, qrOk && pay.checkboxOk]}>
                     {qrOk && <MaterialIcons name="check" size={13} color="#fff" />}
                   </View>
-                  <Text style={pay.checkLbl}>QR payment confirmed</Text>
+                  <Text style={pay.checkLbl}>{t('admin.orders.qrConfirmed')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1964,27 +2033,27 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
               <View style={{ gap: 8, marginBottom: 8 }}>
                 <View style={pay.loanNotice}>
                   <MaterialIcons name="info-outline" size={15} color="#D97706" />
-                  <Text style={pay.loanNoticeTxt}>Order marked paid. Debt tracked until customer returns.</Text>
+                  <Text style={pay.loanNoticeTxt}>{t('admin.orders.loanNotice')}</Text>
                 </View>
                 <Text style={pay.fieldLabel}>{t('common.customerName','Customer Name')}</Text>
                 <TextInput style={pay.input} placeholder={t('placeholders.fullName','Full name')} placeholderTextColor="#94a3b8" value={loanName} onChangeText={setLoanName} />
                 <PhoneField label={t('phoneField.label','Phone Number')} value={loanPhone} onChange={setLoanPhone} />
-                <Text style={pay.fieldLabel}>Expected Return Date</Text>
+                <Text style={pay.fieldLabel}>{t('admin.orders.expectedReturnDate')}</Text>
                 <TouchableOpacity style={[pay.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
                   onPress={() => setShowLoanCal(true)} activeOpacity={0.8}>
-                  <Text style={{ fontSize: 14, color: loanDueDate ? '#0f172a' : '#94a3b8' }}>{loanDueDate || 'Select date'}</Text>
+                  <Text style={{ fontSize: 14, color: loanDueDate ? '#0f172a' : '#94a3b8' }}>{loanDueDate || t('admin.orders.selectDate')}</Text>
                   <MaterialIcons name="calendar-today" size={18} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
             )}
 
             {/* Split */}
-            <Text style={pay.fieldLabel}>Split Bill (Optional)</Text>
+            <Text style={pay.fieldLabel}>{t('admin.orders.splitBillOptional')}</Text>
             <View style={pay.splitRow}>
               {[2, 3, 4].map(n => (
                 <TouchableOpacity key={n} style={[pay.splitBtn, splitCount === n && pay.splitBtnActive]}
                   onPress={() => setSplitCount(splitCount === n ? null : n)}>
-                  <Text style={[pay.splitLbl, splitCount === n && pay.splitLblActive]}>{n} ways</Text>
+                  <Text style={[pay.splitLbl, splitCount === n && pay.splitLblActive]}>{t('admin.orders.nWays', { n })}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1993,19 +2062,19 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                 {splitParts.map((sp, i) => (
                   <View key={i} style={pay.splitPart}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={pay.splitPartLbl}>Part {i + 1}</Text>
+                      <Text style={pay.splitPartLbl}>{t('admin.orders.partN', { n: i + 1 })}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 8, width: 140 }}>
                         <TextInput style={{ flex: 1, paddingVertical: 6, fontSize: 14, fontWeight: '700', color: '#0f172a', textAlign: 'right' }}
                           keyboardType="numeric" value={sp.amount}
                           onChangeText={v => { const c = [...splitParts]; c[i].amount = v; setSplitParts(c); }} />
-                        <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>so'm</Text>
+                        <Text style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>{t('common.currency')}</Text>
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 6 }}>
                       {['Cash','Card','QR Code','Loan'].map(m => (
                         <TouchableOpacity key={m} style={[pay.splitM, sp.method === m && pay.splitMActive]}
                           onPress={() => { const c = [...splitParts]; c[i].method = m; setSplitParts(c); }}>
-                          <Text style={[pay.splitMTxt, sp.method === m && pay.splitMTxtActive]}>{m}</Text>
+                          <Text style={[pay.splitMTxt, sp.method === m && pay.splitMTxtActive]}>{orderPayMethodLabel(m, t)}</Text>
                         </TouchableOpacity>
                       ))}
                       <View style={{ flex: 1 }} />
@@ -2014,7 +2083,7 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                         <View style={[pay.splitCheckBox, sp.confirmed && { backgroundColor: '#16a34a', borderColor: '#16a34a' }]}>
                           {sp.confirmed && <MaterialIcons name="check" size={10} color="#fff" />}
                         </View>
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#0f172a' }}>Paid</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#0f172a' }}>{t('common.paid')}</Text>
                       </TouchableOpacity>
                     </View>
                     {/* Inline loan fields for this part */}
@@ -2022,18 +2091,18 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                       <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#fde68a', paddingTop: 8, gap: 6 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#fffbeb', borderRadius: 8, padding: 8 }}>
                           <MaterialIcons name="info-outline" size={14} color="#d97706" style={{ marginTop: 1 }} />
-                          <Text style={{ fontSize: 11, color: '#92400e', fontWeight: '600', flex: 1 }}>Debt tracked until customer returns.</Text>
+                          <Text style={{ fontSize: 11, color: '#92400e', fontWeight: '600', flex: 1 }}>{t('admin.orders.debtTracked')}</Text>
                         </View>
                         <TextInput
                           style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, color: '#0f172a' }}
-                          placeholder="Customer name *"
+                          placeholder={t('placeholders.customerNameReq')}
                           placeholderTextColor="#94a3b8"
                           value={sp.loanName}
                           onChangeText={v => { const c = [...splitParts]; c[i].loanName = v; setSplitParts(c); }}
                         />
                         <View style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden' }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 4 }}>
-                            <Text style={{ fontSize: 14 }}>🇺🇿</Text>
+                            <MaterialIcons name="phone" size={13} color="#64748b" />
                             <Text style={{ fontSize: 11, fontWeight: '700', color: '#374151' }}>+998</Text>
                           </View>
                           <TextInput
@@ -2074,7 +2143,7 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                         >
                           <MaterialIcons name="calendar-today" size={14} color="#64748b" />
                           <Text style={{ fontSize: 12, color: sp.loanDueDate ? '#0f172a' : '#94a3b8' }}>
-                            {sp.loanDueDate || 'Expected return date *'}
+                            {sp.loanDueDate || t('admin.orders.expectedReturnDateReq')}
                           </Text>
                         </TouchableOpacity>
                         {sp._showCal && (
@@ -2089,7 +2158,7 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
                   </View>
                 ))}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 }}>
-                  <Text style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Split Validation</Text>
+                  <Text style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>{t('admin.orders.splitValidation')}</Text>
                   <Text style={{ fontSize: 13, fontWeight: '800', color: splitTotal === total ? '#16a34a' : '#dc2626' }}>
                     {money(splitTotal)} / {money(total)}
                   </Text>
@@ -2106,14 +2175,14 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
             {paying ? <ActivityIndicator color="#fff" /> : (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <MaterialIcons name="check" size={18} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={pay.confirmBtnText}>Confirm Payment  •  {money(total)}</Text>
+                <Text style={pay.confirmBtnText}>{t('admin.orders.confirmPayment')}  •  {money(total)}</Text>
               </View>
             )}
           </TouchableOpacity>
           <TouchableOpacity style={pay.cancelBtn} onPress={onClose}>
-            <Text style={pay.cancelText}>Cancel</Text>
+            <Text style={pay.cancelText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
 
       {/* Loan calendar modal */}
@@ -2130,11 +2199,11 @@ function PaymentSheet({ visible, order, onClose, onPaid }) {
       <Modal visible={showReasons} transparent animationType="slide" onRequestClose={() => setShowReasons(false)}>
         <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }} onPress={() => setShowReasons(false)} />
         <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }}>
-          <Text style={{ fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 14 }}>Select Reason</Text>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 14 }}>{t('admin.orders.selectReason')}</Text>
           {DISC_REASONS.map(r => (
             <TouchableOpacity key={r} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}
               onPress={() => { setDiscReason(r); setShowReasons(false); }}>
-              <Text style={{ fontSize: 14, color: discReason === r ? colors.admin : '#0f172a', fontWeight: discReason === r ? '700' : '400' }}>{r}</Text>
+              <Text style={{ fontSize: 14, color: discReason === r ? colors.admin : '#0f172a', fontWeight: discReason === r ? '700' : '400' }}>{reasonLabel(DISC_REASONS, 'admin.orders.discReasons', r, t)}</Text>
               {discReason === r && <MaterialIcons name="check" size={18} color={colors.admin} />}
             </TouchableOpacity>
           ))}
@@ -2205,6 +2274,7 @@ const pay = StyleSheet.create({
 
 // ─── ORDER DETAIL SHEET ───────────────────────────────────────────────────────
 function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [detail,    setDetail]    = useState(null);
   const [loading,   setLoading]   = useState(true);
@@ -2226,7 +2296,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
   const current    = detail || order;
   const items      = current.items || [];
   const waiter     = current.waitress_name || current.waiter_name || 'Staff';
-  const tableLabel = current.table_name || (current.table_number ? `Table ${current.table_number}` : 'Walk-in');
+  const tableLabel = current.table_name || (current.table_number ? `${t('adminExtra.table')} ${current.table_number}` : t('adminExtra.walkIn'));
   const nextStatus = NEXT_STATUS[current.status];
   const canCancel  = ['pending', 'sent_to_kitchen', 'preparing'].includes(current.status);
   const isPaid     = current.status === 'paid';
@@ -2235,7 +2305,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
 
   // Status timeline steps
   const STEPS = ['pending', 'sent_to_kitchen', 'preparing', 'ready', 'served', 'paid'];
-  const SHORT = { pending: 'Pending', sent_to_kitchen: 'Kitchen', preparing: 'Prep', ready: 'Ready', served: 'Served', paid: 'Paid' };
+  const SHORT = t('admin.orders.statusShort');
   const currentStepIdx = STEPS.indexOf(current.status);
 
   const subtotal = items.reduce((s, i) => s + (Number(i.unit_price || i.price || 0) * Number(i.quantity || 1)), 0);
@@ -2259,11 +2329,12 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
 
 
   return (
-    <Modal visible animationType="slide" transparent statusBarTranslucent>
+    <Modal visible animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={det.overlay}>
         <TouchableOpacity style={det.bg} activeOpacity={1} onPress={onClose} />
-        <View style={det.sheet}>
-          <View style={det.handle} />
+        <Animated.View style={[det.sheet, swipe.style]}>
+          <View {...swipe.panHandlers}>
+            <View style={det.handle} />
 
           {/* ── Header: order ID + status ── */}
           <View style={det.header}>
@@ -2274,6 +2345,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
               </Text>
             </View>
             <StatusBadge status={current.status} size="lg" />
+          </View>
           </View>
 
           {/* ── Key info strip: Table | Waitress | Guests | Payment ── */}
@@ -2353,7 +2425,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
               {/* ── Items ── */}
               <Text style={det.sectionLabel}>{t('cashier.orders.orderItems')}</Text>
               {items.length === 0 ? (
-                <Text style={det.emptyItems}>No item details available</Text>
+                <Text style={det.emptyItems}>{t('admin.orders.noItemDetails')}</Text>
               ) : items.map((item, idx) => {
                 const unitPrice = Number(item.unit_price || item.price || 0);
                 const qty       = Number(item.quantity || 1);
@@ -2401,7 +2473,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                 )}
                 {Number(current.tax_amount) > 0 && (
                   <View style={det.totalRow}>
-                    <Text style={det.totalLabel}>Tax</Text>
+                    <Text style={det.totalLabel}>{t('admin.orders.tax')}</Text>
                     <Text style={det.totalVal}>{money(current.tax_amount)}</Text>
                   </View>
                 )}
@@ -2422,10 +2494,10 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                       <View style={{ marginTop: 8, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' }}>
                         <View style={{ backgroundColor: '#f8fafc', paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}>
                           <MaterialIcons name="call-split" size={14} color="#3b82f6" />
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>Split Payment Breakdown</Text>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('admin.orders.splitPaymentBreakdown')}</Text>
                         </View>
                         {current.split_payments.map((sp, i) => {
-                          const methodLabel = { cash: 'Cash', card: 'Card', qr_code: 'QR Code', loan: 'Loan' }[sp.method] || sp.method;
+                          const methodLabel = orderPayMethodLabel(sp.method, t);
                           const methodColor = { cash: '#16a34a', card: '#2563eb', qr_code: '#7c3aed', loan: '#d97706' }[sp.method] || '#64748b';
                           const methodBg = { cash: '#dcfce7', card: '#dbeafe', qr_code: '#ede9fe', loan: '#fef3c7' }[sp.method] || '#f1f5f9';
                           return (
@@ -2484,7 +2556,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                           <View style={{ marginTop: 8, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#fecaca' }}>
                             <View style={{ backgroundColor: '#fef2f2', paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                               <MaterialIcons name="error-outline" size={18} color="#dc2626" />
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#dc2626', flex: 1 }}>Debt not yet repaid</Text>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: '#dc2626', flex: 1 }}>{t('admin.orders.debtNotRepaid')}</Text>
                             </View>
                           </View>
                         )}
@@ -2607,7 +2679,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
                         {nextStatus === 'paid' ? (
                           <>
                             <MaterialIcons name="credit-card" size={16} color="#fff" style={{ marginRight: 6 }} />
-                            <Text style={det.advanceBtnTxt}>Collect Payment</Text>
+                            <Text style={det.advanceBtnTxt}>{t('admin.orders.collectPayment')}</Text>
                           </>
                         ) : (
                           <Text style={det.advanceBtnTxt}>→ {getStatusMeta(t)[nextStatus]?.label || nextStatus}</Text>
@@ -2618,7 +2690,7 @@ function OrderDetailSheet({ order, onClose, onRefresh, onEdit, onCancel }) {
               )}
             </View>
           )}
-        </View>
+        </Animated.View>
       </View>
 
       <PaymentSheet
@@ -2794,10 +2866,10 @@ export default function AdminOrders({ navigation }) {
       }
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setOrders(prev => prev.filter(o => o.id !== order.id));
-      showToast(`Order ${shortId(order)} deleted successfully`, 'success');
+      showToast(t('admin.orders.orderDeletedToast', { id: shortId(order) }), 'success');
       setDeleteTarget(null);
     } catch (e) {
-      showToast(e.response?.data?.error || 'Failed to delete order', 'error');
+      showToast(e.response?.data?.error || t('admin.orders.failedDeleteOrder'), 'error');
     }
   }, [deleteTarget, showToast]);
 
@@ -2809,11 +2881,11 @@ export default function AdminOrders({ navigation }) {
       await ordersAPI.cancel(order.id, reason);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setOrders(prev => prev.filter(o => o.id !== order.id));
-      showToast(`Order ${shortId(order)} cancelled`, 'success');
+      showToast(t('admin.orders.orderCancelledToast', { id: shortId(order) }), 'success');
       setCancelReasonTarget(null);
       load(); // reload to refresh cancelled list
     } catch (e) {
-      showToast(e.response?.data?.error || 'Failed to cancel order', 'error');
+      showToast(e.response?.data?.error || t('admin.orders.failedCancelOrder'), 'error');
     }
   }, [cancelReasonTarget, showToast, load]);
 
@@ -2829,14 +2901,15 @@ export default function AdminOrders({ navigation }) {
 
   return (
     <View style={st.container}>
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Status bar style/translucency for this tab is set centrally by AdminNavigator's
+          screenListeners on focus — see the comment there for why. */}
       {/* ── Header ── */}
       <View style={st.header}>
         <Text style={st.headerTitle}>{t('admin.orders.title')}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={st.headerBadge}>
             <View style={[st.liveDot, { backgroundColor: '#22c55e' }]} />
-            <Text style={st.liveText}>Live</Text>
+            <Text style={st.liveText}>{t('admin.orders.live')}</Text>
           </View>
           <TouchableOpacity
             style={st.newOrderBtn}

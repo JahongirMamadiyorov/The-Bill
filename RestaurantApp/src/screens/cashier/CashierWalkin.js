@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Modal, FlatList, StatusBar,
+  ActivityIndicator, TextInput, Modal, FlatList, StatusBar, Animated,
 } from 'react-native';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { menuAPI, ordersAPI, tablesAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 const fmt = (n) => Number(n || 0).toLocaleString('uz-UZ') + " so'm";
 
@@ -116,6 +117,9 @@ export default function CashierWalkin({ navigation, route }) {
   const [tables,          setTables]          = useState([]);
   const [selectedTableId, setSelectedTableId] = useState(prefillTable?.id || null);
   const [showTableSheet,  setShowTableSheet]  = useState(false);
+  // Declared HERE, not inside TablePickerSheet: that component is re-created on every
+  // render, so a hook inside it would remount and reset the drag animation each time.
+  const tableSheetSwipe = useSheetSwipe(() => setShowTableSheet(false));
 
   /* ── guests ── */
   const [guestCount, setGuestCount] = useState(1);
@@ -317,10 +321,12 @@ export default function CashierWalkin({ navigation, route }) {
       onRequestClose={() => setShowTableSheet(false)}
     >
       <TouchableOpacity style={S.overlay} activeOpacity={1} onPress={() => setShowTableSheet(false)} />
-      <View style={S.sheet}>
-        <View style={S.sheetHandle} />
-        <Text style={S.sheetTitle}>{t('cashier.walkin.selectTable', 'Select Table')}</Text>
-        <Text style={S.sheetSub}>{t('cashier.walkin.tapToAssign', 'Tap a table to assign this order')}</Text>
+      <Animated.View style={[S.sheet, tableSheetSwipe.style]}>
+        <View {...tableSheetSwipe.panHandlers}>
+          <View style={S.sheetHandle} />
+          <Text style={S.sheetTitle}>{t('cashier.walkin.selectTable', 'Select Table')}</Text>
+          <Text style={S.sheetSub}>{t('cashier.walkin.tapToAssign', 'Tap a table to assign this order')}</Text>
+        </View>
 
         {/* Legend */}
         <View style={S.legend}>
@@ -390,7 +396,7 @@ export default function CashierWalkin({ navigation, route }) {
             </View>
           }
         />
-      </View>
+      </Animated.View>
     </Modal>
   );
 

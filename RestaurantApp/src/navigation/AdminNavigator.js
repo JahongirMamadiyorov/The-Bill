@@ -1,4 +1,5 @@
 import React from 'react';
+import { StatusBar, Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -15,6 +16,35 @@ import AdminStaff           from '../screens/admin/AdminStaff';
 import AdminProfile         from '../screens/admin/AdminProfile';
 import InventoryAuditScreen from '../screens/admin/InventoryAuditScreen';
 import CashierWalkin        from '../screens/cashier/CashierWalkin';
+
+// ── Status bar per screen ───────────────────────────────────────────────────────
+// Every admin screen used to mount its own declarative <StatusBar .../>. Since the bottom tab
+// navigator keeps every tab's screen mounted (switching tabs never unmounts them), ALL of those
+// StatusBar components stay live simultaneously — whichever one last re-rendered "won", not
+// whichever tab was actually on screen. In practice this meant Profile's light-content (white
+// icons, correct for its own colored header) could end up governing a white-background tab like
+// Menu, making the clock/battery/signal icons invisible (white-on-white). Fix: no screen declares
+// its own <StatusBar> anymore; this single listener sets it imperatively on FOCUS, so it always
+// reflects whichever screen is actually visible.
+const BAR_STYLE_BY_ROUTE = {
+  Dashboard: 'dark-content',
+  Tables:    'dark-content',
+  Menu:      'dark-content',
+  Inventory: 'dark-content',
+  Orders:    'dark-content',
+  Staff:     'dark-content',
+  Profile:   'light-content',
+  InventoryAudit: 'dark-content',
+  CashierWalkin:  'dark-content',
+};
+
+function applyStatusBar(routeName) {
+  StatusBar.setBarStyle(BAR_STYLE_BY_ROUTE[routeName] || 'dark-content', true);
+  if (Platform.OS === 'android') {
+    StatusBar.setTranslucent(true);
+    StatusBar.setBackgroundColor('transparent', true);
+  }
+}
 
 const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -45,6 +75,9 @@ function AdminTabs() {
   return (
     <Tab.Navigator
       sceneContainerStyle={{ backgroundColor: '#ffffff' }}
+      screenListeners={({ route }) => ({
+        focus: () => applyStatusBar(route.name),
+      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor:   colors.admin,
@@ -82,7 +115,12 @@ function AdminTabs() {
 // Wrap tabs in a Stack so InventoryAudit + CashierWalkin can be pushed as full-screen
 export default function AdminNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+    <Stack.Navigator
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}
+      screenListeners={({ route }) => ({
+        focus: () => applyStatusBar(route.name),
+      })}
+    >
       <Stack.Screen name="AdminTabs"     component={AdminTabs} />
       <Stack.Screen
         name="InventoryAudit"

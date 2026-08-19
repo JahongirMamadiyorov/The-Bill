@@ -2,13 +2,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, Pressable,
   Modal, TextInput, StyleSheet, ActivityIndicator, RefreshControl,
-  FlatList, Platform, StatusBar,
+  FlatList, Platform, StatusBar, Animated,
 } from 'react-native';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import { shiftsAPI, usersAPI } from '../../api/client';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import TimePicker from '../../components/TimePicker';
+import useSheetSwipe from '../../components/useSheetSwipe';
+
+// These sheet containers are Pressables (they swallow taps so the backdrop's onPress does
+// not fire through), so they are wrapped rather than replaced by a plain Animated.View.
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // ─── Constants ───────────────────────────────────────────────
 const LATE_PENALTY = 5000; // so'm per late day
@@ -165,14 +170,17 @@ const statusLabel = (staff) => {
 
 // ─── Bottom Sheet Wrapper ─────────────────────────────────────
 function Sheet({ visible, onClose, children, title }) {
+  const swipe = useSheetSwipe(onClose);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={sh.overlay} onPress={onClose}>
-        <Pressable style={sh.sheet} onPress={() => { }}>
-          <View style={sh.handle} />
-          {title ? <Text style={sh.sheetTitle}>{title}</Text> : null}
+        <AnimatedPressable style={[sh.sheet, swipe.style]} onPress={() => { }}>
+          <View {...swipe.panHandlers}>
+            <View style={sh.handle} />
+            {title ? <Text style={sh.sheetTitle}>{title}</Text> : null}
+          </View>
           {children}
-        </Pressable>
+        </AnimatedPressable>
       </Pressable>
     </Modal>
   );
@@ -329,6 +337,7 @@ function AttCard({ item, cred, now, onCheckIn, onCheckInLate, onCheckOut, onMark
 
 // ─── History Modal ─────────────────────────────────────────────
 function HistoryModal({ visible, onClose, staff, history, loadingHistory }) {
+  const swipe = useSheetSwipe(onClose);
   const [range, setRange] = useState('today');
   if (!staff) return null;
 
@@ -358,8 +367,10 @@ function HistoryModal({ visible, onClose, staff, history, loadingHistory }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={sh.overlay} onPress={onClose}>
-        <Pressable style={[sh.sheet, { height: '80%' }]} onPress={() => { }}>
-          <View style={sh.handle} />
+        <AnimatedPressable style={[sh.sheet, { height: '80%' }, swipe.style]} onPress={() => { }}>
+          <View {...swipe.panHandlers}>
+            <View style={sh.handle} />
+          </View>
           <View style={hm.header}>
             <View>
               <Text style={hm.name}>{staff.name}</Text>
@@ -426,7 +437,7 @@ function HistoryModal({ visible, onClose, staff, history, loadingHistory }) {
               ))}
             </ScrollView>
           )}
-        </Pressable>
+        </AnimatedPressable>
       </Pressable>
     </Modal>
   );
@@ -803,6 +814,7 @@ function PayNowSheet({ visible, onClose, staff, history, onConfirm }) {
 
 // ─── Payroll Detail Modal ─────────────────────────────────────
 function PayrollDetailModal({ visible, onClose, staff, history, onAddBonus }) {
+  const swipe = useSheetSwipe(onClose);
   const [bonusAmt, setBonusAmt] = useState('');
   const [bonusNote, setBonusNote] = useState('');
   const [showBonusForm, setShowBonusForm] = useState(false);
@@ -822,8 +834,10 @@ function PayrollDetailModal({ visible, onClose, staff, history, onAddBonus }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={sh.overlay} onPress={onClose}>
-        <Pressable style={[sh.sheet, { height: '90%' }]} onPress={() => { }}>
-          <View style={sh.handle} />
+        <AnimatedPressable style={[sh.sheet, { height: '90%' }, swipe.style]} onPress={() => { }}>
+          <View {...swipe.panHandlers}>
+            <View style={sh.handle} />
+          </View>
           <View style={pd.header}>
             <View>
               <Text style={pd.name}>{staff.name}</Text>
@@ -985,7 +999,7 @@ function PayrollDetailModal({ visible, onClose, staff, history, onAddBonus }) {
             <View style={{ height: spacing.xxl }} />
           </ScrollView>
           <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
-        </Pressable>
+        </AnimatedPressable>
       </Pressable>
     </Modal>
   );
@@ -993,6 +1007,7 @@ function PayrollDetailModal({ visible, onClose, staff, history, onAddBonus }) {
 
 // ─── Export Modal ─────────────────────────────────────────────
 function ExportModal({ visible, onClose, staff, histories }) {
+  const swipe = useSheetSwipe(onClose);
   const [dialog, setDialog] = useState(null);
   const month = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const payrolls = staff.map(s => ({ ...s, p: calcPayroll(s, histories[s.user_id] || []) }));
@@ -1001,8 +1016,10 @@ function ExportModal({ visible, onClose, staff, histories }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={sh.overlay} onPress={onClose}>
-        <Pressable style={[sh.sheet, { height: '75%' }]} onPress={() => { }}>
-          <View style={sh.handle} />
+        <AnimatedPressable style={[sh.sheet, { height: '75%' }, swipe.style]} onPress={() => { }}>
+          <View {...swipe.panHandlers}>
+            <View style={sh.handle} />
+          </View>
           <Text style={sh.sheetTitle}>Export Payroll — {month}</Text>
           <ScrollView style={{ flex: 1, paddingHorizontal: spacing.lg }}>
             {payrolls.map((s, i) => (
@@ -1028,7 +1045,7 @@ function ExportModal({ visible, onClose, staff, histories }) {
             </TouchableOpacity>
           </View>
           <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
-        </Pressable>
+        </AnimatedPressable>
       </Pressable>
     </Modal>
   );

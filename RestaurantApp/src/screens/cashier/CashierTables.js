@@ -16,6 +16,7 @@ import { tablesAPI, menuAPI, ordersAPI } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, topInset } from '../../utils/theme';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n) => Number(n || 0).toLocaleString('uz-UZ') + " so'm";
@@ -701,6 +702,7 @@ function PaymentSheet({ order, visible, onClose, onPaid, setDialog, t }) {
 
 // ── Table Detail Modal ─────────────────────────────────────────────────────────
 function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, navigation, setDialog }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [showPay, setShowPay] = useState(false);
   const [fullOrder, setFullOrder] = useState(null);
@@ -736,8 +738,9 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={S.mask} activeOpacity={1} onPress={onClose} />
-      <View style={S.detailSheet}>
-        <View style={S.sheetHandle} />
+      <Animated.View style={[S.detailSheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={S.sheetHandle} />
 
         {/* Header */}
         <View style={S.detailHeader}>
@@ -749,6 +752,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
             <MaterialIcons name="close" size={20} color={colors.neutralMid} />
           </TouchableOpacity>
         </View>
+          </View>
 
         {billRequested && (
           <View style={S.billBanner}>
@@ -889,7 +893,7 @@ function TableDetail({ table, order, onClose, onAddItems, onPaid, onNewOrder, na
             </View>
           )}
         </ScrollView>
-      </View>
+      </Animated.View>
 
       <PaymentSheet
         order={orderForUI}

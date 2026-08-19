@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, Modal, Pressable, TouchableOpacity,
   TextInput, Switch, StyleSheet, LayoutAnimation,
-  Platform, UIManager, Share, ActivityIndicator, useWindowDimensions,
+  Platform, UIManager, Share, ActivityIndicator, useWindowDimensions, Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import OwnerPageHeader from '../../components/OwnerPageHeader';
@@ -13,6 +13,7 @@ import { shadow } from '../../utils/theme';
 import { financeAPI } from '../../api/client';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useTranslation } from '../../context/LanguageContext';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 // ════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -59,13 +60,16 @@ const SHORT_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 // REUSABLE PIECES (internal only)
 // ════════════════════════════════════════════════════════════════════════
 function BottomSheet({ visible, onClose, title, children }) {
+  const swipe = useSheetSwipe(onClose);
   const { height } = useWindowDimensions();   // reactive — updates on rotation
   if (!visible) return null;
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.bsOverlay} onPress={onClose} />
-      <View style={[s.bsBox, { maxHeight: height * 0.85 }]}>
-        <View style={s.bsHandle} />
+      <Animated.View style={[s.bsBox, { maxHeight: height * 0.85 }, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={s.bsHandle} />
+          </View>
         {title ? (
           <View style={s.bsTitleRow}>
             <Text style={s.bsTitleTxt}>{title}</Text>
@@ -76,7 +80,7 @@ function BottomSheet({ visible, onClose, title, children }) {
           {children}
           <View style={{ height: 36 }} />
         </ScrollView>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

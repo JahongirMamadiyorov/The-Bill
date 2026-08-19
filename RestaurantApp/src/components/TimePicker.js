@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, Modal, FlatList, StyleSheet,
+  View, Text, TouchableOpacity, Modal, FlatList, StyleSheet, Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { colors, spacing, radius, shadow } from '../utils/theme';
+import useSheetSwipe from './useSheetSwipe';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
@@ -60,6 +61,7 @@ function WheelColumn({ data, selected, onSelect, label }) {
 }
 
 export default function TimePicker({ label, value, onChange, placeholder = '09:00' }) {
+  const swipe = useSheetSwipe(() => setOpen(false));
   const [open, setOpen] = useState(false);
 
   // Parse current value
@@ -103,9 +105,11 @@ export default function TimePicker({ label, value, onChange, placeholder = '09:0
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <TouchableOpacity style={S.backdrop} activeOpacity={1} onPress={() => setOpen(false)}>
-          <View style={S.sheet} onStartShouldSetResponder={() => true}>
+          <Animated.View style={[S.sheet, swipe.style]} onStartShouldSetResponder={() => true}>
+            <View {...swipe.panHandlers}>
             <View style={S.sheetHandle} />
             <Text style={S.sheetTitle}>Select Time</Text>
+          </View>
 
             <View style={S.preview}>
               <Text style={S.previewTime}>{selH}:{selM}</Text>
@@ -142,7 +146,7 @@ export default function TimePicker({ label, value, onChange, placeholder = '09:0
                 <Text style={S.confirmText}>Set Time</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         </TouchableOpacity>
       </Modal>
     </View>

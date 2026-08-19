@@ -20,18 +20,41 @@
 // ════════════════════════════════════════════════════════════════════════════
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, TextInput,
+  View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, TextInput, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { colors, spacing, radius, shadow } from '../utils/theme';
+
+// The sheet container is a SafeAreaView (it needs the bottom inset), so it cannot simply
+// become an Animated.View — wrap it instead so the swipe transform still applies.
+const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 import { useTranslation } from '../context/LanguageContext';
+import useSheetSwipe from './useSheetSwipe';
 
 // Show the in-sheet category search only once the list is long enough to be
 // worth filtering. Below this a search box is just clutter above six buttons.
 const SEARCH_THRESHOLD = 8;
 
-export default function CategoryPicker({ categories = [], items = [], value = null, onChange }) {
+// `extra` (optional): one more selectable entry that isn't a real category — Admin's Menu
+// screen uses it for "Inactive" ({ id: 'inactive', label, count, icon: 'block' }). Left out by
+// every other caller (WaitressMenu/WaitressTables), so it changes nothing for them; when given,
+// it renders as its own full-width row after the category grid, tinted red like the old
+// horizontal chip it replaces, and participates in the trigger/selection like a normal category.
+//
+// `triggerWrapStyle`/`triggerStyle` (optional): style overrides for the trigger button, merged
+// after the defaults below. Added so AdminMenu.js could make the trigger match ITS OWN search
+// bar's white/rounded/bordered card look instead of the default edge-to-edge white bar the
+// waiter screens use — those don't pass these, so they render exactly as before.
+//
+// `onManageCategories` (optional): shows a settings icon in the sheet header that closes this
+// sheet and calls back out — for a caller (Inventory) that owns its own add/remove-category UI
+// and just needs a way in from here. Omitted entirely by default.
+export default function CategoryPicker({
+  categories = [], items = [], value = null, onChange, extra = null,
+  triggerWrapStyle, triggerStyle, onManageCategories,
+}) {
+  const swipe = useSheetSwipe(() => setOpen(false));
   const { t } = useTranslation();
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState('');
@@ -58,13 +81,15 @@ export default function CategoryPicker({ categories = [], items = [], value = nu
   const countFor = (id) => counts.get(String(id)) || 0;
 
   const allLabel = t('waitress.menu.allCategories', 'All categories');
-  const current  = value === null || value === undefined
+  const isExtra  = !!extra && value === extra.id;
+  const current  = (value === null || value === undefined || isExtra)
     ? null
     : categories.find(c => String(c.id) === String(value));
   // A category can vanish while still selected (deleted in Admin, or a stale
   // filter after a reload). Falling back to the "All" label keeps the button
   // readable instead of rendering an empty box.
-  const triggerLabel = current ? current.name : allLabel;
+  const triggerLabel = isExtra ? extra.label : (current ? current.name : allLabel);
+  const triggerCount = isExtra ? extra.count : (current ? countFor(current.id) : items.length);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -96,12 +121,37 @@ export default function CategoryPicker({ categories = [], items = [], value = nu
     </TouchableOpacity>
   );
 
+  // Same cell shape as renderCell, tinted red instead of primary — visually distinct from a
+  // real category, matching the old dedicated "Inactive" chip's colors.
+  const renderExtraCell = () => {
+    const isActive = isExtra;
+    return (
+      <TouchableOpacity
+        style={[styles.cell, styles.extraCell, isActive && styles.extraCellActive]}
+        onPress={() => pick(extra.id)}
+        activeOpacity={0.85}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+          {!!extra.icon && (
+            <MaterialIcons name={extra.icon} size={16} color={isActive ? '#DC2626' : '#F87171'} />
+          )}
+          <Text style={[styles.cellTxt, { color: isActive ? '#DC2626' : '#F87171' }]} numberOfLines={2}>
+            {extra.label}
+          </Text>
+        </View>
+        <View style={[styles.countPill, isActive && { backgroundColor: '#DC2626' }]}>
+          <Text style={[styles.countTxt, isActive && styles.countTxtActive]}>{extra.count}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <>
       {/* ── Trigger ── */}
-      <View style={styles.triggerWrap}>
+      <View style={[styles.triggerWrap, triggerWrapStyle]}>
         <TouchableOpacity
-          style={styles.trigger}
+          style={[styles.trigger, triggerStyle]}
           onPress={() => setOpen(true)}
           activeOpacity={0.8}
         >
@@ -109,7 +159,7 @@ export default function CategoryPicker({ categories = [], items = [], value = nu
           <Text style={styles.triggerTxt} numberOfLines={1}>{triggerLabel}</Text>
           <View style={styles.triggerCount}>
             <Text style={styles.triggerCountTxt}>
-              {current ? countFor(current.id) : items.length}
+              {triggerCount}
             </Text>
           </View>
           <MaterialIcons name="expand-more" size={22} color={colors.textMuted} />
@@ -131,20 +181,38 @@ export default function CategoryPicker({ categories = [], items = [], value = nu
             activeOpacity={1}
             onPress={() => setOpen(false)}
           />
-          <SafeAreaView edges={['bottom']} style={styles.sheet}>
-            <View style={styles.handle} />
+          <AnimatedSafeAreaView edges={['bottom']} style={[styles.sheet, swipe.style]}>
+            <View {...swipe.panHandlers}>
+              <View style={styles.handle} />
+            </View>
 
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>
                 {t('waitress.menu.chooseCategory', 'Choose category')}
               </Text>
-              <TouchableOpacity
-                onPress={() => setOpen(false)}
-                style={styles.sheetClose}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialIcons name="close" size={20} color={colors.textMuted} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {/* `onManageCategories` (optional): Inventory has real add/remove-category
+                    behavior (a separate sheet it already owns) that a generic browse-and-pick
+                    component has no business implementing itself. Closing this sheet before
+                    calling it avoids stacking two modals. Waitress screens don't pass this, so
+                    they never see the icon. */}
+                {!!onManageCategories && (
+                  <TouchableOpacity
+                    onPress={() => { setOpen(false); onManageCategories(); }}
+                    style={styles.sheetClose}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <MaterialIcons name="settings" size={18} color={colors.textMuted} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={() => setOpen(false)}
+                  style={styles.sheetClose}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <MaterialIcons name="close" size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {categories.length >= SEARCH_THRESHOLD && (
@@ -194,6 +262,13 @@ export default function CategoryPicker({ categories = [], items = [], value = nu
                   !!current && String(current.id) === String(item.id),
                 )
               }
+              // "Inactive" (when given) stays last and outside the search filter — like "All",
+              // hunting for it by typing its name defeats the point of a fixed, always-there entry.
+              ListFooterComponent={
+                extra
+                  ? <View style={{ marginTop: spacing.sm }}>{renderExtraCell()}</View>
+                  : null
+              }
               ListEmptyComponent={
                 <View style={styles.empty}>
                   <MaterialIcons name="search-off" size={36} color={colors.border} />
@@ -203,7 +278,7 @@ export default function CategoryPicker({ categories = [], items = [], value = nu
                 </View>
               }
             />
-          </SafeAreaView>
+          </AnimatedSafeAreaView>
         </View>
       </Modal>
     </>
@@ -284,6 +359,10 @@ const styles = StyleSheet.create({
   countPillActive:{ backgroundColor: colors.primary },
   countTxt:       { fontSize: 11, fontWeight: '800', color: colors.textMuted },
   countTxtActive: { color: colors.white },
+
+  // `extra` slot (e.g. Admin's "Inactive") — same cell shape, red-tinted instead of primary.
+  extraCell:       { width: '100%', backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  extraCellActive: { backgroundColor: '#FEE2E2', borderColor: '#DC2626' },
 
   empty:    { alignItems: 'center', paddingVertical: spacing.xxl },
   emptyTxt: { marginTop: spacing.sm, fontSize: 13, color: colors.textMuted, fontWeight: '600' },

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, Modal,
-  StyleSheet, Platform, StatusBar, ActivityIndicator, RefreshControl,
+  StyleSheet, Platform, ActivityIndicator, RefreshControl, Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -10,6 +10,7 @@ import { usersAPI } from '../../api/client';
 import { useTranslation } from '../../context/LanguageContext';
 import LanguageSwitcher from '../../components/LanguageSwitcher';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function fmtDate(iso) {
@@ -83,6 +84,7 @@ function TapRow({ iconBg, iconName, label, sub, onPress }) {
 
 // ─── BottomSheet ────────────────────────────────────────────────────────────
 function BottomSheet({ visible, onClose, title, children }) {
+  const swipe = useSheetSwipe(onClose);
   return (
     <Modal
       visible={visible}
@@ -93,18 +95,20 @@ function BottomSheet({ visible, onClose, title, children }) {
     >
       <View style={{ flex: 1 }}>
         <TouchableOpacity style={S.backdrop} activeOpacity={1} onPress={onClose} />
-        <View style={S.sheet}>
-          <View style={S.sheetHandle} />
+        <Animated.View style={[S.sheet, swipe.style]}>
+          <View {...swipe.panHandlers}>
+            <View style={S.sheetHandle} />
           <View style={S.sheetHeader}>
             <Text style={S.sheetTitle}>{title}</Text>
             <TouchableOpacity style={S.sheetClose} onPress={onClose} activeOpacity={0.7}>
               <MaterialIcons name="close" size={14} color="#64748b" />
             </TouchableOpacity>
           </View>
+          </View>
           <ScrollView contentContainerStyle={S.sheetContent} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -347,7 +351,8 @@ export default function AdminProfile() {
 
   return (
     <View style={S.root}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      {/* Status bar style/translucency for this tab is set centrally by AdminNavigator's
+          screenListeners on focus — see the comment there for why. */}
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
 
@@ -364,10 +369,10 @@ export default function AdminProfile() {
                 <MaterialIcons name="photo-camera" size={11} color="#475569" />
               </View>
             </TouchableOpacity>
-            <Text style={S.headerName}>{user?.name || 'Admin'}</Text>
+            <Text style={S.headerName}>{user?.name || t('roles.admin')}</Text>
             <View style={S.headerBadges}>
               <View style={S.adminBadge}>
-                <Text style={S.adminBadgeTxt}>ADMIN</Text>
+                <Text style={S.adminBadgeTxt}>{t('adminExtra.adminBadge')}</Text>
               </View>
               <View style={S.onlineWrap}>
                 <View style={S.onlineDot} />

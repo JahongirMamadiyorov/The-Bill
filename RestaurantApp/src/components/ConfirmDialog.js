@@ -69,7 +69,7 @@ export default function ConfirmDialog({ dialog, onClose }) {
   const hasOptions = Array.isArray(dialog.options) && dialog.options.length > 0;
 
   return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent>
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={S.overlay}>
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={S.backdrop} />

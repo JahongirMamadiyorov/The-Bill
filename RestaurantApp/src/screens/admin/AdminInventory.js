@@ -207,7 +207,7 @@ export default function AdminInventory() {
       </TouchableOpacity>
 
       {/* ─── Item Modal ─── */}
-      <Modal visible={modal} animationType="slide" transparent>
+      <Modal visible={modal} animationType="slide" transparent onRequestClose={() => setModal(false)}>
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
             <Text style={styles.modalTitle}>{editing ? t('admin.inventory.editItem') : t('admin.inventory.addNewItem')}</Text>
@@ -231,7 +231,7 @@ export default function AdminInventory() {
       </Modal>
 
       {/* ─── Waste Modal ─── */}
-      <Modal visible={wasteModal} animationType="slide" transparent>
+      <Modal visible={wasteModal} animationType="slide" transparent onRequestClose={() => setWasteModal(false)}>
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.sheet}>
             <Text style={styles.modalTitle}>{t('adminExtra.recordWaste')} — {editing?.name}</Text>

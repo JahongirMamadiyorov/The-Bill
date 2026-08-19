@@ -8,25 +8,51 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   View, Text, ScrollView, FlatList, TouchableOpacity, TextInput,
   StyleSheet, Modal, ActivityIndicator, KeyboardAvoidingView,
-  Platform, RefreshControl, TouchableWithoutFeedback, StatusBar,
+  Platform, RefreshControl, TouchableWithoutFeedback, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { tablesAPI, usersAPI, ordersAPI, menuAPI } from '../../api/client';
 import { useTranslation } from '../../context/LanguageContext';
 import { colors, spacing, radius, shadow, typography, topInset } from '../../utils/theme';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import useSheetSwipe from '../../components/useSheetSwipe';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const DEFAULT_SECTIONS = ['Indoor', 'Outdoor', 'Terrace'];
 const STATUSES         = ['free', 'occupied', 'reserved', 'cleaning'];
 
+// Colours only — the visible label comes from statusLabel() below so it can be
+// translated. Do NOT re-add a `label` field here: a module constant is evaluated
+// once at import time, long before any language is chosen.
 const STATUS_META = {
-  free:     { label: 'Free',     color: '#16a34a', bg: '#dcfce7', border: '#86efac', accent: '#16a34a' },
-  occupied: { label: 'Occupied', color: '#dc2626', bg: '#fee2e2', border: '#fca5a5', accent: '#dc2626' },
-  reserved: { label: 'Reserved', color: '#2563eb', bg: '#dbeafe', border: '#93c5fd', accent: '#2563eb' },
-  cleaning: { label: 'Cleaning', color: '#d97706', bg: '#fef9c3', border: '#fde68a', accent: '#d97706' },
+  free:     { color: '#16a34a', bg: '#dcfce7', border: '#86efac', accent: '#16a34a' },
+  occupied: { color: '#dc2626', bg: '#fee2e2', border: '#fca5a5', accent: '#dc2626' },
+  reserved: { color: '#2563eb', bg: '#dbeafe', border: '#93c5fd', accent: '#2563eb' },
+  cleaning: { color: '#d97706', bg: '#fef9c3', border: '#fde68a', accent: '#d97706' },
 };
+
+// Table status → translated label. Unknown statuses fall through to the raw value
+// rather than rendering an i18n key.
+function statusLabel(status, t) {
+  return STATUS_META[status] ? t(`statuses.${status}`) : (status || '');
+}
+
+// Order status → translated label, same fallback rule as statusLabel().
+const ORDER_STATUSES = ['pending', 'confirmed', 'preparing', 'ready', 'served', 'paid', 'cancelled'];
+function orderStatusLabel(status, t) {
+  return ORDER_STATUSES.includes(status) ? t(`statuses.${status}`) : (status || '');
+}
+
+// Section names are STORED DATA (a restaurant can rename them, or add its own —
+// "Karvat", "VIP"). Only the three seeded defaults get a translated display label;
+// everything else shows verbatim. The raw name stays the stored value everywhere —
+// filters, form.section and every API call still use `sec`, never this label.
+const SECTION_PRESETS = ['indoor', 'outdoor', 'terrace'];
+function sectionLabel(sec, t) {
+  const key = String(sec || '').toLowerCase();
+  return SECTION_PRESETS.includes(key) ? t(`admin.tables.sectionPresets.${key}`) : sec;
+}
 
 const PALETTE = [
   { bg: '#e0e7ff', text: '#4338ca' },
@@ -58,17 +84,20 @@ function money(v) {
   return new Intl.NumberFormat('uz-UZ').format(Math.round(Number(v) || 0)) + " so'm";
 }
 
-// Formats reservation date/time cleanly — handles both "HH:MM" and ISO strings
-function fmtResTime(table) {
+// Formats reservation date/time cleanly — handles both "HH:MM" and ISO strings.
+// Takes `t` because month names and "Today" are UI copy, not data — they come from
+// the shared datePicker.monthsShort array rather than a local English array.
+function fmtResTime(table, t) {
   const date = table.reservation_date ? String(table.reservation_date).split('T')[0] : null;
   const time = table.reservation_time;
   if (!date && !time) return '';
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const MONTHS = t('datePicker.monthsShort');
+  const todayLbl = t('common.today');
   const todayStr = new Date().toISOString().split('T')[0];
 
   // Plain "HH:MM" time
   if (time && /^\d{1,2}:\d{2}$/.test(String(time).trim())) {
-    if (!date || date === todayStr) return `Today · ${time}`;
+    if (!date || date === todayStr) return `${todayLbl} · ${time}`;
     try {
       const d = new Date(date + 'T00:00:00');
       return `${MONTHS[d.getMonth()]} ${d.getDate()} · ${time}`;
@@ -82,26 +111,31 @@ function fmtResTime(table) {
     if (isNaN(d.getTime())) return raw;
     const h = String(d.getHours()).padStart(2, '0');
     const m = String(d.getMinutes()).padStart(2, '0');
-    if (d.toDateString() === new Date().toDateString()) return `Today · ${h}:${m}`;
+    if (d.toDateString() === new Date().toDateString()) return `${todayLbl} · ${h}:${m}`;
     return `${MONTHS[d.getMonth()]} ${d.getDate()} · ${h}:${m}`;
   } catch (_) { return raw; }
 }
 
 // ─── SHEET (bottom modal) ─────────────────────────────────────────────────────
 function Sheet({ visible, onClose, title, children }) {
+  const swipe = useSheetSwipe(onClose);
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <KeyboardAvoidingView style={S.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={S.overlayBg} />
         </TouchableWithoutFeedback>
-        <View style={S.sheet}>
-          <View style={S.sheetHandle} />
-          <View style={S.sheetHead}>
-            <Text style={S.sheetTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={S.sheetX}>
-              <MaterialIcons name="close" size={16} color="#64748b" />
-            </TouchableOpacity>
+        {/* Animated + panHandlers on the top bar only = swipe-to-dismiss that cannot
+            fight the ScrollView below. See components/useSheetSwipe.js. */}
+        <Animated.View style={[S.sheet, swipe.style]}>
+          <View {...swipe.panHandlers}>
+            <View style={S.sheetHandle} />
+            <View style={S.sheetHead}>
+              <Text style={S.sheetTitle}>{title}</Text>
+              <TouchableOpacity onPress={onClose} style={S.sheetX}>
+                <MaterialIcons name="close" size={16} color="#64748b" />
+              </TouchableOpacity>
+            </View>
           </View>
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -110,7 +144,7 @@ function Sheet({ visible, onClose, title, children }) {
           >
             {children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -137,6 +171,7 @@ function TInput(props) {
 
 // ─── PhoneField with +998 country code ──────────────────────────────────────
 function PhoneField({ value, onChange }) {
+  const { t } = useTranslation();
   function handleChange(raw) {
     const digits = raw.replace(/\D/g, '');
     const local = digits.startsWith('998') ? digits.slice(3) : digits;
@@ -161,15 +196,16 @@ function PhoneField({ value, onChange }) {
   })();
   return (
     <View style={[S.input, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden' }]}>
+      {/* Icon, not a flag emoji — RULES.md rule 1 (no emoji, icons only). */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E2E8F0', gap: 6 }}>
-        <Text style={{ fontSize: 16 }}>🇺🇿</Text>
+        <MaterialIcons name="phone" size={15} color="#64748b" />
         <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>+998</Text>
       </View>
       <TextInput
         style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 13, fontSize: 15, color: '#0f172a' }}
         value={displayLocal}
         onChangeText={handleChange}
-        placeholder="90 123 45 67"
+        placeholder={t('placeholders.phoneLocal')}
         placeholderTextColor="#cbd5e1"
         keyboardType="phone-pad"
         maxLength={13}
@@ -178,7 +214,10 @@ function PhoneField({ value, onChange }) {
   );
 }
 
+// `options` here is always the sections list — the VALUE passed back to onSelect is
+// the raw stored name; only the visible text goes through sectionLabel().
 function Pills({ options, value, onSelect, sections }) {
+  const { t } = useTranslation();
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -192,7 +231,7 @@ function Pills({ options, value, onSelect, sections }) {
               style={[S.pill, active && (c ? { backgroundColor: c.bg, borderColor: c.text } : S.pillOn)]}
             >
               <Text style={[S.pillTxt, active && (c ? { color: c.text } : S.pillTxtOn)]}>
-                {opt}
+                {sectionLabel(opt, t)}
               </Text>
             </TouchableOpacity>
           );
@@ -203,10 +242,12 @@ function Pills({ options, value, onSelect, sections }) {
 }
 
 // ─── CALENDAR PICKER ──────────────────────────────────────────────────────────
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAY_NAMES   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+// Month names come from datePicker.months; datePicker.days is Monday-first, rotated to
+// Sunday-first below to match this calendar's own grid (see `dayNames`).
 
 function CalendarPicker({ value, onChange }) {
+  const { t } = useTranslation();
+  const dayNames = (() => { const d = t('datePicker.days'); return [d[6], ...d.slice(0, 6)]; })();
   const today = new Date();
   const parseVal = (v) => {
     if (!v) return { y: today.getFullYear(), m: today.getMonth() };
@@ -250,15 +291,15 @@ function CalendarPicker({ value, onChange }) {
         <TouchableOpacity onPress={prevMonth} style={CS.calNav} activeOpacity={0.7}>
           <MaterialIcons name="chevron-left" size={22} color="#374151" />
         </TouchableOpacity>
-        <Text style={CS.calMonthTitle}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
+        <Text style={CS.calMonthTitle}>{t('datePicker.months')[viewMonth]} {viewYear}</Text>
         <TouchableOpacity onPress={nextMonth} style={CS.calNav} activeOpacity={0.7}>
           <MaterialIcons name="chevron-right" size={22} color="#374151" />
         </TouchableOpacity>
       </View>
       {/* Day-of-week labels */}
       <View style={CS.calRow}>
-        {DAY_NAMES.map(d => (
-          <View key={d} style={CS.calDayCell}>
+        {dayNames.map((d, i) => (
+          <View key={i} style={CS.calDayCell}>
             <Text style={CS.calDayName}>{d}</Text>
           </View>
         ))}
@@ -355,9 +396,15 @@ function Btn({ label, onPress, loading, danger, outline }) {
 
 // ─── TABLE DETAIL MODAL ───────────────────────────────────────────────────────
 function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, onEdit, onDelete, onQuickFree, onNewOrder, onSeatGuests }) {
+  const { t } = useTranslation();
   const [orderView,     setOrderView]     = useState(false);
   const [tableOrders,   setTableOrders]   = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  // Own dialog state. handleAddFoodToOrder() called setDialog() on failure but this
+  // component never had one — the catch threw ReferenceError instead of showing the
+  // error. It must live HERE, not be borrowed from the parent: the parent's
+  // ConfirmDialog renders outside this Sheet's Modal and would open behind it.
+  const [dialog,        setDialog]        = useState(null);
 
   // Add Food state
   const [addFoodView,   setAddFoodView]   = useState(false);
@@ -436,7 +483,7 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
       // Refresh order view
       openOrderView();
     } catch (e) {
-      setDialog({ title: 'Error', message: 'Failed to add items to order.', type: 'error' });
+      setDialog({ title: t('common.error'), message: t('admin.tables.failedAddItemsMsg'), type: 'error' });
     }
     setAddFoodSaving(false);
   }
@@ -452,13 +499,13 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
   const sc     = secColor(table.section || 'Indoor', sections);
   const timeMs = table.status === 'occupied' && table.opened_at
     ? tick - new Date(table.opened_at).getTime() : 0;
-  const name   = table.name || `Table ${table.table_number}`;
+  const name   = table.name || t('admin.tables.tableN', { n: table.table_number });
 
   return (
     <Sheet
       visible={visible}
       onClose={handleClose}
-      title={orderView ? `Orders — ${name}` : name}
+      title={orderView ? t('admin.tables.ordersFor', { name }) : name}
     >
       {addFoodView ? (
         /* ── ADD FOOD VIEW ── */
@@ -468,7 +515,7 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
             style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8, gap: 6 }}
           >
             <MaterialIcons name="arrow-back" size={18} color="#475569" />
-            <Text style={{ fontSize: 13, color: '#475569', fontWeight: '700' }}>Back to Orders</Text>
+            <Text style={{ fontSize: 13, color: '#475569', fontWeight: '700' }}>{t('admin.tables.backToOrders')}</Text>
           </TouchableOpacity>
 
           {/* Category pills */}
@@ -546,7 +593,7 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
                 <View style={{ backgroundColor: '#fff2', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{addFoodCartCount}</Text>
                 </View>
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{addFoodSaving ? 'Adding…' : 'Add to Order'}</Text>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{addFoodSaving ? t('admin.tables.adding') : t('admin.tables.addToOrder')}</Text>
                 <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{money(addFoodCartTotal)}</Text>
               </TouchableOpacity>
             </View>
@@ -560,32 +607,33 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
             style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8, gap: 6 }}
           >
             <MaterialIcons name="arrow-back" size={18} color="#475569" />
-            <Text style={{ fontSize: 13, color: '#475569', fontWeight: '700' }}>Back to Table</Text>
+            <Text style={{ fontSize: 13, color: '#475569', fontWeight: '700' }}>{t('admin.tables.backToTable')}</Text>
           </TouchableOpacity>
           {ordersLoading ? (
           <View style={{ alignItems: 'center', padding: 40 }}>
             <ActivityIndicator size="large" color={colors.admin} />
-            <Text style={{ marginTop: 12, color: '#94a3b8', fontSize: 14 }}>Loading orders…</Text>
+            <Text style={{ marginTop: 12, color: '#94a3b8', fontSize: 14 }}>{t('admin.tables.loadingOrders')}</Text>
           </View>
         ) : tableOrders.length === 0 ? (
           <View style={{ alignItems: 'center', padding: 40 }}>
             <MaterialIcons name="receipt-long" size={48} color="#e2e8f0" />
-            <Text style={{ marginTop: 12, color: '#64748b', fontSize: 15, fontWeight: '700' }}>No orders found</Text>
-            <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>No active or recent orders for this table</Text>
+            <Text style={{ marginTop: 12, color: '#64748b', fontSize: 15, fontWeight: '700' }}>{t('admin.tables.noOrdersFound')}</Text>
+            <Text style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{t('admin.tables.noActiveRecentOrders')}</Text>
           </View>
         ) : (
           <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>
             {tableOrders.map(order => {
               const isPaid = order.status === 'paid';
               const sm = {
-                pending:   { color: '#f59e0b', bg: '#fef9c3', label: 'Pending' },
-                confirmed: { color: '#3b82f6', bg: '#dbeafe', label: 'Confirmed' },
-                preparing: { color: '#8b5cf6', bg: '#ede9fe', label: 'Preparing' },
-                ready:     { color: '#10b981', bg: '#d1fae5', label: 'Ready' },
-                served:    { color: '#6366f1', bg: '#e0e7ff', label: 'Served' },
-                paid:      { color: '#16a34a', bg: '#dcfce7', label: 'Paid' },
-                cancelled: { color: '#dc2626', bg: '#fee2e2', label: 'Cancelled' },
-              }[order.status] || { color: '#94a3b8', bg: '#f1f5f9', label: order.status };
+                pending:   { color: '#f59e0b', bg: '#fef9c3' },
+                confirmed: { color: '#3b82f6', bg: '#dbeafe' },
+                preparing: { color: '#8b5cf6', bg: '#ede9fe' },
+                ready:     { color: '#10b981', bg: '#d1fae5' },
+                served:    { color: '#6366f1', bg: '#e0e7ff' },
+                paid:      { color: '#16a34a', bg: '#dcfce7' },
+                cancelled: { color: '#dc2626', bg: '#fee2e2' },
+              }[order.status] || { color: '#94a3b8', bg: '#f1f5f9' };
+              const smLabel = orderStatusLabel(order.status, t);
               return (
                 <View key={order.id} style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: isPaid ? '#bbf7d0' : '#e2e8f0', overflow: 'hidden' }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, paddingBottom: 10 }}>
@@ -593,13 +641,16 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
                       <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }}>
                         #{(order.daily_number || order.id?.slice(0, 6) || '—').toString().toUpperCase()}
                       </Text>
-                      <Text style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                        {order.waitress_name ? `👤 ${order.waitress_name}` : 'No waiter assigned'}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                        <MaterialIcons name="person" size={12} color="#94a3b8" />
+                        <Text style={{ fontSize: 11, color: '#94a3b8' }}>
+                          {order.waitress_name || t('admin.tables.noWaiterAssigned')}
+                        </Text>
+                      </View>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: sm.bg }}>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: sm.color }}>{sm.label}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: sm.color }}>{smLabel}</Text>
                       </View>
                       <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>
                         {money(order.total_amount || 0)}
@@ -621,9 +672,10 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
                     </View>
                   )}
                   {(order.notes || order.special_instructions) ? (
-                    <View style={{ borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingHorizontal: 14, paddingVertical: 8 }}>
-                      <Text style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
-                        📝 {order.notes || order.special_instructions}
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 5, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingHorizontal: 14, paddingVertical: 8 }}>
+                      <MaterialIcons name="sticky-note-2" size={13} color="#64748b" style={{ marginTop: 1 }} />
+                      <Text style={{ flex: 1, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
+                        {order.notes || order.special_instructions}
                       </Text>
                     </View>
                   ) : null}
@@ -637,7 +689,7 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
               style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4, paddingVertical: 14, borderRadius: 14, backgroundColor: '#0f172a' }}
             >
               <MaterialIcons name="add-circle-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>Add Food</Text>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{t('admin.tables.addFood')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -649,16 +701,16 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
       <View style={S.detHdr}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <View style={[S.detZoneChip, { backgroundColor: sc.bg }]}>
-            <Text style={[S.detZoneTxt, { color: sc.text }]}>{table.section || 'Indoor'}</Text>
+            <Text style={[S.detZoneTxt, { color: sc.text }]}>{sectionLabel(table.section || 'Indoor', t)}</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <MaterialIcons name="chair" size={14} color="#64748b" />
-            <Text style={S.detSeats}>{table.capacity || 4} seats</Text>
+            <Text style={S.detSeats}>{table.capacity || 4} {t('admin.tables.seats')}</Text>
           </View>
         </View>
         <View style={[S.detStatusBadge, { backgroundColor: meta.bg }]}>
           <View style={[S.detStatusDot, { backgroundColor: meta.color }]} />
-          <Text style={[S.detStatusTxt, { color: meta.color }]}>{meta.label}</Text>
+          <Text style={[S.detStatusTxt, { color: meta.color }]}>{statusLabel(table.status, t)}</Text>
         </View>
       </View>
 
@@ -669,20 +721,20 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
         <View style={S.detBody}>
           <View style={S.detInfoCard}>
             <MaterialIcons name="check-circle" size={40} color="#16a34a" />
-            <Text style={S.detBigLabel}>Available</Text>
-            <Text style={S.detBigSub}>Ready to seat guests</Text>
+            <Text style={S.detBigLabel}>{t('admin.tables.availableStatus')}</Text>
+            <Text style={S.detBigSub}>{t('admin.tables.readyToSeatGuests')}</Text>
           </View>
           <View style={S.detBtnRow}>
             <TouchableOpacity style={[S.detActionBtn, S.detActionBtnPrimary]} onPress={() => { handleClose(); onNewOrder && onNewOrder(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="edit-note" size={16} color="#fff" />
-                <Text style={S.detActionBtnPrimaryTxt}>New Order</Text>
+                <Text style={S.detActionBtnPrimaryTxt}>{t('admin.tables.newOrder')}</Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity style={[S.detActionBtn, S.detActionBtnOutline]} onPress={() => { handleClose(); onStatus(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="tune" size={16} color="#334155" />
-                <Text style={S.detActionBtnOutlineTxt}>Status</Text>
+                <Text style={S.detActionBtnOutlineTxt}>{t('common.status')}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -695,24 +747,29 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
           {/* Timer + amount hero row */}
           <View style={S.detHeroRow}>
             <View style={S.detHeroBlock}>
-              <Text style={S.detHeroVal}>⏱ {elapsed(timeMs)}</Text>
-              <Text style={S.detHeroLbl}>Time Elapsed</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                <MaterialIcons name="timer" size={16} color="#dc2626" />
+                <Text style={S.detHeroVal}>{elapsed(timeMs)}</Text>
+              </View>
+              <Text style={S.detHeroLbl}>{t('admin.tables.timeElapsed')}</Text>
             </View>
             {Number(table.order_total) > 0 && (
               <View style={[S.detHeroBlock, { borderLeftWidth: 1, borderLeftColor: '#f1f5f9' }]}>
                 <Text style={[S.detHeroVal, { color: '#0f172a' }]}>{money(table.order_total)}</Text>
-                <Text style={S.detHeroLbl}>Order Total</Text>
+                <Text style={S.detHeroLbl}>{t('admin.tables.orderTotal')}</Text>
               </View>
             )}
           </View>
           {/* Info grid */}
           <View style={S.detInfoCard}>
+            {/* [reactKey, translatedLabel, value, icon] — the React key must stay a
+                stable ASCII id, so it is kept separate from the visible label. */}
             {[
-              table.waitress_name && ['Waiter',   table.waitress_name, 'person'],
-              table.guests_count  && ['Guests',   `${table.guests_count} guests`, 'group'],
-              table.order_status  && ['Status',   table.order_status, 'assignment'],
-            ].filter(Boolean).map(([k, v, icon]) => (
-              <View key={k} style={S.detRow}>
+              table.waitress_name && ['waiter', t('admin.tables.waiter'), table.waitress_name, 'person'],
+              table.guests_count  && ['guests', t('admin.tables.guests'), t('admin.tables.guestsN', { count: table.guests_count }), 'group'],
+              table.order_status  && ['status', t('common.status'), orderStatusLabel(table.order_status, t), 'assignment'],
+            ].filter(Boolean).map(([id, k, v, icon]) => (
+              <View key={id} style={S.detRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <MaterialIcons name={icon} size={14} color="#64748b" />
                   <Text style={S.detRowKey}>{k}</Text>
@@ -725,7 +782,7 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
             <TouchableOpacity style={[S.detActionBtn, S.detActionBtnPrimary]} onPress={openOrderView}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="assignment" size={16} color="#fff" />
-                <Text style={S.detActionBtnPrimaryTxt}>View Full Order</Text>
+                <Text style={S.detActionBtnPrimaryTxt}>{t('admin.tables.viewFullOrder')}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -733,13 +790,13 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
             <TouchableOpacity style={[S.detActionBtn, S.detActionBtnOutline, { flex: 1 }]} onPress={() => { handleClose(); onStatus(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="settings" size={16} color="#334155" />
-                <Text style={S.detActionBtnOutlineTxt}>Change Status</Text>
+                <Text style={S.detActionBtnOutlineTxt}>{t('admin.tables.changeStatus')}</Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity style={[S.detActionBtn, { flex: 1, backgroundColor: '#dcfce7', marginLeft: 8 }]} onPress={() => { handleClose(); onQuickFree(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="check" size={16} color="#16a34a" />
-                <Text style={[S.detActionBtnPrimaryTxt, { color: '#16a34a' }]}>Free Table</Text>
+                <Text style={[S.detActionBtnPrimaryTxt, { color: '#16a34a' }]}>{t('admin.tables.freeTable')}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -750,13 +807,14 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
       {table.status === 'reserved' && (
         <View style={S.detBody}>
           <View style={S.detInfoCard}>
+            {/* [reactKey, translatedLabel, value, icon] — see the occupied grid above. */}
             {[
-              table.reservation_guest && ['Guest',  table.reservation_guest, 'person'],
-              table.reservation_phone && ['Phone',  table.reservation_phone, 'phone'],
-              fmtResTime(table)       && ['Time',   fmtResTime(table), 'calendar-today'],
-              table.guests_count      && ['Guests', `${table.guests_count} guests`, 'group'],
-            ].filter(Boolean).map(([k, v, icon]) => (
-              <View key={k} style={S.detRow}>
+              table.reservation_guest && ['guest', t('admin.tables.guest'), table.reservation_guest, 'person'],
+              table.reservation_phone && ['phone', t('common.phone'),       table.reservation_phone, 'phone'],
+              fmtResTime(table, t)    && ['time',  t('admin.tables.time'),  fmtResTime(table, t), 'calendar-today'],
+              table.guests_count      && ['guests', t('admin.tables.guests'), t('admin.tables.guestsN', { count: table.guests_count }), 'group'],
+            ].filter(Boolean).map(([id, k, v, icon]) => (
+              <View key={id} style={S.detRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <MaterialIcons name={icon} size={14} color="#64748b" />
                   <Text style={S.detRowKey}>{k}</Text>
@@ -769,13 +827,13 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
             <TouchableOpacity style={[S.detActionBtn, S.detActionBtnPrimary]} onPress={() => { handleClose(); onSeatGuests && onSeatGuests(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="group" size={16} color="#fff" />
-                <Text style={S.detActionBtnPrimaryTxt}>Seat Guests</Text>
+                <Text style={S.detActionBtnPrimaryTxt}>{t('admin.tables.seatGuests')}</Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity style={[S.detActionBtn, { backgroundColor: '#fee2e2' }]} onPress={() => { handleClose(); onQuickFree(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="close" size={16} color="#dc2626" />
-                <Text style={[S.detActionBtnPrimaryTxt, { color: '#dc2626' }]}>Cancel Reservation</Text>
+                <Text style={[S.detActionBtnPrimaryTxt, { color: '#dc2626' }]}>{t('admin.tables.cancelReservation')}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -787,14 +845,14 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
         <View style={S.detBody}>
           <View style={S.detInfoCard}>
             <MaterialIcons name="cleaning-services" size={40} color="#d97706" />
-            <Text style={S.detBigLabel}>Being Cleaned</Text>
-            <Text style={S.detBigSub}>Table is currently being cleaned</Text>
+            <Text style={S.detBigLabel}>{t('admin.tables.beingCleaned')}</Text>
+            <Text style={S.detBigSub}>{t('admin.tables.currentlyBeingCleaned')}</Text>
           </View>
           <View style={S.detBtnRow}>
             <TouchableOpacity style={[S.detActionBtn, S.detActionBtnPrimary]} onPress={() => { handleClose(); onQuickFree(table); }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="check" size={16} color="#fff" />
-                <Text style={S.detActionBtnPrimaryTxt}>Mark as Clean</Text>
+                <Text style={S.detActionBtnPrimaryTxt}>{t('admin.tables.markAsClean')}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -806,25 +864,29 @@ function TableDetailModal({ table, tick, sections, visible, onClose, onStatus, o
           <TouchableOpacity style={S.detFooterBtn} onPress={() => { handleClose(); onEdit(table); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <MaterialIcons name="edit" size={16} color="#475569" />
-              <Text style={S.detFooterBtnTxt}>Edit Table</Text>
+              <Text style={S.detFooterBtnTxt}>{t('admin.tables.editTable')}</Text>
             </View>
           </TouchableOpacity>
           <View style={{ width: 1, backgroundColor: '#e2e8f0' }} />
           <TouchableOpacity style={S.detFooterBtn} onPress={() => { handleClose(); onDelete(table); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <MaterialIcons name="delete" size={16} color="#dc2626" />
-              <Text style={[S.detFooterBtnTxt, { color: '#dc2626' }]}>Delete</Text>
+              <Text style={[S.detFooterBtnTxt, { color: '#dc2626' }]}>{t('common.delete')}</Text>
             </View>
           </TouchableOpacity>
         </View>
       </>
       )}
+
+      {/* Rendered INSIDE the Sheet so it layers above this modal, not behind it. */}
+      <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
     </Sheet>
   );
 }
 
 // ─── TABLE CARD ───────────────────────────────────────────────────────────────
 function TableCard({ table, tick, sections, onPress, onEdit, onStatus, onDelete }) {
+  const { t } = useTranslation();
   const meta   = STATUS_META[table.status] || STATUS_META.free;
   const sc     = secColor(table.section || 'Indoor', sections);
   const timeMs = table.status === 'occupied' && table.opened_at
@@ -851,7 +913,7 @@ function TableCard({ table, tick, sections, onPress, onEdit, onStatus, onDelete 
 
         {/* Section chip */}
         <View style={[S.secTag, { backgroundColor: sc.bg, marginBottom: 5 }]}>
-          <Text style={[S.secTagTxt, { color: sc.text }]}>{table.section || 'Indoor'}</Text>
+          <Text style={[S.secTagTxt, { color: sc.text }]}>{sectionLabel(table.section || 'Indoor', t)}</Text>
         </View>
 
         {/* Icon */}
@@ -859,7 +921,7 @@ function TableCard({ table, tick, sections, onPress, onEdit, onStatus, onDelete 
 
         {/* Table name */}
         <Text style={S.cardName} numberOfLines={1}>
-          {table.name || `Table ${table.table_number}`}
+          {table.name || t('admin.tables.tableN', { n: table.table_number })}
         </Text>
 
         {/* Status body — fixed 44px height so all cards stay same size */}
@@ -868,7 +930,7 @@ function TableCard({ table, tick, sections, onPress, onEdit, onStatus, onDelete 
             <View style={S.freeRow}>
               <MaterialIcons name="chair" size={11} color="#475569" />
               <Text style={S.seatsChip}>{table.capacity || 4}</Text>
-              <Text style={S.availTxt}> · Free</Text>
+              <Text style={S.availTxt}> · {t('statuses.free')}</Text>
             </View>
           )}
 
@@ -890,14 +952,14 @@ function TableCard({ table, tick, sections, onPress, onEdit, onStatus, onDelete 
                   {table.reservation_guest}
                 </Text>
               ) : null}
-              {fmtResTime(table) ? (
-                <Text style={[S.resSub, { textAlign: 'center' }]} numberOfLines={1}>{fmtResTime(table)}</Text>
+              {fmtResTime(table, t) ? (
+                <Text style={[S.resSub, { textAlign: 'center' }]} numberOfLines={1}>{fmtResTime(table, t)}</Text>
               ) : null}
             </View>
           )}
 
           {table.status === 'cleaning' && (
-            <Text style={[S.cleanTxt, { textAlign: 'center' }]}>Cleaning...</Text>
+            <Text style={[S.cleanTxt, { textAlign: 'center' }]}>{t('statuses.cleaning')}...</Text>
           )}
         </View>
       </View>
@@ -1025,8 +1087,8 @@ export default function AdminTables({ navigation }) {
 
   // ── tick (UI timer for occupied duration) ───────────────────────────────────
   useEffect(() => {
-    const t = setInterval(() => setTick(Date.now()), 1000);
-    return () => clearInterval(t);
+    const iv = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(iv);
   }, []);
 
   // ── load ────────────────────────────────────────────────────────────────────
@@ -1115,7 +1177,7 @@ export default function AdminTables({ navigation }) {
 
   // ── add table ───────────────────────────────────────────────────────────────
   async function addTable() {
-    if (!form.name.trim()) { setDialog({ title: 'Required', message: 'Enter a table name', type: 'warning' }); return; }
+    if (!form.name.trim()) { setDialog({ title: t('common.required'), message: t('admin.tables.enterTableName'), type: 'warning' }); return; }
     setSaving(true);
     try {
       await tablesAPI.create({
@@ -1127,23 +1189,25 @@ export default function AdminTables({ navigation }) {
       setForm(blank(sections));
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to add table', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('admin.tables.failedAddTable'), type: 'error' });
     }
     setSaving(false);
   }
 
   // ── edit table ──────────────────────────────────────────────────────────────
-  function openEdit(t) {
+  // NOTE: the parameter is `table`, never `t` — `t` is the translation function in
+  // this scope and a parameter of that name silently shadows it (see quickFree).
+  function openEdit(table) {
     setForm({
-      name:    t.name || `Table ${t.table_number}`,
-      seats:   String(t.capacity || 4),
-      section: t.section || sections[0] || 'Indoor',
+      name:    table.name || t('admin.tables.tableN', { n: table.table_number }),
+      seats:   String(table.capacity || 4),
+      section: table.section || sections[0] || 'Indoor',
     });
-    setEditSheet(t);
+    setEditSheet(table);
   }
 
   async function saveEdit() {
-    if (!form.name.trim()) { setDialog({ title: 'Required', message: 'Enter a table name', type: 'warning' }); return; }
+    if (!form.name.trim()) { setDialog({ title: t('common.required'), message: t('admin.tables.enterTableName'), type: 'warning' }); return; }
     setSaving(true);
     try {
       await tablesAPI.update(editSheet.id, {
@@ -1154,14 +1218,14 @@ export default function AdminTables({ navigation }) {
       setEditSheet(null);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to save', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('admin.tables.failedSaveMsg'), type: 'error' });
     }
     setSaving(false);
   }
 
   // ── delete ──────────────────────────────────────────────────────────────────
-  function openDelete(t) {
-    setDeleteSheet({ table: t, blocked: t.status === 'occupied' || t.status === 'reserved' });
+  function openDelete(table) {
+    setDeleteSheet({ table, blocked: table.status === 'occupied' || table.status === 'reserved' });
   }
 
   async function confirmDelete() {
@@ -1171,26 +1235,26 @@ export default function AdminTables({ navigation }) {
       setDeleteSheet(null);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Delete failed', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('admin.tables.deleteFailedMsg'), type: 'error' });
     }
     setSaving(false);
   }
 
   // ── status ──────────────────────────────────────────────────────────────────
-  function openStatus(t) {
-    setNewStatus(t.status || 'free');
-    setOccGuests(String(t.guests_count || 2));
-    setOccWaiter(t.assigned_to || waiters[0]?.id || null);
-    setResGuest(t.reservation_guest || '');
-    setResPhone(t.reservation_phone || '');
+  function openStatus(table) {
+    setNewStatus(table.status || 'free');
+    setOccGuests(String(table.guests_count || 2));
+    setOccWaiter(table.assigned_to || waiters[0]?.id || null);
+    setResGuest(table.reservation_guest || '');
+    setResPhone(table.reservation_phone || '');
 
     // Parse date — strip time portion from ISO strings (e.g. "2026-03-10T19:00:00.000Z" → "2026-03-10")
-    const rawDate = t.reservation_date || '';
+    const rawDate = table.reservation_date || '';
     const cleanDate = rawDate ? String(rawDate).split('T')[0] : '';
     setResDate(cleanDate);
 
     // Parse time — if it's an ISO string, extract HH:MM; otherwise keep as-is
-    const rawTime = t.reservation_time || '';
+    const rawTime = table.reservation_time || '';
     let cleanTime = rawTime;
     if (rawTime && String(rawTime).includes('T')) {
       try {
@@ -1202,7 +1266,7 @@ export default function AdminTables({ navigation }) {
     }
     setResTime(cleanTime);
 
-    setStatusSheet(t);
+    setStatusSheet(table);
   }
 
   async function applyStatus() {
@@ -1233,18 +1297,21 @@ export default function AdminTables({ navigation }) {
         navigation.navigate('CashierWalkin', { prefillTable: appliedTable });
       }
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to update status', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('admin.tables.failedUpdateStatusMsg'), type: 'error' });
     }
     setSaving(false);
   }
 
   // ── quick free (used by Detail modal buttons: Free Table, Mark as Clean, Cancel Reservation)
-  async function quickFree(t) {
+  // Was `quickFree(t)` — the parameter shadowed the translation function, so the
+  // catch block's own t('common.error') call crashed with "t is not a function"
+  // exactly when it was needed. Renamed to `table`.
+  async function quickFree(table) {
     try {
-      await tablesAPI.close(t.id);
+      await tablesAPI.close(table.id);
       load();
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to update table', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('admin.tables.failedUpdateTableMsg'), type: 'error' });
     }
   }
 
@@ -1257,16 +1324,16 @@ export default function AdminTables({ navigation }) {
       load();
       navigation.navigate('CashierWalkin', { prefillTable: table });
     } catch (e) {
-      setDialog({ title: 'Error', message: e?.response?.data?.error || 'Failed to seat guests', type: 'error' });
+      setDialog({ title: t('common.error'), message: e?.response?.data?.error || t('admin.tables.failedSeatGuestsMsg'), type: 'error' });
     }
   }
 
   // ── sections ────────────────────────────────────────────────────────────────
   function addSection() {
     const name = newSecName.trim();
-    if (!name) { setDialog({ title: 'Required', message: 'Enter section name', type: 'warning' }); return; }
+    if (!name) { setDialog({ title: t('common.required'), message: t('admin.tables.enterSectionName'), type: 'warning' }); return; }
     if (sections.map(s => s.toLowerCase()).includes(name.toLowerCase())) {
-      setDialog({ title: 'Exists', message: 'Section already exists', type: 'warning' }); return;
+      setDialog({ title: t('admin.tables.existsTitle'), message: t('admin.tables.sectionExists'), type: 'warning' }); return;
     }
     const lc = name.toLowerCase();
     // Optimistic update — instant UI
@@ -1283,7 +1350,7 @@ export default function AdminTables({ navigation }) {
   function removeSection(sec) {
     const count = tables.filter(t => (t.section || '').toLowerCase() === sec.toLowerCase()).length;
     if (count > 0) {
-      setDialog({ title: 'Cannot Remove', message: `"${sec}" has ${count} table(s). Move them first.`, type: 'warning' });
+      setDialog({ title: t('admin.tables.cannotRemoveTitle'), message: t('admin.tables.cannotRemoveMsg', { name: sec, count }), type: 'warning' });
       return;
     }
     const lc = sec.toLowerCase();
@@ -1319,7 +1386,7 @@ export default function AdminTables({ navigation }) {
     const newName = (editingSecInput || '').trim();
     if (!newName) return;
     if (newName.length > 80) {
-      setDialog({ title: 'Too long', message: 'Section name must be 80 characters or fewer.', type: 'warning' });
+      setDialog({ title: t('admin.tables.tooLongTitle'), message: t('admin.tables.sectionNameTooLong'), type: 'warning' });
       return;
     }
     const oldLc = oldName.toLowerCase();
@@ -1328,7 +1395,7 @@ export default function AdminTables({ navigation }) {
     // Case-insensitive clash with another existing section.
     const clash = sections.some(s => s.toLowerCase() === newLc && s.toLowerCase() !== oldLc);
     if (clash) {
-      setDialog({ title: 'Exists', message: 'A section with that name already exists.', type: 'warning' });
+      setDialog({ title: t('admin.tables.existsTitle'), message: t('admin.tables.sectionExistsFull'), type: 'warning' });
       return;
     }
 
@@ -1376,8 +1443,8 @@ export default function AdminTables({ navigation }) {
         }));
         if ((activeTab || '').toLowerCase() === newLc) setActiveTab(oldName);
         setDialog({
-          title: 'Rename failed',
-          message: err?.response?.data?.error || 'Could not rename the section. Please try again.',
+          title: t('admin.tables.renameFailedTitle'),
+          message: err?.response?.data?.error || t('admin.tables.renameFailedMsg'),
           type: 'warning',
         });
       });
@@ -1395,22 +1462,24 @@ export default function AdminTables({ navigation }) {
   const tabs = ['All', ...sections];
 
   // ── stat cards config ────────────────────────────────────────────────────────
+  // `id` is the React key (stable, language-independent); `lbl`/`sub` are display copy.
   const statCards = [
-    { lbl: 'Free',     n: cntFree,     col: '#16a34a', lightCol: '#86efac', bg: '#f0fdf4', border: '#bbf7d0', icon: 'check-circle',   sub: `${tables.length ? Math.round(cntFree / tables.length * 100) : 0}% of tables` },
-    { lbl: 'Occupied', n: cntOccupied, col: '#dc2626', lightCol: '#fca5a5', bg: '#fff1f2', border: '#fecaca', icon: 'error',           sub: `${occupancy}% occupancy` },
-    { lbl: 'Reserved', n: cntReserved, col: '#2563eb', lightCol: '#93c5fd', bg: '#eff6ff', border: '#bfdbfe', icon: 'event-available', sub: 'upcoming guests' },
-    { lbl: 'Cleaning', n: cntCleaning, col: '#d97706', lightCol: '#fcd34d', bg: '#fffbeb', border: '#fde68a', icon: 'auto-fix-high',   sub: 'being prepared' },
+    { id: 'free',     lbl: t('statuses.free'),     n: cntFree,     col: '#16a34a', lightCol: '#86efac', bg: '#f0fdf4', border: '#bbf7d0', icon: 'check-circle',   sub: t('admin.tables.pctOfTables',  { pct: tables.length ? Math.round(cntFree / tables.length * 100) : 0 }) },
+    { id: 'occupied', lbl: t('statuses.occupied'), n: cntOccupied, col: '#dc2626', lightCol: '#fca5a5', bg: '#fff1f2', border: '#fecaca', icon: 'error',           sub: t('admin.tables.pctOccupancy', { pct: occupancy }) },
+    { id: 'reserved', lbl: t('statuses.reserved'), n: cntReserved, col: '#2563eb', lightCol: '#93c5fd', bg: '#eff6ff', border: '#bfdbfe', icon: 'event-available', sub: t('admin.tables.upcomingGuests') },
+    { id: 'cleaning', lbl: t('statuses.cleaning'), n: cntCleaning, col: '#d97706', lightCol: '#fcd34d', bg: '#fffbeb', border: '#fde68a', icon: 'auto-fix-high',   sub: t('admin.tables.beingPrepared') },
   ];
 
   return (
     <SafeAreaView style={S.root} edges={['bottom']}>
 
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Status bar style/translucency for this tab is set centrally by AdminNavigator's
+          screenListeners on focus — see the comment there for why. */}
       {/* ── Header ── */}
       <View style={S.header}>
         <View>
           <Text style={S.headerTitle}>{t('nav.tables')}</Text>
-          <Text style={S.headerSub}>{tables.length} tables · {cntOccupied} occupied</Text>
+          <Text style={S.headerSub}>{t('admin.tables.headerSub', { total: tables.length, occupied: cntOccupied })}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           {/* Gear moved here from tab bar */}
@@ -1443,8 +1512,8 @@ export default function AdminTables({ navigation }) {
           <>
             {/* ── Stat Cards (2 × 2 grid) ── */}
             <View style={S.statGrid}>
-              {statCards.map(({ lbl, n, col, lightCol, bg, border, icon, sub }) => (
-                <View key={lbl} style={[S.statCard2, { backgroundColor: bg, borderColor: border }]}>
+              {statCards.map(({ id, lbl, n, col, lightCol, bg, border, icon, sub }) => (
+                <View key={id} style={[S.statCard2, { backgroundColor: bg, borderColor: border }]}>
                   <View style={[S.statIconBadge, { backgroundColor: col }]}>
                     <MaterialIcons name={icon} size={13} color="#fff" />
                   </View>
@@ -1470,12 +1539,12 @@ export default function AdminTables({ navigation }) {
                 <View style={S.floorStatRow}>
                   <View style={S.floorStat}>
                     <Text style={S.floorStatNum}>{tables.length}</Text>
-                    <Text style={S.floorStatLbl}>Tables</Text>
+                    <Text style={S.floorStatLbl}>{t('admin.tables.floorTablesStat')}</Text>
                   </View>
                   <View style={S.floorStatDivider} />
                   <View style={S.floorStat}>
                     <Text style={[S.floorStatNum, { color: '#dc2626' }]}>{occupancy}%</Text>
-                    <Text style={S.floorStatLbl}>Occupied</Text>
+                    <Text style={S.floorStatLbl}>{t('admin.tables.occupiedStat')}</Text>
                   </View>
                   <View style={S.floorStatDivider} />
                   <View style={S.floorStat}>
@@ -1486,7 +1555,7 @@ export default function AdminTables({ navigation }) {
                         ? (activeValue / 1000).toFixed(0) + 'K'
                         : Math.round(activeValue).toString()}
                     </Text>
-                    <Text style={S.floorStatLbl}>so'm Active</Text>
+                    <Text style={S.floorStatLbl}>{t('admin.tables.somActive')}</Text>
                   </View>
                 </View>
               </View>
@@ -1495,11 +1564,11 @@ export default function AdminTables({ navigation }) {
               </View>
               <View style={S.floorLegend}>
                 {[
-                  { dot: '#16a34a', lbl: `${cntFree} free` },
-                  { dot: '#dc2626', lbl: `${cntOccupied} occupied` },
-                  { dot: '#2563eb', lbl: `${cntReserved} reserved` },
-                ].map(({ dot, lbl }) => (
-                  <View key={lbl} style={S.floorLegendItem}>
+                  { id: 'free',     dot: '#16a34a', lbl: t('admin.tables.nFree',     { count: cntFree }) },
+                  { id: 'occupied', dot: '#dc2626', lbl: t('admin.tables.nOccupied', { count: cntOccupied }) },
+                  { id: 'reserved', dot: '#2563eb', lbl: t('admin.tables.nReserved', { count: cntReserved }) },
+                ].map(({ id, dot, lbl }) => (
+                  <View key={id} style={S.floorLegendItem}>
                     <View style={[S.floorLegendDot, { backgroundColor: dot }]} />
                     <Text style={S.floorLegendTxt}>{lbl}</Text>
                   </View>
@@ -1514,13 +1583,19 @@ export default function AdminTables({ navigation }) {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={S.tabScroll}
               >
-                {tabs.map(t => (
+                {/* Param renamed from `t` — it shadowed the translation function, so no
+                    t() call was possible inside this map. `tab` stays the RAW value
+                    ('All' sentinel or the stored section name); only the text is
+                    translated. */}
+                {tabs.map(tab => (
                   <TouchableOpacity
-                    key={t}
-                    style={[S.tab, activeTab === t && S.tabActive]}
-                    onPress={() => setActiveTab(t)}
+                    key={tab}
+                    style={[S.tab, activeTab === tab && S.tabActive]}
+                    onPress={() => setActiveTab(tab)}
                   >
-                    <Text style={[S.tabTxt, activeTab === t && S.tabTxtActive]}>{t}</Text>
+                    <Text style={[S.tabTxt, activeTab === tab && S.tabTxtActive]}>
+                      {tab === 'All' ? t('common.all') : sectionLabel(tab, t)}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1612,7 +1687,9 @@ export default function AdminTables({ navigation }) {
       <Sheet
         visible={!!editSheet}
         onClose={() => setEditSheet(null)}
-        title={`Edit — ${editSheet?.name || `Table ${editSheet?.table_number}`}`}
+        title={t('admin.tables.editFor', {
+          name: editSheet?.name || t('admin.tables.tableN', { n: editSheet?.table_number }),
+        })}
       >
         <Field label={t('admin.tables.tableName')}>
           <TInput value={form.name} onChangeText={v => fi('name', v)} placeholder={t('admin.tables.tableNamePlaceholder')} />
@@ -1633,7 +1710,9 @@ export default function AdminTables({ navigation }) {
       <Sheet
         visible={!!statusSheet}
         onClose={() => setStatusSheet(null)}
-        title={`Status — ${statusSheet?.name || `Table ${statusSheet?.table_number}`}`}
+        title={t('admin.tables.statusFor', {
+          name: statusSheet?.name || t('admin.tables.tableN', { n: statusSheet?.table_number }),
+        })}
       >
         <Field label={t('admin.tables.selectStatus')}>
           <View style={S.statusGrid}>
@@ -1647,7 +1726,7 @@ export default function AdminTables({ navigation }) {
                   onPress={() => setNewStatus(s)}
                 >
                   <View style={[S.statusDot2, { backgroundColor: m.color }]} />
-                  <Text style={[S.statusOptTxt, active && { color: m.color }]}>{m.label}</Text>
+                  <Text style={[S.statusOptTxt, active && { color: m.color }]}>{statusLabel(s, t)}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -1656,12 +1735,12 @@ export default function AdminTables({ navigation }) {
 
         {newStatus === 'occupied' && (
           <View style={S.extra}>
-            <Field label="Number of Guests">
+            <Field label={t('admin.tables.numberOfGuests')}>
               <TInput value={occGuests} onChangeText={setOccGuests} placeholder="2" keyboardType="number-pad" />
             </Field>
-            <Field label="Assign Waiter">
+            <Field label={t('admin.tables.assignWaiter')}>
               {waiters.length === 0
-                ? <Text style={S.noStaff}>No waiters found</Text>
+                ? <Text style={S.noStaff}>{t('admin.tables.noWaitersFound')}</Text>
                 : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1686,21 +1765,21 @@ export default function AdminTables({ navigation }) {
             <Field label={t('admin.tables.guestName')}>
               <TInput value={resGuest} onChangeText={setResGuest} placeholder={t('admin.tables.guestNamePlaceholder')} />
             </Field>
-            <Field label="Phone">
+            <Field label={t('common.phone')}>
               <PhoneField value={resPhone} onChange={setResPhone} />
             </Field>
-            <Field label="Date">
+            <Field label={t('common.date')}>
               <CalendarPicker value={resDate} onChange={setResDate} />
             </Field>
-            <Field label="Time">
+            <Field label={t('admin.tables.time')}>
               <TimePicker value={resTime} onChange={setResTime} />
             </Field>
           </View>
         )}
 
         <View style={S.btnRow}>
-          <Btn label="Apply Status" onPress={applyStatus} loading={saving} />
-          <Btn label="Cancel" onPress={() => setStatusSheet(null)} outline />
+          <Btn label={t('admin.tables.applyStatus')} onPress={applyStatus} loading={saving} />
+          <Btn label={t('common.cancel')} onPress={() => setStatusSheet(null)} outline />
         </View>
       </Sheet>
 
@@ -1710,25 +1789,28 @@ export default function AdminTables({ navigation }) {
           {deleteSheet?.blocked ? (
             <>
               <MaterialIcons name="warning" size={48} color="#d97706" />
-              <Text style={S.deleteTitle}>Cannot Delete</Text>
+              <Text style={S.deleteTitle}>{t('admin.tables.cannotDeleteTitle')}</Text>
               <Text style={S.deleteSub}>
-                "{deleteSheet.table.name}" is {deleteSheet.table.status?.toUpperCase()}.{'\n'}
-                Change status to Free first.
+                {t('admin.tables.cannotDeleteMsg', {
+                  name:   deleteSheet.table.name,
+                  status: statusLabel(deleteSheet.table.status, t).toUpperCase(),
+                  free:   t('statuses.free'),
+                })}
               </Text>
               <View style={S.btnRow}>
-                <Btn label="OK" onPress={() => setDeleteSheet(null)} outline />
+                <Btn label={t('common.ok')} onPress={() => setDeleteSheet(null)} outline />
               </View>
             </>
           ) : (
             <>
               <MaterialIcons name="delete" size={48} color="#dc2626" />
               <Text style={S.deleteTitle}>
-                Delete "{deleteSheet?.table.name}"?
+                {t('admin.tables.deleteConfirmQ', { name: deleteSheet?.table.name })}
               </Text>
               <Text style={S.deleteSub}>{t('common.actionCannotBeUndone')}</Text>
               <View style={S.btnRow}>
-                <Btn label="Yes, Delete" onPress={confirmDelete} loading={saving} danger />
-                <Btn label="Cancel" onPress={() => setDeleteSheet(null)} outline />
+                <Btn label={t('admin.tables.yesDelete')} onPress={confirmDelete} loading={saving} danger />
+                <Btn label={t('common.cancel')} onPress={() => setDeleteSheet(null)} outline />
               </View>
             </>
           )}
@@ -1759,9 +1841,12 @@ export default function AdminTables({ navigation }) {
         </Field>
 
         <Field label={t('admin.tables.sections')}>
+          {/* This sheet EDITS the stored section names, so it deliberately shows the
+              raw value (`sec`), not sectionLabel() — otherwise tapping edit on a
+              translated label would reveal a different string in the input. */}
           {sections.map(sec => {
             const c         = secColor(sec, sections);
-            const count     = tables.filter(t => (t.section || '') === sec).length;
+            const count     = tables.filter(row => (row.section || '') === sec).length;
             const isEditing = editingSec === sec;
             const trimmed   = (editingSecInput || '').trim();
             const sameName  = trimmed.toLowerCase() === sec.toLowerCase();
@@ -1788,7 +1873,7 @@ export default function AdminTables({ navigation }) {
                         placeholder={sec}
                         placeholderTextColor={colors.textMuted}
                       />
-                      <Text style={S.secRowCount}>{count} table{count !== 1 ? 's' : ''}</Text>
+                      <Text style={S.secRowCount}>{t('admin.tables.tablesCountShort', { count })}</Text>
                     </View>
                     <TouchableOpacity
                       style={[S.confirmBtn, !canSave && { opacity: 0.35 }]}
@@ -1805,7 +1890,7 @@ export default function AdminTables({ navigation }) {
                   <>
                     <View style={{ flex: 1 }}>
                       <Text style={S.secRowName}>{sec}</Text>
-                      <Text style={S.secRowCount}>{count} table{count !== 1 ? 's' : ''}</Text>
+                      <Text style={S.secRowCount}>{t('admin.tables.tablesCountShort', { count })}</Text>
                     </View>
                     <TouchableOpacity
                       style={S.editBtn}
@@ -1826,10 +1911,10 @@ export default function AdminTables({ navigation }) {
           })}
         </Field>
 
-        <Text style={S.secHint}>Sections with tables cannot be removed.</Text>
+        <Text style={S.secHint}>{t('admin.tables.sectionsWithTablesHint')}</Text>
 
         <View style={S.btnRow}>
-          <Btn label="Done" onPress={() => { setSecSheet(false); setNewSecName(''); cancelRenameSection(); }} outline />
+          <Btn label={t('common.done')} onPress={() => { setSecSheet(false); setNewSecName(''); cancelRenameSection(); }} outline />
         </View>
       </Sheet>
 

@@ -17,7 +17,7 @@ import {
   View, Text, ScrollView, FlatList, TouchableOpacity, TextInput,
   StyleSheet, Modal, ActivityIndicator, Switch,
   KeyboardAvoidingView, Platform, RefreshControl,
-  TouchableWithoutFeedback, SafeAreaView, StatusBar, Image,
+  TouchableWithoutFeedback, SafeAreaView, Image, Animated,
 } from 'react-native';
 // react-native-image-picker requires a native rebuild — guard against null module
 let launchImageLibrary = null;
@@ -33,7 +33,9 @@ import { menuAPI, inventoryAPI } from '../../api/client';
 import { useTranslation } from '../../context/LanguageContext';
 import { colors, shadow, topInset } from '../../utils/theme';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import useSheetSwipe from '../../components/useSheetSwipe';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import CategoryPicker from '../../components/CategoryPicker';
 
 
 const IMG_BASE = 'http://10.0.2.2:3000';
@@ -51,6 +53,16 @@ const resolveImgUrl = (url) => {
 // Shown as a picker below the ingredient selector. The ingredient's own unit
 // is always offered first; remaining ones come from this list.
 const COMMON_UNITS = ['piece', 'g', 'kg', 'ml', 'l', 'portion', 'tbsp', 'tsp'];
+// Units are STORED VALUES (menu_item.unit, ingredient.unit) — translate the display only.
+const UNIT_I18N = {
+  kg: 'units.kg', g: 'units.g', liter: 'units.liter', l: 'units.l', ml: 'units.ml',
+  piece: 'units.piece', portion: 'units.portion', box: 'units.box', bottle: 'units.bottle',
+  pack: 'units.pack', bag: 'units.bag', tray: 'units.tray', tbsp: 'units.tbsp', tsp: 'units.tsp',
+};
+function unitLabel(u, t) {
+  const key = UNIT_I18N[String(u || '').toLowerCase()];
+  return key ? t(key, u) : u;
+}
 
 // ─── ITEM TYPES ──────────────────────────────────────────────────────────────
 // Both types go through the Kitchen screen; use kitchen_station to route to
@@ -64,12 +76,14 @@ const getItemTypes = (t) => [
 // null = all stations see this item
 const getKitchenStations = (t) => [
   { id: null,     icon: 'restaurant',          label: t('adminExtra.allStations'),  sub: t('adminExtra.visibleToEveryone'),  bg: '#F3F4F6', text: '#6B7280' },
-  { id: 'salad',  icon: 'eco',                 label: 'Salad',         sub: 'Salad station only',          bg: '#F0FDF4', text: '#16A34A' },
-  { id: 'grill',  icon: 'outdoor-grill',        label: 'Grill',         sub: 'Grill station only',          bg: '#FFF7ED', text: '#EA580C' },
-  { id: 'bar',    icon: 'local-bar',            label: 'Bar',           sub: 'Bar station only',            bg: '#EFF6FF', text: '#2563EB' },
-  { id: 'pastry', icon: 'cake',                 label: 'Pastry',        sub: 'Pastry station only',         bg: '#FDF4FF', text: '#A21CAF' },
-  { id: 'cold',   icon: 'ac-unit',              label: 'Cold',          sub: 'Cold kitchen only',           bg: '#ECFEFF', text: '#0891B2' },
-  { id: 'hot',    icon: 'local-fire-department',label: 'Hot',           sub: 'Hot kitchen only',            bg: '#FEF2F2', text: '#DC2626' },
+  // `id` is the STORED value written to menu_item.kitchen_station — never translate it.
+  // Labels reuse the station keys AdminStaff.js already defines, rather than duplicating them.
+  { id: 'salad',  icon: 'eco',                 label: t('admin.staff.stationSalad'),  sub: t('admin.menu.stationSubs.salad'),  bg: '#F0FDF4', text: '#16A34A' },
+  { id: 'grill',  icon: 'outdoor-grill',        label: t('admin.staff.stationGrill'),  sub: t('admin.menu.stationSubs.grill'),  bg: '#FFF7ED', text: '#EA580C' },
+  { id: 'bar',    icon: 'local-bar',            label: t('admin.staff.stationBar'),    sub: t('admin.menu.stationSubs.bar'),    bg: '#EFF6FF', text: '#2563EB' },
+  { id: 'pastry', icon: 'cake',                 label: t('admin.staff.stationPastry'), sub: t('admin.menu.stationSubs.pastry'), bg: '#FDF4FF', text: '#A21CAF' },
+  { id: 'cold',   icon: 'ac-unit',              label: t('admin.staff.stationCold'),   sub: t('admin.menu.stationSubs.cold'),   bg: '#ECFEFF', text: '#0891B2' },
+  { id: 'hot',    icon: 'local-fire-department',label: t('admin.staff.stationHot'),    sub: t('admin.menu.stationSubs.hot'),    bg: '#FEF2F2', text: '#DC2626' },
 ];
 
 // ─── PALETTE ─────────────────────────────────────────────────────────────────
@@ -95,8 +109,9 @@ function money(v) {
 
 // ─── SHARED COMPONENTS ───────────────────────────────────────────────────────
 function Sheet({ visible, onClose, title, children }) {
+  const swipe = useSheetSwipe(onClose);
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={S.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -104,13 +119,17 @@ function Sheet({ visible, onClose, title, children }) {
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={S.overlayBg} />
         </TouchableWithoutFeedback>
-        <View style={S.sheet}>
-          <View style={S.sheetHandle} />
-          <View style={S.sheetHead}>
-            <Text style={S.sheetTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={S.sheetX}>
-              <MaterialIcons name="close" size={16} color="#64748b" />
-            </TouchableOpacity>
+        {/* Animated + panHandlers on the top bar only = swipe-to-dismiss that cannot
+            fight the ScrollView below. See components/useSheetSwipe.js. */}
+        <Animated.View style={[S.sheet, swipe.style]}>
+          <View {...swipe.panHandlers}>
+            <View style={S.sheetHandle} />
+            <View style={S.sheetHead}>
+              <Text style={S.sheetTitle}>{title}</Text>
+              <TouchableOpacity onPress={onClose} style={S.sheetX}>
+                <MaterialIcons name="close" size={16} color="#64748b" />
+              </TouchableOpacity>
+            </View>
           </View>
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -119,7 +138,7 @@ function Sheet({ visible, onClose, title, children }) {
           >
             {children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -201,11 +220,11 @@ function ItemCard({ item, categories, onEdit, onDelete, onToggle }) {
             {item.item_type === 'sale'
               ? <View style={[S.typeBadgeSale, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                   <MaterialIcons name="local-bar" size={12} color="#0369a1" />
-                  <Text style={S.typeBadgeSaleTxt}>Bar</Text>
+                  <Text style={S.typeBadgeSaleTxt}>{t('admin.menu.barBadge')}</Text>
                 </View>
               : <View style={[S.typeBadgeFood, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                   <MaterialIcons name="set-meal" size={12} color="#15803d" />
-                  <Text style={S.typeBadgeFoodTxt}>Kitchen</Text>
+                  <Text style={S.typeBadgeFoodTxt}>{t('admin.menu.kitchenBadge')}</Text>
                 </View>
             }
             {item.kitchen_station ? (
@@ -263,7 +282,7 @@ function CatCard({ cat, idx, total, itemCount, onEdit, onDelete, onUp, onDown })
           {(cat.name || '?')[0].toUpperCase()}
         </Text>
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={S.catInfo}>
         <Text style={S.catName}>{cat.name}</Text>
         <Text style={S.catCount}>{itemCount} item{itemCount !== 1 ? 's' : ''}</Text>
       </View>
@@ -668,13 +687,13 @@ export default function AdminMenu() {
 
   function deleteItem(item) {
     setDialog({
-      title: 'Delete Item',
-      message: `Remove "${item.name}" from the menu? This action cannot be undone.`,
+      title: t('adminExtra.deleteItemTitle'),
+      message: `${t('adminExtra.removeItemFromMenuConfirm', { name: item.name })} ${t('common.actionCannotBeUndone')}`,
       type: 'danger',
       options: [
-        { label: 'Cancel', onPress: () => setDialog(null) },
+        { label: t('common.cancel'), onPress: () => setDialog(null) },
         {
-          label: 'Delete',
+          label: t('common.delete'),
           onPress: async () => {
             setDialog(null);
             try {
@@ -740,13 +759,13 @@ export default function AdminMenu() {
       return;
     }
     setDialog({
-      title: 'Delete Category',
-      message: `Remove "${cat.name}"? This action cannot be undone.`,
+      title: t('adminExtra.deleteCategoryTitle'),
+      message: `${t('adminExtra.removeCategoryConfirm', { name: cat.name })} ${t('common.actionCannotBeUndone')}`,
       type: 'danger',
       options: [
-        { label: 'Cancel', onPress: () => setDialog(null) },
+        { label: t('common.cancel'), onPress: () => setDialog(null) },
         {
-          label: 'Delete',
+          label: t('common.delete'),
           onPress: async () => {
             setDialog(null);
             try {
@@ -784,7 +803,8 @@ export default function AdminMenu() {
   return (
     <SafeAreaView style={S.root}>
 
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Status bar style/translucency for this tab is set centrally by AdminNavigator's
+          screenListeners on focus — see the comment there for why. */}
       {/* ── Header ── */}
       <View style={S.header}>
         <View>
@@ -810,104 +830,9 @@ export default function AdminMenu() {
       {/* ══════════════════ ITEMS TAB ══════════════════ */}
       {activeTab === 'items' && (
         <>
-          {/* Search */}
-          <View style={S.searchWrap}>
-            <MaterialIcons name="search" size={16} color="#94a3b8" />
-            <TextInput
-              style={S.searchInput}
-              value={search}
-              onChangeText={setSearch}
-              placeholder={t('admin.menu.searchPlaceholder')}
-              placeholderTextColor="#94a3b8"
-              returnKeyType="search"
-            />
-            {search.length > 0 && (
-              <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <MaterialIcons name="close" size={16} color="#94a3b8" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Category filter chips */}
-          <View style={S.filterWrap}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.filterContent}>
-              {[{ id: 'all', name: 'All' }, ...categories].map(cat => {
-                const active = String(selCat) === String(cat.id);
-                const cc     = cat.id === 'all' ? null : catColor(cat.id, categories);
-                const cnt    = cat.id === 'all'
-                  ? items.length
-                  : items.filter(i => String(i.category_id) === String(cat.id)).length;
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      S.filterChip,
-                      active && (cc
-                        ? { backgroundColor: cc.bg, borderColor: cc.text }
-                        : S.filterChipActive),
-                    ]}
-                    onPress={() => setSelCat(cat.id)}
-                  >
-                    <Text style={[
-                      S.filterChipTxt,
-                      active && (cc ? { color: cc.text } : S.filterChipTxtActive),
-                    ]}>
-                      {cat.name}
-                    </Text>
-                    <View style={[
-                      S.filterBadge,
-                      active && { backgroundColor: cc ? cc.text + '22' : 'rgba(255,255,255,0.25)' },
-                    ]}>
-                      <Text style={[
-                        S.filterBadgeTxt,
-                        active && (cc ? { color: cc.text } : { color: '#fff' }),
-                      ]}>
-                        {cnt}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-              {/* Permanent "Inactive" filter — always last */}
-              {(() => {
-                const inactiveCount = items.filter(i => (i.is_available ?? i.available) === false).length;
-                const active = selCat === 'inactive';
-                return (
-                  <TouchableOpacity
-                    style={[
-                      S.filterChip,
-                      { marginLeft: 4 },
-                      active
-                        ? { backgroundColor: '#FEE2E2', borderColor: '#DC2626' }
-                        : { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
-                    ]}
-                    onPress={() => setSelCat('inactive')}
-                  >
-                    <MaterialIcons name="block" size={13} color={active ? '#DC2626' : '#F87171'} />
-                    <Text style={[
-                      S.filterChipTxt,
-                      { color: active ? '#DC2626' : '#F87171' },
-                    ]}>
-                      {t('admin.menu.inactive')}
-                    </Text>
-                    <View style={[
-                      S.filterBadge,
-                      { backgroundColor: active ? '#DC262622' : '#FEE2E2' },
-                    ]}>
-                      <Text style={[
-                        S.filterBadgeTxt,
-                        { color: active ? '#DC2626' : '#F87171' },
-                      ]}>
-                        {inactiveCount}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })()}
-            </ScrollView>
-          </View>
-
-          {/* Item list */}
+          {/* Item list — search and the category filter now live in ListHeaderComponent, not as
+              siblings above the FlatList, so they scroll away with the items instead of staying
+              pinned at the top while only the list underneath moves. */}
           <FlatList
             data={visibleItems}
             keyExtractor={i => String(i.id)}
@@ -919,6 +844,59 @@ export default function AdminMenu() {
                 onRefresh={() => { setRefreshing(true); load(); }}
                 tintColor={colors.admin}
               />
+            }
+            ListHeaderComponent={
+              // listContent's own padding:16 now wraps this header too (it didn't when search/
+              // filter lived outside the FlatList) — cancel it here so searchWrap's and the
+              // category trigger's own margins land exactly where they did before.
+              <View style={{ marginHorizontal: -16 }}>
+                {/* Search */}
+                <View style={S.searchWrap}>
+                  <MaterialIcons name="search" size={16} color="#94a3b8" />
+                  <TextInput
+                    style={S.searchInput}
+                    value={search}
+                    onChangeText={setSearch}
+                    placeholder={t('admin.menu.searchPlaceholder')}
+                    placeholderTextColor="#94a3b8"
+                    returnKeyType="search"
+                  />
+                  {search.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <MaterialIcons name="close" size={16} color="#94a3b8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Category filter — same tappable sheet as the waiter's menu (CategoryPicker.js)
+                    instead of a horizontal chip row. A restaurant with a lot of categories turned
+                    that row into the same sideways hunt the waiter grids had, for the same
+                    reason — only ~4 names visible at once, no sense of how many more were
+                    off-screen. "Inactive" isn't a real category, so it's passed via
+                    CategoryPicker's optional `extra` slot (added for this) rather than being a
+                    real entry in `categories` — it stays last in the sheet, tinted red, exactly
+                    like the old dedicated chip. */}
+                <View style={S.filterWrap}>
+                  <CategoryPicker
+                    categories={categories}
+                    items={items}
+                    value={selCat === 'all' ? null : selCat}
+                    onChange={(id) => setSelCat(id === null ? 'all' : id)}
+                    extra={{
+                      id:    'inactive',
+                      label: t('admin.menu.inactive'),
+                      count: items.filter(i => (i.is_available ?? i.available) === false).length,
+                      icon:  'block',
+                    }}
+                    // Match this screen's own search bar (S.searchWrap) — white/rounded/bordered
+                    // card inset on the page's gray background — instead of the waiter screens'
+                    // default edge-to-edge white bar, which read as a flat, mismatched white box
+                    // sitting right under a differently-styled search bar.
+                    triggerWrapStyle={{ backgroundColor: 'transparent', borderBottomWidth: 0, paddingHorizontal: 16, paddingTop: 0, paddingBottom: 12 }}
+                    triggerStyle={{ backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' }}
+                  />
+                </View>
+              </View>
             }
             ListEmptyComponent={
               <View style={S.empty}>
@@ -1028,8 +1006,8 @@ export default function AdminMenu() {
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {[
               { id: 'piece', label: t('admin.menu.unitPiece', 'piece') },
-              { id: 'kg',    label: 'kg' },
-              { id: 'l',     label: 'l'  },
+              { id: 'kg',    label: unitLabel('kg', t) },
+              { id: 'l',     label: unitLabel('l', t)  },
             ].map(u => {
               const active = (itemForm.unit || 'piece') === u.id;
               return (
@@ -1264,7 +1242,7 @@ export default function AdminMenu() {
                   activeOpacity={0.8}
                 >
                   <MaterialIcons name="close" size={14} color="#fff" />
-                  <Text style={{ fontSize: 11, color: '#fff', fontWeight: '700', marginLeft: 3 }}>Remove</Text>
+                  <Text style={{ fontSize: 11, color: '#fff', fontWeight: '700', marginLeft: 3 }}>{t('adminExtra.removeImage')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -1307,7 +1285,7 @@ export default function AdminMenu() {
                     <View key={ing.ingredient_id} style={S.ingRow}>
                       <View style={S.ingRowLeft}>
                         <Text style={S.ingRowName}>{ing.ingredient_name}</Text>
-                        <Text style={S.ingRowQty}>{ing.quantity} {ing.unit} {t('adminExtra.perDish')}</Text>
+                        <Text style={S.ingRowQty}>{ing.quantity} {unitLabel(ing.unit, t)} {t('adminExtra.perDish')}</Text>
                       </View>
                       <TouchableOpacity
                         style={S.ingRemoveBtn}
@@ -1365,7 +1343,7 @@ export default function AdminMenu() {
                             >
                               <Text style={[S.pillTxt, picked && S.pillTxtOn]}>{ing.name}</Text>
                               <Text style={[S.pillUnit, picked && { color: 'rgba(255,255,255,0.7)' }]}>
-                                {ing.unit}
+                                {unitLabel(ing.unit, t)}
                               </Text>
                             </TouchableOpacity>
                           );
@@ -1375,12 +1353,15 @@ export default function AdminMenu() {
 
                   {/* ── Step 2: quantity per dish (always in inventory's native unit) ── */}
                   <Text style={S.ingAddLabel}>
-                    {t('admin.menu.quantityPerDish')}{pickedIngNativeUnit ? ` (${pickedIngNativeUnit})` : ''}
+                    {t('admin.menu.quantityPerDish')}{pickedIngNativeUnit ? ` (${unitLabel(pickedIngNativeUnit, t)})` : ''}
                   </Text>
                   {pickedIngNativeUnit ? (
-                    <Text style={{ fontSize: 11, color: '#f59e0b', marginBottom: 6 }}>
-                      ⚠ Enter in {pickedIngNativeUnit} — same unit as the inventory item
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                      <MaterialIcons name="warning" size={12} color="#f59e0b" />
+                      <Text style={{ flex: 1, fontSize: 11, color: '#f59e0b' }}>
+                        {t('adminExtra.enterInUnit', { unit: unitLabel(pickedIngNativeUnit, t) })}
+                      </Text>
+                    </View>
                   ) : null}
                   <View style={S.ingAddRow}>
                     <TextInput
@@ -1472,15 +1453,12 @@ const S = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, color: '#0f172a', padding: 0 },
   searchClear: { fontSize: 11, color: '#94a3b8', fontWeight: '700', paddingLeft: 8 },
 
-  // Filter chips
-  filterWrap:          { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', marginTop: 8 },
-  filterContent:       { paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: 'center' },
-  filterChip:          { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
-  filterChipActive:    { backgroundColor: colors.admin, borderColor: colors.admin },
-  filterChipTxt:       { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  filterChipTxtActive: { color: '#fff' },
-  filterBadge:         { backgroundColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1 },
-  filterBadgeTxt:      { fontSize: 10, fontWeight: '700', color: '#64748b' },
+  // Category filter — CategoryPicker (imported component) renders its own full trigger + sheet,
+  // including the "Inactive" entry passed via its `extra` prop. No background/border of its own
+  // here (deliberately transparent) — the trigger's own triggerStyle override (see call site)
+  // is the white/rounded/bordered card that matches this screen's search bar; a white band
+  // behind it here would just reintroduce the same flat-white-box mismatch from the outside.
+  filterWrap: { marginTop: 8 },
 
   // List
   listContent: { padding: 16, paddingBottom: 110 },
@@ -1505,12 +1483,18 @@ const S = StyleSheet.create({
   chipTxt: { fontSize: 11, fontWeight: '700' },
 
   // Category card
-  catCard:      { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 12, ...shadow.md },
+  // flexWrap on the card + a real minWidth on catInfo means the action buttons drop to their
+  // own line below the name/count instead of squeezing catName's container down to a few px
+  // wide (which forced mid-word text wrapping on longer category names).
+  catCard:      { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, ...shadow.md },
   catDot:       { width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
   catDotTxt:    { fontSize: 20, fontWeight: '900' },
+  catInfo:      { flexGrow: 1, flexShrink: 1, minWidth: 90 },
   catName:      { fontSize: 15, fontWeight: '800', color: '#0f172a' },
   catCount:     { fontSize: 11, color: '#94a3b8', marginTop: 2 },
-  catActions:   { flexDirection: 'row', alignItems: 'center' },
+  // marginLeft: 'auto' keeps actions right-aligned whether they share the name's line
+  // (short name) or wrap onto their own full line (long name).
+  catActions:   { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' },
   arrowBtn:     { width: 32, height: 32, borderRadius: 8, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0', marginLeft: 4 },
   arrowDisabled:{ opacity: 0.25 },
   arrowTxt:     { fontSize: 16, color: '#0f172a', fontWeight: '700' },

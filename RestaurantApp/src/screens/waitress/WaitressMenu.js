@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   ScrollView, ActivityIndicator, RefreshControl, TextInput,
-  Modal, StatusBar, Image,
+  Modal, StatusBar, Image, Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
@@ -15,6 +15,7 @@ import OrderReviewSheet from '../../components/OrderReviewSheet';
 import CategoryPicker from '../../components/CategoryPicker';
 import { useTranslation } from '../../context/LanguageContext';
 import { tableLabel } from '../../utils/tableLabel';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + ' so\'m';
@@ -236,6 +237,7 @@ function ItemSheet({ item, qty, onAdd, onRemove, onClose }) {
 
 // ── Table picker modal ────────────────────────────────────────────────────────
 function TablePickerModal({ visible, onSelect, onClose }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [tables,      setTables]      = useState([]);
   const [loading,     setLoading]     = useState(false);
@@ -274,9 +276,11 @@ function TablePickerModal({ visible, onSelect, onClose }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.pickerSheet}>
-        <View style={styles.sheetHandle} />
+      <Animated.View style={[styles.pickerSheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={styles.sheetHandle} />
         <Text style={styles.pickerTitle}>{t('cashier.walkin.selectTable', 'Select Table')}</Text>
+          </View>
         <Text style={styles.pickerSub}>{t('waitress.menu.pickTableToSend', 'Pick a table to send your order to')}</Text>
 
         {/* Search bar */}
@@ -337,7 +341,7 @@ function TablePickerModal({ visible, onSelect, onClose }) {
             })}
           </ScrollView>
         )}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

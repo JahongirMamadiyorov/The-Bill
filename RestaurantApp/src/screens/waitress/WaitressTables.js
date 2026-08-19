@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   ScrollView, Modal, ActivityIndicator,
-  RefreshControl, TextInput, StatusBar, SectionList,
+  RefreshControl, TextInput, StatusBar, SectionList, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -18,6 +18,7 @@ import OrderReviewSheet from '../../components/OrderReviewSheet';
 import CategoryPicker from '../../components/CategoryPicker';
 import { useTranslation } from '../../context/LanguageContext';
 import { tableLabel } from '../../utils/tableLabel';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -736,13 +737,16 @@ function ActiveOrderModal({ visible, table, order, onClose, onAddItems, onReques
 
 // ── Reservation info modal ───────────────────────────────────────────────────
 function ReservationModal({ visible, table, onSeatGuests, onClose }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.sheetHandle} />
+      <Animated.View style={[styles.sheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={styles.sheetHandle} />
         <Text style={styles.sheetTitle}>{tableLabel(table, t)}</Text>
+          </View>
         <View style={{ backgroundColor: '#DBEAFE', borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.xl }}>
           <Text style={{ color: '#1D4ED8', fontWeight: '700', fontSize: 15 }}>{t('waitress.tables.reservedStatus','Reserved')}</Text>
           <Text style={{ color: '#1D4ED8', fontSize: 13, marginTop: 4 }}>{table?.capacity} {t('waitress.tables.seatTableSuffix','seat table')}</Text>
@@ -750,13 +754,14 @@ function ReservationModal({ visible, table, onSeatGuests, onClose }) {
         <Btn label={t('waitress.tables.seatGuests','Seat Guests')} icon="people" onPress={() => { onSeatGuests(table); onClose(); }} />
         <View style={{ height: spacing.sm }} />
         <Btn label={t('waitress.tables.cancelLabel','Cancel')} icon="close" onPress={onClose} outline color={colors.textMuted} />
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
 
 // ── Cleaning modal ────────────────────────────────────────────────────────────
 function CleaningModal({ visible, table, onMarkClean, onClose }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
   const [marking, setMarking] = useState(false);
   const handleMarkClean = async () => {
@@ -767,9 +772,11 @@ function CleaningModal({ visible, table, onMarkClean, onClose }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.sheetHandle} />
+      <Animated.View style={[styles.sheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={styles.sheetHandle} />
         <Text style={styles.sheetTitle}>{tableLabel(table, t)}</Text>
+          </View>
         {/* Status info */}
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, padding: spacing.lg, marginBottom: spacing.xl, flexDirection: 'row', alignItems: 'center' }}>
           <MaterialIcons name="cleaning-services" size={22} color="#D97706" style={{ marginRight: spacing.md }} />
@@ -787,7 +794,7 @@ function CleaningModal({ visible, table, onMarkClean, onClose }) {
         />
         <View style={{ height: spacing.sm }} />
         <Btn label={t('waitress.tables.closeLabel','Close')} icon="close" onPress={onClose} outline color={colors.textMuted} />
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  Modal, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, StatusBar, RefreshControl,
+  Modal, StyleSheet, Platform, KeyboardAvoidingView, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -29,6 +29,9 @@ const ROLE_COLORS = {
 // ── Display-label helpers (keep internal IDs; translate display text only) ──
 function roleLabel(role, t) {
   if (!t) return role;
+  // normalizeUser() capitalises the DB role ('new_cashier' -> 'New_cashier'), so the
+  // capitalised form is what reaches this map — every role the API can return needs an
+  // entry or the raw DB value leaks into the UI (that is how "New_cashier" was showing).
   const map = {
     Waitress: 'roles.waitress',
     Kitchen: 'roles.kitchen',
@@ -36,6 +39,10 @@ function roleLabel(role, t) {
     Cleaner: 'roles.cleaner',
     Admin: 'roles.admin',
     Owner: 'roles.owner',
+    Manager: 'roles.manager',
+    New_cashier: 'roles.new_cashier',
+    New_waiter: 'roles.new_waiter',
+    Super_admin: 'roles.super_admin',
   };
   const key = map[role];
   return key ? t(key, role) : role;
@@ -55,10 +62,17 @@ function salaryTypeLabel(type, t) {
 
 function payMethodLabel(method, t) {
   if (!t) return method;
+  // Two shapes reach this: the title-case PAY_METHODS list and the lowercase DB ids in
+  // PAY_METHOD_OPTIONS ('bank_transfer'). Both map to the same labels.
   const map = {
     'Cash': 'admin.staff.paymentMethodsList.cash',
     'Bank Transfer': 'admin.staff.paymentMethodsList.bankTransfer',
     'Card': 'admin.staff.paymentMethodsList.card',
+    'cash': 'admin.staff.paymentMethodsList.cash',
+    'bank_transfer': 'admin.staff.paymentMethodsList.bankTransfer',
+    'card': 'admin.staff.paymentMethodsList.card',
+    'check': 'paymentMethods.check',
+    'other': 'admin.staff.otherMethod',
   };
   const key = map[method];
   return key ? t(key, method) : method;
@@ -79,13 +93,21 @@ const C = {
   card: '#FFFFFF',
   border: '#E5E7EB',
   bg: '#FFFFFF',
+  // These five were REFERENCED 138 times across this file but never defined, so every one
+  // evaluated to `undefined` and fell back to React Native's defaults — which is why the
+  // staff search bar's text/placeholder rendered washed out and unreadable. Names and values
+  // follow src/utils/theme.js (white/textDark/textMuted) so this screen matches the rest of
+  // the app; textMid and cardBg have no theme.js equivalent and use the same grey family
+  // (Tailwind gray-600 / slate-100) as the values already in this object.
+  white: '#FFFFFF',
+  textDark: '#111827',
+  textMid: '#4B5563',
+  textMuted: '#6B7280',
+  cardBg: '#F1F5F9',
 };
 
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-const DAY_HDRS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+// Month names/day headers for CalendarPicker come from datePicker.months/datePicker.days
+// (both Monday-first, matching this calendar's own grid) — see its render.
 
 // ══════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -383,7 +405,8 @@ function Field({ label, value, onChange, placeholder, keyType, secure, disabled 
 }
 
 // ─── PHONE FIELD with +998 country code prefix ────────────────────────────────
-function PhoneField({ label = 'Phone *', value, onChange }) {
+function PhoneField({ label, value, onChange }) {
+  const { t } = useTranslation();
   // Strip everything to just the local 9 digits, then reformat on display
   function handleChange(raw) {
     // Accept full formatted string → extract only digits after +998
@@ -416,11 +439,11 @@ function PhoneField({ label = 'Phone *', value, onChange }) {
 
   return (
     <View style={{ marginBottom: 14 }}>
-      <Text style={st.label}>{label}</Text>
+      <Text style={st.label}>{label ?? `${t('common.phone')} *`}</Text>
       <View style={[st.input, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden' }]}>
         {/* Country code badge */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#F1F5F9', borderRightWidth: 1, borderRightColor: '#E5E7EB', gap: 6 }}>
-          <Text style={{ fontSize: 16 }}>🇺🇿</Text>
+          <MaterialIcons name="phone" size={15} color="#64748b" />
           <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>+998</Text>
         </View>
         {/* Number input — only the local part */}
@@ -449,17 +472,18 @@ function PhoneField({ label = 'Phone *', value, onChange }) {
 }
 
 // ─── PASSWORD FIELD with show/hide toggle ─────────────────────────────────────
-function PasswordField({ label = 'Password', value, onChange, placeholder = 'Set login password' }) {
+function PasswordField({ label, value, onChange, placeholder }) {
+  const { t } = useTranslation();
   const [show, setShow] = useState(false);
   return (
     <View style={{ marginBottom: 14 }}>
-      <Text style={st.label}>{label}</Text>
+      <Text style={st.label}>{label ?? t('common.password')}</Text>
       <View style={[st.input, { flexDirection: 'row', alignItems: 'center', padding: 0, overflow: 'hidden' }]}>
         <TextInput
           style={{ flex: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#111827' }}
           value={value}
           onChangeText={onChange}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('admin.staff.setLoginPasswordPlaceholder')}
           placeholderTextColor={C.textMuted}
           secureTextEntry={!show}
           autoCapitalize="none"
@@ -474,9 +498,11 @@ function PasswordField({ label = 'Password', value, onChange, placeholder = 'Set
 }
 
 // ─── SINGLE DATE CALENDAR PICKER ─────────────────────────────────────────────
-const AS_MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const AS_DAYS    = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+// Month names come from datePicker.months; datePicker.days is Monday-first, rotated to
+// Sunday-first below to match this calendar's own grid (see `asDays`).
 function DatePickerModalAS({ visible, onClose, onSelect, value }) {
+  const { t } = useTranslation();
+  const asDays = (() => { const d = t('datePicker.days'); return [d[6], ...d.slice(0, 6)]; })();
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
@@ -500,7 +526,7 @@ function DatePickerModalAS({ visible, onClose, onSelect, value }) {
   const isSelected = d => d && selParts && selParts[0]===viewYear && selParts[1]===viewMonth+1 && selParts[2]===d;
   const isToday    = d => d && now.getFullYear()===viewYear && now.getMonth()===viewMonth && now.getDate()===d;
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.45)', justifyContent:'center', padding:24 }}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View style={{ backgroundColor:'#fff', borderRadius:20, padding:18, shadowColor:'#000', shadowOffset:{width:0,height:8}, shadowOpacity:0.15, shadowRadius:20, elevation:12 }}>
@@ -508,13 +534,13 @@ function DatePickerModalAS({ visible, onClose, onSelect, value }) {
             <TouchableOpacity onPress={prevMonth} style={{ width:36, height:36, borderRadius:10, backgroundColor:'#F9FAFB', justifyContent:'center', alignItems:'center' }}>
               <MaterialIcons name="chevron-left" size={22} color="#111827" />
             </TouchableOpacity>
-            <Text style={{ fontSize:16, fontWeight:'800', color:'#111827' }}>{AS_MONTHS[viewMonth]} {viewYear}</Text>
+            <Text style={{ fontSize:16, fontWeight:'800', color:'#111827' }}>{t('datePicker.months')[viewMonth]} {viewYear}</Text>
             <TouchableOpacity onPress={nextMonth} style={{ width:36, height:36, borderRadius:10, backgroundColor:'#F9FAFB', justifyContent:'center', alignItems:'center' }}>
               <MaterialIcons name="chevron-right" size={22} color="#111827" />
             </TouchableOpacity>
           </View>
           <View style={{ flexDirection:'row', marginBottom:6 }}>
-            {AS_DAYS.map(d=><Text key={d} style={{ flex:1, textAlign:'center', fontSize:11, fontWeight:'700', color:'#6B7280' }}>{d}</Text>)}
+            {asDays.map((d, i)=><Text key={i} style={{ flex:1, textAlign:'center', fontSize:11, fontWeight:'700', color:'#6B7280' }}>{d}</Text>)}
           </View>
           <View style={{ flexDirection:'row', flexWrap:'wrap' }}>
             {cells.map((day,idx)=>(
@@ -531,10 +557,10 @@ function DatePickerModalAS({ visible, onClose, onSelect, value }) {
           </View>
           <View style={{ flexDirection:'row', gap:8, marginTop:14 }}>
             <TouchableOpacity style={{ flex:1, paddingVertical:10, borderRadius:10, borderWidth:1, borderColor:'#E5E7EB', alignItems:'center' }} onPress={onClose}>
-              <Text style={{ fontSize:13, fontWeight:'700', color:'#6B7280' }}>Cancel</Text>
+              <Text style={{ fontSize:13, fontWeight:'700', color:'#6B7280' }}>{t('common.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={{ flex:1, paddingVertical:10, borderRadius:10, backgroundColor:C.primary, alignItems:'center' }} onPress={()=>{ const m=String(now.getMonth()+1).padStart(2,'0'); const d=String(now.getDate()).padStart(2,'0'); onSelect(`${now.getFullYear()}-${m}-${d}`); onClose(); }}>
-              <Text style={{ fontSize:13, fontWeight:'700', color:'#fff' }}>Today</Text>
+              <Text style={{ fontSize:13, fontWeight:'700', color:'#fff' }}>{t('common.today')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -567,7 +593,8 @@ function DateFieldAS({ label, value, onChange }) {
   );
 }
 
-function ChipRow({ label, options, selected, onSelect }) {
+// `options` are the RAW stored values; `labels` (optional, same order) is display-only.
+function ChipRow({ label, options, selected, onSelect, labels }) {
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={st.label}>{label}</Text>
@@ -577,7 +604,7 @@ function ChipRow({ label, options, selected, onSelect }) {
             key={opt} onPress={() => onSelect(opt)}
             style={[st.chip, selected === opt && st.chipOn, i < options.length - 1 && { marginRight: 8 }]}
           >
-            <Text style={[st.chipTxt, selected === opt && st.chipTxtOn]}>{opt}</Text>
+            <Text style={[st.chipTxt, selected === opt && st.chipTxtOn]}>{labels ? (labels[i] ?? opt) : opt}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -586,12 +613,16 @@ function ChipRow({ label, options, selected, onSelect }) {
 }
 
 function FullModal({ visible, onClose, title, children }) {
+  const { t } = useTranslation();
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
         <View style={st.modalHeader}>
           <TouchableOpacity onPress={onClose} style={{ width: 70 }}>
-            <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>← Back</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <MaterialIcons name="arrow-back" size={18} color={C.primary} style={{ marginRight: 2 }} />
+              <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>{t('adminExtra.backLabel')}</Text>
+            </View>
           </TouchableOpacity>
           <Text style={st.modalTitle}>{title}</Text>
           <View style={{ width: 70 }} />
@@ -608,6 +639,7 @@ function FullModal({ visible, onClose, title, children }) {
 // CALENDAR DATE PICKER
 // ══════════════════════════════════════════════════════════════════════════════
 function CalendarPicker({ visible, onClose, period, onChange, singleDay = false }) {
+  const { t } = useTranslation();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [tempFrom, setTempFrom] = useState(period.from);
@@ -669,17 +701,17 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   const presets = [
-    { label: 'Today', from: TODAY_STR, to: TODAY_STR },
-    { label: 'This Week', from: fmtDate(getMonday(today)), to: TODAY_STR },
-    { label: 'This Month', from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
-    { label: 'Last Month', from: fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)), to: fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)) },
+    { label: t('periods.today'), from: TODAY_STR, to: TODAY_STR },
+    { label: t('periods.thisWeek'), from: fmtDate(getMonday(today)), to: TODAY_STR },
+    { label: t('periods.thisMonth'), from: fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: TODAY_STR },
+    { label: t('periods.lastMonth'), from: fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)), to: fmtDate(new Date(today.getFullYear(), today.getMonth(), 0)) },
   ];
 
   const applyLabel = tempFrom === tempTo ? tempFrom : `${tempFrom} → ${tempTo}`;
   const selectedDay = singleDay ? tempFrom : null;
 
   return (
-    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="calendar-today" size={20} color={C.primary} style={{ marginRight: 6 }} /><Text>{singleDay ? 'Select Date' : 'Select Period'}</Text></View>}>
+    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="calendar-today" size={20} color={C.primary} style={{ marginRight: 6 }} /><Text>{singleDay ? t('datePicker.selectDate') : t('warehouse.sections.selectPeriod')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
 
         {/* FROM / TO pills — only for range mode */}
@@ -689,7 +721,7 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
               onPress={() => setStep('from')}
               style={[st.periodPill, step === 'from' && st.periodPillActive]}
             >
-              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 2 }}>FROM</Text>
+              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 2 }}>{t('datePicker.from', 'FROM')}</Text>
               <Text style={{ fontSize: 14, fontWeight: '800', color: C.textDark }}>{tempFrom}</Text>
             </TouchableOpacity>
             <View style={{ width: 24, alignItems: 'center', justifyContent: 'center' }}>
@@ -699,7 +731,7 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
               onPress={() => setStep('to')}
               style={[st.periodPill, step === 'to' && st.periodPillActive]}
             >
-              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 2 }}>TO</Text>
+              <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '700', marginBottom: 2 }}>{t('datePicker.to', 'TO')}</Text>
               <Text style={{ fontSize: 14, fontWeight: '800', color: C.textDark }}>{tempTo}</Text>
             </TouchableOpacity>
           </View>
@@ -708,14 +740,14 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
         {/* Selected date display — only for single-day mode */}
         {singleDay && (
           <View style={{ alignItems: 'center', marginBottom: 14 }}>
-            <Text style={{ fontSize: 12, color: C.textMuted, marginBottom: 4 }}>Tap a date to select</Text>
+            <Text style={{ fontSize: 12, color: C.textMuted, marginBottom: 4 }}>{t('admin.staff.tapDateToSelect')}</Text>
           </View>
         )}
 
         {/* Hint — only for range mode */}
         {!singleDay && (
           <Text style={{ textAlign: 'center', color: C.textMuted, fontSize: 12, marginBottom: 14 }}>
-            {step === 'from' ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='circle' size={6} color={C.textMuted} style={{ marginRight: 4 }} /><Text>Tap a date to set start</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='circle' size={6} color={C.textMuted} style={{ marginRight: 4 }} /><Text>Tap a date to set end</Text></View>}
+            {step === 'from' ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='circle' size={6} color={C.textMuted} style={{ marginRight: 4 }} /><Text>{t('datePicker.tapStart', 'Tap a date to set start')}</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='circle' size={6} color={C.textMuted} style={{ marginRight: 4 }} /><Text>{t('datePicker.tapEnd', 'Tap a date to set end')}</Text></View>}
           </Text>
         )}
 
@@ -725,7 +757,7 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
             <Text style={{ fontSize: 24, color: C.primary, fontWeight: '700', lineHeight: 28 }}>‹</Text>
           </TouchableOpacity>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.textDark }}>
-            {MONTH_NAMES[viewMonth]} {viewYear}
+            {t('datePicker.months')[viewMonth]} {viewYear}
           </Text>
           <TouchableOpacity onPress={nextMonth} style={st.arrowBtn}>
             <Text style={{ fontSize: 24, color: C.primary, fontWeight: '700', lineHeight: 28 }}>›</Text>
@@ -734,8 +766,8 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
 
         {/* Day-of-week headers */}
         <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-          {DAY_HDRS.map(d => (
-            <View key={d} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
+          {t('datePicker.days').map((d, i) => (
+            <View key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.textMuted }}>{d}</Text>
             </View>
           ))}
@@ -803,7 +835,7 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
         {/* Preset shortcuts — only for range mode */}
         {!singleDay && (
           <View style={{ marginTop: 18 }}>
-            <Text style={[st.label, { marginBottom: 8 }]}>Quick Select</Text>
+            <Text style={[st.label, { marginBottom: 8 }]}>{t('datePicker.quickSelect')}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
               {presets.map((p, i) => (
                 <TouchableOpacity
@@ -821,7 +853,7 @@ function CalendarPicker({ visible, onClose, period, onChange, singleDay = false 
         {/* Apply — only for range mode */}
         {!singleDay && (
           <TouchableOpacity style={st.btnPrimary} onPress={() => { onChange({ from: tempFrom, to: tempTo }); onClose(); }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="check" size={18} color="#fff" style={{ marginRight: 4 }} /><Text style={st.btnPrimaryTxt}>Apply  ·  {applyLabel}</Text></View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="check" size={18} color="#fff" style={{ marginRight: 4 }} /><Text style={st.btnPrimaryTxt}>{t('common.apply')}  ·  {applyLabel}</Text></View>
           </TouchableOpacity>
         )}
 
@@ -942,7 +974,7 @@ function SummaryPanel({ staff, attendance, payCalcs, period, allPayments = [], p
               fontSize: 12, fontWeight: '700', marginRight: 10,
               color: totalDue > 0 ? C.danger : C.success
             }}>
-              {totalDue > 0 ? `Due: ${fmtMoney(totalDue)}` : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="check" size={14} color={C.success} style={{ marginRight: 2 }} /><Text>All Paid</Text></View>}
+              {totalDue > 0 ? t('admin.staff.dueAmount', { amount: fmtMoney(totalDue) }) : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="check" size={14} color={C.success} style={{ marginRight: 2 }} /><Text>{t('admin.staff.allPaid')}</Text></View>}
             </Text>
           )}
           <Text style={{ color: C.primary, fontWeight: '700', fontSize: 13 }}>
@@ -1050,6 +1082,8 @@ const BLANK = {
 };
 
 // Kitchen station quick-pick presets (any can also be renamed via text input)
+// `label` here is the internal/English id for lookups, not what's shown — the render site
+// translates it via `stationPresetLabel(ks.id, t)` so the module-level array doesn't need `t`.
 const KITCHEN_STATION_PRESETS = [
   { id: 'salad',  icon: 'eco',                   label: 'Salad',   color: '#16A34A', bg: '#F0FDF4' },
   { id: 'grill',  icon: 'outdoor-grill',          label: 'Grill',   color: '#EA580C', bg: '#FFF7ED' },
@@ -1058,6 +1092,14 @@ const KITCHEN_STATION_PRESETS = [
   { id: 'cold',   icon: 'ac-unit',                label: 'Cold',    color: '#0891B2', bg: '#ECFEFF' },
   { id: 'hot',    icon: 'local-fire-department',  label: 'Hot',     color: '#DC2626', bg: '#FEF2F2' },
 ];
+const STATION_LABEL_I18N = {
+  salad: 'admin.staff.stationSalad', grill: 'admin.staff.stationGrill', bar: 'admin.staff.stationBar',
+  pastry: 'admin.staff.stationPastry', cold: 'admin.staff.stationCold', hot: 'admin.staff.stationHot',
+};
+function stationPresetLabel(ks, t) {
+  const key = STATION_LABEL_I18N[ks.id];
+  return key ? t(key, ks.label) : ks.label; // custom (non-preset) stations have no key — show as typed
+}
 
 const CUSTOM_PRESETS_KEY = '@kitchen_station_custom_presets';
 
@@ -1122,17 +1164,17 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
   const removeCustomPreset = (id) => {
     const station = customPresets.find(p => p.id === id);
     setDialog({
-      title: 'Delete Station',
-      message: `Delete "${station?.label || id}"? This will remove it from the quick pick list.`,
+      title: t('admin.staff.deleteStationTitle'),
+      message: t('admin.staff.deleteStationConfirm', { name: station?.label || id }),
       type: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t('common.delete'),
       onConfirm: async () => {
         try {
           await menuAPI.deleteStation(id);
           await loadCustomStations();
         } catch (e) {
-          const msg = e?.response?.data?.error || 'Cannot delete station';
-          setDialog({ title: 'Error', message: msg, type: 'warning' });
+          const msg = e?.response?.data?.error || t('admin.staff.cannotDeleteStation');
+          setDialog({ title: t('common.error'), message: msg, type: 'warning' });
         }
       },
     });
@@ -1145,19 +1187,19 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
 
   const set = (k) => (v) => setForm(p => ({ ...p, [k]: v }));
   const save = () => {
-    if (!form.name.trim()) { setDialog({ title: 'Required', message: 'Name is required.', type: 'warning' }); return; }
-    if (!form.phone.trim()) { setDialog({ title: 'Required', message: 'Phone is required.', type: 'warning' }); return; }
-    if (mode === 'add' && !form.password.trim()) { setDialog({ title: 'Required', message: 'Please set a login password for this staff member.', type: 'warning' }); return; }
+    if (!form.name.trim()) { setDialog({ title: t('common.required'), message: t('admin.staff.nameRequired'), type: 'warning' }); return; }
+    if (!form.phone.trim()) { setDialog({ title: t('common.required'), message: t('admin.staff.phoneRequired'), type: 'warning' }); return; }
+    if (mode === 'add' && !form.password.trim()) { setDialog({ title: t('common.required'), message: t('admin.staff.setLoginPassword'), type: 'warning' }); return; }
     const r = Number(form.rate);
-    if (!form.rate || isNaN(r) || r <= 0) { setDialog({ title: 'Required', message: 'Enter a valid rate.', type: 'warning' }); return; }
+    if (!form.rate || isNaN(r) || r <= 0) { setDialog({ title: t('common.required'), message: t('admin.staff.validRate'), type: 'warning' }); return; }
     onSave({ ...form, rate: r }); onClose();
   };
 
   return (
     <FullModal visible={visible} onClose={onClose} title={mode === 'add' ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='add' size={20} color='#fff' style={{ marginRight: 6 }} /><Text>{t('admin.staff.addNewStaff')}</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='edit' size={20} color='#fff' style={{ marginRight: 6 }} /><Text>{t('admin.staff.editStaffInfo')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Field label="Full Name *" value={form.name} onChange={set('name')} placeholder="e.g. Aisha Karimova" />
-        <ChipRow label="Role *" options={ROLES} selected={form.role} onSelect={(v) => {
+        <Field label={t('admin.staff.fullNameRequired')} value={form.name} onChange={set('name')} placeholder={t('admin.staff.egStaffName')} />
+        <ChipRow label={t('admin.staff.roleRequired')} options={ROLES} labels={ROLES.map(r => roleLabel(r, t))} selected={form.role} onSelect={(v) => {
           set('role')(v);
           // Reset station when role changes away from kitchen
           if (v !== 'Kitchen') set('kitchen_station')(null);
@@ -1182,7 +1224,7 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
                 style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111827', padding: 0 }}
                 value={form.kitchen_station || ''}
                 onChangeText={v => set('kitchen_station')(v.trim().length > 0 ? v : null)}
-                placeholder="Type station name (or pick below)"
+                placeholder={t('admin.staff.stationPlaceholderTyped')}
                 placeholderTextColor="#94A3B8"
                 returnKeyType="done"
               />
@@ -1195,7 +1237,7 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
 
             {/* Quick-pick preset chips */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <Text style={{ fontSize: 10, color: '#94A3B8', fontWeight: '600' }}>QUICK PICK:</Text>
+              <Text style={{ fontSize: 10, color: '#94A3B8', fontWeight: '600' }}>{t('adminExtra.quickPickLabel')}</Text>
               {canAddToQuickPick && (
                 <TouchableOpacity
                   onPress={addToQuickPicks}
@@ -1231,7 +1273,7 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
                     >
                       <MaterialIcons name={ks.icon} size={14} color={active ? ks.color : '#94A3B8'} />
                       <Text style={{ fontSize: 12, fontWeight: '700', color: active ? ks.color : '#6B7280' }}>
-                        {ks.label}
+                        {stationPresetLabel(ks, t)}
                       </Text>
                       {/* Delete button only on custom chips */}
                       {ks.custom && (
@@ -1250,27 +1292,27 @@ function StaffFormModal({ visible, onClose, onSave, initial, mode }) {
 
             <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 8 }}>
               {form.kitchen_station
-                ? `Station: "${form.kitchen_station}" — only sees matching orders`
-                : 'No station — sees all kitchen orders'}
+                ? t('admin.staff.stationSetHint', { station: form.kitchen_station })
+                : t('admin.staff.stationUnsetHint')}
             </Text>
           </View>
         )}
 
         <PhoneField value={form.phone} onChange={set('phone')} />
         {mode === 'add' && <>
-          <Field label="Email (login)" value={form.email} onChange={set('email')} placeholder="staff@example.com" keyType="email-address" />
+          <Field label={t('admin.staff.emailLogin')} value={form.email} onChange={set('email')} placeholder={t('admin.staff.staffEmailPlaceholder')} keyType="email-address" />
           <PasswordField value={form.password} onChange={set('password')} />
         </>}
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <View style={{ flex: 1 }}>
-            <TimePicker label="Shift Start" value={form.shiftStart} onChange={set('shiftStart')} placeholder="09:00" />
+            <TimePicker label={t('admin.staff.shiftStart')} value={form.shiftStart} onChange={set('shiftStart')} placeholder="09:00" />
           </View>
           <View style={{ flex: 1 }}>
-            <TimePicker label="Shift End" value={form.shiftEnd} onChange={set('shiftEnd')} placeholder="18:00" />
+            <TimePicker label={t('admin.staff.shiftEnd')} value={form.shiftEnd} onChange={set('shiftEnd')} placeholder="18:00" />
           </View>
         </View>
-        <ChipRow label="Salary Type *" options={SALARY_TYPES} selected={form.salaryType} onSelect={set('salaryType')} />
-        <Field label={`Rate (so'm) · ${form.salaryType}`} value={form.rate} onChange={set('rate')} placeholder="e.g. 1500000" keyType="numeric" />
+        <ChipRow label={t('admin.staff.salaryTypeRequired')} options={SALARY_TYPES} labels={SALARY_TYPES.map(x => salaryTypeLabel(x, t))} selected={form.salaryType} onSelect={set('salaryType')} />
+        <Field label={t('admin.staff.rateLabel', { type: salaryTypeLabel(form.salaryType, t) })} value={form.rate} onChange={set('rate')} placeholder={t('admin.staff.egRate')} keyType="numeric" />
         <TouchableOpacity style={st.btnPrimary} onPress={save}>
           <Text style={st.btnPrimaryTxt}>{mode === 'add' ? t('admin.staff.addNewStaff') : t('common.saveChanges')}</Text>
         </TouchableOpacity>
@@ -1293,9 +1335,9 @@ function EditLoginModal({ visible, onClose, member, onSave }) {
     if (visible && member) { setEmail(member.email || ''); setPassword(''); setConfirmPassword(''); setError(''); }
   }, [visible]);
   const save = () => {
-    if (!email && !password) { setError('Provide email or new password'); return; }
-    if (password && password !== confirmPassword) { setError('New passwords do not match'); return; }
-    if (password && password.length < 3) { setError('Password must be at least 3 characters'); return; }
+    if (!email && !password) { setError(t('admin.staff.provideEmailOrPassword')); return; }
+    if (password && password !== confirmPassword) { setError(t('admin.profile.passwordsDoNotMatch')); return; }
+    if (password && password.length < 3) { setError(t('admin.staff.passwordMinLength')); return; }
     setError('');
     onSave({
       email,
@@ -1307,16 +1349,16 @@ function EditLoginModal({ visible, onClose, member, onSave }) {
   const match = password && confirmPassword && password === confirmPassword;
   const mismatch = password && confirmPassword && password !== confirmPassword;
   return (
-    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="lock" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>Edit Login Credentials</Text></View>}>
+    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="lock" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>{t('admin.staff.editLoginCredentials')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Field label="Email" value={email} onChange={setEmail} placeholder="staff@example.com" keyType="email-address" />
+        <Field label={t('common.email')} value={email} onChange={setEmail} placeholder={t('admin.staff.staffEmailPlaceholder')} keyType="email-address" />
         <PasswordField label={t('labels.newPasswordOptional', 'New Password (optional)')} value={password} onChange={setPassword} placeholder={t('placeholders.leaveBlankKeepCurrent', 'Leave blank to keep current')} />
-        <PasswordField label="Confirm New Password" value={confirmPassword} onChange={setConfirmPassword} placeholder="Re-enter new password" />
-        {mismatch && <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 8 }}>Passwords do not match</Text>}
-        {match && <Text style={{ color: '#22C55E', fontSize: 12, marginBottom: 8 }}>Passwords match</Text>}
+        <PasswordField label={t('admin.staff.confirmNewPassword')} value={confirmPassword} onChange={setConfirmPassword} placeholder={t('admin.staff.reEnterPassword')} />
+        {mismatch && <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 8 }}>{t('admin.profile.passwordsDoNotMatch')}</Text>}
+        {match && <Text style={{ color: '#22C55E', fontSize: 12, marginBottom: 8 }}>{t('admin.staff.passwordsMatch')}</Text>}
         {error ? <Text style={{ color: '#EF4444', fontSize: 12, marginBottom: 8 }}>{error}</Text> : null}
         <TouchableOpacity style={[st.btnPrimary, { backgroundColor: '#7C3AED', opacity: mismatch ? 0.5 : 1 }]} onPress={save} disabled={!!mismatch}>
-          <Text style={st.btnPrimaryTxt}>Save Credentials</Text>
+          <Text style={st.btnPrimaryTxt}>{t('admin.staff.saveCredentials')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </FullModal>
@@ -1327,11 +1369,12 @@ function EditLoginModal({ visible, onClose, member, onSave }) {
 // STAFF PROFILE MODAL
 // ══════════════════════════════════════════════════════════════════════════════
 function StaffProfileModal({ visible, onClose, member, onEdit, onEditLogin, onDelete, onToggleStatus }) {
+  const { t } = useTranslation();
   const [dialog, setDialog] = useState(null);
   if (!member) return null;
   const susp = member.status === 'Suspended';
   return (
-    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="person" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>Staff Profile</Text></View>}>
+    <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="person" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>{t('admin.staff.staffProfileTitle')}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <View style={{ alignItems: 'center', marginBottom: 20 }}>
           <View style={[st.avatarLg, { backgroundColor: ROLE_COLORS[member.role]?.bg || '#F1F5F9' }]}>
@@ -1343,17 +1386,17 @@ function StaffProfileModal({ visible, onClose, member, onEdit, onEditLogin, onDe
             <View style={{ width: 8 }} />
             <View style={{ backgroundColor: susp ? '#FEF3C7' : '#DCFCE7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
               <Text style={{ color: susp ? '#92400E' : '#166534', fontSize: 12, fontWeight: '700' }}>
-                {susp ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='pause' size={14} color={C.warning} style={{ marginRight: 4 }} /><Text>Suspended</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='check' size={14} color={C.success} style={{ marginRight: 4 }} /><Text>Active</Text></View>}
+                {susp ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='pause' size={14} color={C.warning} style={{ marginRight: 4 }} /><Text>{t('admin.staff.suspended')}</Text></View> : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='check' size={14} color={C.success} style={{ marginRight: 4 }} /><Text>{t('common.active')}</Text></View>}
               </Text>
             </View>
           </View>
         </View>
         <View style={st.infoCard}>
           {[
-            { key: 'phone',  icon: 'phone',        label: 'Phone',  value: member.phone },
-            { key: 'email',  icon: 'email',         label: 'Login Email',  value: member.email || '—' },
-            { key: 'shift',  icon: 'schedule',      label: 'Shift',  value: `${member.shiftStart} – ${member.shiftEnd}` },
-            ...(!['Admin', 'Owner', 'admin', 'owner'].includes(member.role) ? [{ key: 'salary', icon: 'attach-money',  label: 'Salary', value: `${fmtMoney(member.rate)} / ${member.salaryType}` }] : []),
+            { key: 'phone',  icon: 'phone',        label: t('common.phone'),  value: member.phone },
+            { key: 'email',  icon: 'email',         label: t('admin.staff.loginEmail'),  value: member.email || '—' },
+            { key: 'shift',  icon: 'schedule',      label: t('admin.staff.shift'),  value: `${member.shiftStart} – ${member.shiftEnd}` },
+            ...(!['Admin', 'Owner', 'admin', 'owner'].includes(member.role) ? [{ key: 'salary', icon: 'attach-money',  label: t('admin.staff.salary'), value: `${fmtMoney(member.rate)} / ${salaryTypeLabel(member.salaryType, t)}` }] : []),
           ].map(({ key, icon, label, value }) => (
             <View key={key} style={st.infoRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', minWidth: 60 }}>
@@ -1366,25 +1409,25 @@ function StaffProfileModal({ visible, onClose, member, onEdit, onEditLogin, onDe
         </View>
         {!['Admin', 'Owner', 'admin', 'owner'].includes(member.role) && (<>
         <TouchableOpacity style={st.btnPrimary} onPress={() => { onEdit(member); onClose(); }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="edit" size={16} color="#fff" style={{ marginRight: 4 }} /><Text style={st.btnPrimaryTxt}>Edit Info</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="edit" size={16} color="#fff" style={{ marginRight: 4 }} /><Text style={st.btnPrimaryTxt}>{t('admin.staff.editInfo')}</Text></View>
         </TouchableOpacity>
         <TouchableOpacity style={[st.btnOutline, { marginTop: 10 }]} onPress={() => { onEditLogin(member); onClose(); }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="lock" size={16} color="#7C3AED" style={{ marginRight: 4 }} /><Text style={[st.btnOutlineTxt, { color: '#7C3AED' }]}>Edit Login</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="lock" size={16} color="#7C3AED" style={{ marginRight: 4 }} /><Text style={[st.btnOutlineTxt, { color: '#7C3AED' }]}>{t('admin.staff.editLogin')}</Text></View>
         </TouchableOpacity>
         <TouchableOpacity style={[st.btnOutline, { marginTop: 10, borderColor: susp ? C.success : C.warning }]} onPress={() => { onToggleStatus(member); onClose(); }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name={susp ? 'play-arrow' : 'pause'} size={16} color={susp ? C.success : C.warning} style={{ marginRight: 4 }} /><Text style={[st.btnOutlineTxt, { color: susp ? C.success : C.warning }]}>{susp ? 'Reactivate' : 'Suspend'}</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name={susp ? 'play-arrow' : 'pause'} size={16} color={susp ? C.success : C.warning} style={{ marginRight: 4 }} /><Text style={[st.btnOutlineTxt, { color: susp ? C.success : C.warning }]}>{susp ? t('admin.staff.reactivate') : t('admin.staff.suspend')}</Text></View>
         </TouchableOpacity>
         <TouchableOpacity
           style={[st.btnOutline, { marginTop: 10, borderColor: C.danger }]}
           onPress={() => setDialog({
-            title: 'Delete Staff',
-            message: `Remove ${member.name}?`,
+            title: t('admin.staff.deleteStaff'),
+            message: t('admin.staff.removeNameConfirm', { name: member.name }),
             type: 'danger',
-            confirmLabel: 'Delete',
+            confirmLabel: t('common.delete'),
             onConfirm: () => { setDialog(null); onDelete(member.id); onClose(); }
           })}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="delete" size={16} color={C.danger} style={{ marginRight: 4 }} /><Text style={[st.btnOutlineTxt, { color: C.danger }]}>Delete</Text></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="delete" size={16} color={C.danger} style={{ marginRight: 4 }} /><Text style={[st.btnOutlineTxt, { color: C.danger }]}>{t('common.delete')}</Text></View>
         </TouchableOpacity>
         </>)}
       </ScrollView>
@@ -1397,6 +1440,13 @@ function StaffProfileModal({ visible, onClose, member, onEdit, onEditLogin, onDe
 // ATTENDANCE EDIT MODAL — admin manually sets status / times / note
 // ══════════════════════════════════════════════════════════════════════════════
 const ATT_STATUSES = ['Present', 'Late', 'Absent', 'Excused'];
+// Both of these are STORED/COMPARED values ('Present', 'Monthly') — display only.
+function attStatusLabel(status, t) {
+  const map = { Present: 'admin.staff.present', Late: 'admin.staff.late',
+                Absent: 'admin.staff.absent', Excused: 'admin.staff.excused' };
+  const key = map[status];
+  return key ? t(key, status) : status;
+}
 const STATUS_COLORS = {
   Present: { bg: '#DCFCE7', text: '#166534' },
   Late: { bg: '#FFF7ED', text: '#9A3412' },
@@ -1405,6 +1455,7 @@ const STATUS_COLORS = {
 };
 
 function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRecord, onSave }) {
+  const { t } = useTranslation();
   const [date, setDate] = useState(TODAY_STR);
   const [status, setStatus] = useState('Present');
   const [clockIn, setClockIn] = useState('09:00');
@@ -1444,7 +1495,7 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
       }, existingRecord?.id);
       onClose();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -1457,9 +1508,12 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.border }}>
           <TouchableOpacity onPress={onClose} style={{ width: 70 }}>
-            <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>← Back</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <MaterialIcons name="arrow-back" size={18} color={C.primary} style={{ marginRight: 2 }} />
+              <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>{t('adminExtra.backLabel')}</Text>
+            </View>
           </TouchableOpacity>
-          <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>Edit Attendance</Text>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{t('admin.staff.editAttendance')}</Text>
           <View style={{ width: 70 }} />
         </View>
 
@@ -1477,10 +1531,10 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
             </View>
 
             {/* Date */}
-            <DateFieldAS label="Date" value={date} onChange={setDate} />
+            <DateFieldAS label={t('common.date')} value={date} onChange={setDate} />
 
             {/* Status chips */}
-            <Text style={st.label}>Status</Text>
+            <Text style={st.label}>{t('common.status')}</Text>
             <View style={{ flexDirection: 'row', marginBottom: 14 }}>
               {ATT_STATUSES.map(s => {
                 const col = STATUS_COLORS[s];
@@ -1495,7 +1549,7 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
                       borderWidth: 1.5, borderColor: on ? col.text : C.border,
                     }}
                   >
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: on ? col.text : C.textMid }}>{s}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: on ? col.text : C.textMid }}>{attStatusLabel(s, t)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -1505,20 +1559,20 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
             {needsTime && (
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
                 <View style={{ flex: 1 }}>
-                  <TimePicker label="Clock-In" value={clockIn} onChange={setClockIn} placeholder="09:00" />
+                  <TimePicker label={t('admin.staff.clockInLabel')} value={clockIn} onChange={setClockIn} placeholder="09:00" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <TimePicker label="Clock-Out" value={clockOut} onChange={setClkOut} placeholder="18:00" />
+                  <TimePicker label={t('admin.staff.clockOutLabel')} value={clockOut} onChange={setClkOut} placeholder="18:00" />
                 </View>
               </View>
             )}
 
             {/* Note */}
-            <Text style={st.label}>Note (optional)</Text>
+            <Text style={st.label}>{t('admin.staff.noteOptional')}</Text>
             <TextInput
               style={[st.input, { minHeight: 56, textAlignVertical: 'top', marginBottom: 20 }]}
               value={note} onChangeText={setNote}
-              placeholder="e.g. Doctor's appointment, adjusted hours..."
+              placeholder={t('admin.staff.egAttendanceNote')}
               placeholderTextColor={C.textMuted} multiline
             />
 
@@ -1528,7 +1582,7 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
               onPress={handleSave} disabled={saving}
             >
               <Text style={st.btnPrimaryTxt}>
-                {saving ? 'Saving…' : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='check' size={14} color='#fff' style={{ marginRight: 4 }} /><Text style={{ color: '#fff', fontWeight: '700' }}>{existingRecord ? 'Update Record' : 'Create Record'}</Text></View>}
+                {saving ? t('common.saving') : <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name='check' size={14} color='#fff' style={{ marginRight: 4 }} /><Text style={{ color: '#fff', fontWeight: '700' }}>{existingRecord ? t('admin.staff.updateRecord') : t('admin.staff.createRecord')}</Text></View>}
               </Text>
             </TouchableOpacity>
             <ConfirmDialog dialog={dialog} onClose={() => setDialog(null)} />
@@ -1543,13 +1597,14 @@ function AttendanceEditModal({ visible, onClose, member, defaultDate, existingRe
 // ATTENDANCE HISTORY MODAL
 // ══════════════════════════════════════════════════════════════════════════════
 function AttHistoryModal({ visible, onClose, member, attendance }) {
+  const { t } = useTranslation();
   if (!member) return null;
   const recs = [...attendance].filter(r => r.staffId === member.id).sort((a, b) => b.date.localeCompare(a.date));
   return (
     <FullModal visible={visible} onClose={onClose} title={<View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="assignment" size={20} color="#fff" style={{ marginRight: 6 }} /><Text>{member.name}</Text></View>}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         {recs.length === 0
-          ? <Text style={{ color: C.textMuted, textAlign: 'center', marginTop: 40 }}>No attendance records</Text>
+          ? <Text style={{ color: C.textMuted, textAlign: 'center', marginTop: 40 }}>{t('admin.staff.noAttendanceRecords')}</Text>
           : recs.map(r => {
             const col = STATUS_COLORS[r.status] || STATUS_COLORS.Present;
             const icon = r.status === 'Present' ? <MaterialIcons name='check' size={14} color={C.success} /> : r.status === 'Late' ? <MaterialIcons name='warning' size={14} color={C.warning} /> : r.status === 'Excused' ? <MaterialIcons name='circle' size={8} color={C.textMuted} /> : <MaterialIcons name='close' size={14} color={C.danger} />;
@@ -1605,17 +1660,17 @@ function PayNowModal({ visible, onClose, member, calc, paidAlready = 0, periodFr
           </View>
           {paidAlready > 0 && (
             <View style={st.infoRow}>
-              <Text style={st.infoKey}>Already Paid</Text>
+              <Text style={st.infoKey}>{t('admin.staff.alreadyPaid')}</Text>
               <Text style={[st.infoVal, { color: C.success }]}>- {fmtMoney(paidAlready)}</Text>
             </View>
           )}
           <Divider mt={8} mb={8} />
           <View style={st.infoRow}>
-            <Text style={{ fontWeight: '800', color: C.textDark }}>Amount Due</Text>
+            <Text style={{ fontWeight: '800', color: C.textDark }}>{t('admin.staff.amountDue')}</Text>
             <Text style={{ fontWeight: '800', color: C.primary, fontSize: 18 }}>{fmtMoney(amountDue)}</Text>
           </View>
         </View>
-        <ChipRow label="Payment Method" options={PAY_METHODS} selected={method} onSelect={setMethod} />
+        <ChipRow label={t('admin.staff.paymentMethod')} options={PAY_METHODS} selected={method} onSelect={setMethod} />
         <TouchableOpacity style={[st.btnPrimary, amountDue <= 0 && { opacity: 0.5 }]} onPress={() => { if (amountDue > 0) { onPay(member, method); onClose(); } }} disabled={amountDue <= 0}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="check" size={16} color="#fff" style={{ marginRight: 4 }} /><Text style={st.btnPrimaryTxt}>Confirm · {fmtMoney(amountDue)}</Text></View>
         </TouchableOpacity>
@@ -1628,7 +1683,7 @@ function PayNowModal({ visible, onClose, member, calc, paidAlready = 0, periodFr
 // PAYMENT FORM MODAL (Add / Edit a payment record)
 // ══════════════════════════════════════════════════════════════════════════════
 const PAY_METHOD_OPTIONS = ['cash', 'bank_transfer', 'check', 'other'];
-const PAY_METHOD_LABELS = { cash: 'Cash', bank_transfer: 'Bank Transfer', check: 'Check', other: 'Other' };
+
 
 function PaymentFormModal({ visible, onClose, payment, memberId, onSave }) {
   const { t } = useTranslation();
@@ -1654,13 +1709,13 @@ function PaymentFormModal({ visible, onClose, payment, memberId, onSave }) {
 
   const handleSave = async () => {
     const amt = Number(amount);
-    if (!amount || isNaN(amt) || amt <= 0) { setDialog({ title: 'Error', message: 'Enter a valid amount.', type: 'error' }); return; }
+    if (!amount || isNaN(amt) || amt <= 0) { setDialog({ title: t('common.error'), message: t('admin.staff.validAmount'), type: 'error' }); return; }
     setSaving(true);
     try {
       await onSave({ amount: amt, payment_method: method, payment_date: date, note: note.trim() || null, user_id: memberId }, payment?.id);
       onClose();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -1672,31 +1727,34 @@ function PaymentFormModal({ visible, onClose, payment, memberId, onSave }) {
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
           <TouchableOpacity onPress={onClose} style={{ width: 70 }}>
-            <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>← Back</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <MaterialIcons name="arrow-back" size={18} color={C.primary} style={{ marginRight: 2 }} />
+              <Text style={{ fontSize: 15, color: C.primary, fontWeight: '700' }}>{t('adminExtra.backLabel')}</Text>
+            </View>
           </TouchableOpacity>
           <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{payment ? t('admin.staff.editPayment', 'Edit Payment') : t('admin.staff.addPayment', 'Add Payment')}</Text>
           <View style={{ width: 70 }} />
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-            <Field label="Amount (so'm) *" value={amount} onChange={setAmount} keyType="numeric" placeholder="e.g. 1500000" />
-            <Text style={st.label}>Payment Method</Text>
+            <Field label={t('admin.staff.amountSomRequired')} value={amount} onChange={setAmount} keyType="numeric" placeholder={t('admin.staff.egAmount')} />
+            <Text style={st.label}>{t('admin.staff.paymentMethod')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 4, marginBottom: 14 }}>
               {PAY_METHOD_OPTIONS.map((opt, i) => (
                 <TouchableOpacity
                   key={opt} onPress={() => setMethod(opt)}
                   style={[st.chip, method === opt && st.chipOn, i < PAY_METHOD_OPTIONS.length - 1 && { marginRight: 8 }]}
                 >
-                  <Text style={[st.chipTxt, method === opt && st.chipTxtOn]}>{PAY_METHOD_LABELS[opt]}</Text>
+                  <Text style={[st.chipTxt, method === opt && st.chipTxtOn]}>{payMethodLabel(opt, t)}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <DateFieldAS label="Date" value={date} onChange={setDate} />
-            <Text style={st.label}>Note (optional)</Text>
+            <DateFieldAS label={t('common.date')} value={date} onChange={setDate} />
+            <Text style={st.label}>{t('admin.staff.noteOptional')}</Text>
             <TextInput
               style={[st.input, { minHeight: 50, textAlignVertical: 'top', marginBottom: 16 }]}
               value={note} onChangeText={setNote}
-              placeholder="e.g. Monthly salary, bonus..."
+              placeholder={t('admin.staff.egPaymentNote')}
               placeholderTextColor={C.textMuted} multiline
             />
             <TouchableOpacity style={[st.btnPrimary, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
@@ -1865,7 +1923,7 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
           <View style={{ marginBottom: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
               <MaterialIcons name="check-circle" size={13} color={C.success} style={{ marginRight: 4 }} />
-              <Text style={{ fontSize: 11, fontWeight: '700', color: C.success }}>Already settled</Text>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.success }}>{t('admin.staff.alreadySettled')}</Text>
             </View>
             {settledPayments.map(p => (
               <View key={p.id} style={[st.card, { padding: 12, marginBottom: 6, opacity: 0.6, backgroundColor: '#F8FAFC' }]}>
@@ -1887,7 +1945,7 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
         {currentPayments.length === 0 && settledPayments.length === 0 ? (
           <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>{t('admin.staff.payrollDetails.noPayments', 'No payments recorded yet.')}</Text>
         ) : currentPayments.length === 0 ? (
-          <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>No new payments for this period.</Text>
+          <Text style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>{t('admin.staff.payrollDetails.noNewPayments')}</Text>
         ) : (
           currentPayments.map(p => (
             <View key={p.id} style={[st.card, { padding: 12, marginBottom: 8 }]}>
@@ -1903,19 +1961,19 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
                   onPress={() => onEditPayment(p)}
                   style={{ backgroundColor: '#EFF6FF', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, marginLeft: 8 }}
                 >
-                  <Text style={{ color: C.primary, fontWeight: '700', fontSize: 12 }}>Edit</Text>
+                  <Text style={{ color: C.primary, fontWeight: '700', fontSize: 12 }}>{t('common.edit')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setDialog({
-                    title: 'Delete Payment',
-                    message: `Remove ${fmtMoney(p.amount)} payment?`,
+                    title: t('admin.staff.deletePaymentTitle'),
+                    message: t('admin.staff.deletePaymentConfirm2', { amount: fmtMoney(p.amount) }),
                     type: 'danger',
-                    confirmLabel: 'Delete',
+                    confirmLabel: t('common.delete'),
                     onConfirm: () => { setDialog(null); onDeletePayment(p.id); }
                   })}
                   style={{ backgroundColor: '#FEE2E2', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, marginLeft: 6 }}
                 >
-                  <Text style={{ color: C.danger, fontWeight: '700', fontSize: 12 }}>Del</Text>
+                  <Text style={{ color: C.danger, fontWeight: '700', fontSize: 12 }}>{t('common.delete')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1925,11 +1983,11 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
         {/* Total paid / remaining strip */}
         <View style={{ backgroundColor: remaining <= 0 && (totalPaid > 0 || (effectiveFrom && effectiveFrom > period.to)) ? '#F0FDF4' : '#FFFBEB', borderRadius: 10, padding: 12, marginBottom: 4 }}>
           <View style={st.infoRow}>
-            <Text style={{ fontWeight: '800', color: C.textDark }}>Total Paid</Text>
+            <Text style={{ fontWeight: '800', color: C.textDark }}>{t('admin.staff.totalPaid')}</Text>
             <Text style={{ fontWeight: '800', color: C.success, fontSize: 16 }}>{fmtMoney(totalPaid)}</Text>
           </View>
           <View style={st.infoRow}>
-            <Text style={{ color: C.textMuted, fontSize: 12 }}>Remaining</Text>
+            <Text style={{ color: C.textMuted, fontSize: 12 }}>{t('admin.staff.remaining')}</Text>
             <Text style={{ fontWeight: '700', color: remaining > 0 ? C.warning : C.success, fontSize: 13 }}>
               {fmtMoney(remaining)}
             </Text>
@@ -1937,7 +1995,7 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
           {remaining <= 0 && (totalPaid > 0 || (effectiveFrom && effectiveFrom > period.to)) && (
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 4 }}>
               <MaterialIcons name="check-circle" size={14} color={C.success} style={{ marginRight: 4 }} />
-              <Text style={{ color: C.success, fontWeight: '700', fontSize: 12 }}>Fully Paid</Text>
+              <Text style={{ color: C.success, fontWeight: '700', fontSize: 12 }}>{t('admin.staff.fullyPaid')}</Text>
             </View>
           )}
         </View>
@@ -1979,6 +2037,7 @@ function PayrollDetailsModal({ visible, onClose, member, calc, cardCalc, paidInP
 // STAFF CARD (Members tab)
 // ══════════════════════════════════════════════════════════════════════════════
 function StaffCard({ member, onPress }) {
+  const { t } = useTranslation();
   const susp = member.status === 'Suspended';
   return (
     <TouchableOpacity style={[st.card, susp && { opacity: 0.65 }]} onPress={onPress} activeOpacity={0.75}>
@@ -1992,7 +2051,7 @@ function StaffCard({ member, onPress }) {
             <RoleBadge role={member.role} small />
             {susp && (
               <View style={{ backgroundColor: '#FEF3C7', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, marginLeft: 6 }}>
-                <Text style={{ color: '#92400E', fontSize: 10, fontWeight: '700' }}>SUSPENDED</Text>
+                <Text style={{ color: '#92400E', fontSize: 10, fontWeight: '700' }}>{t('admin.staff.suspendedBadge')}</Text>
               </View>
             )}
           </View>
@@ -2001,7 +2060,7 @@ function StaffCard({ member, onPress }) {
         {!['Admin', 'Owner', 'admin', 'owner'].includes(member.role) && (
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={{ fontSize: 13, fontWeight: '700', color: C.primary }}>{fmtMoney(member.rate)}</Text>
-          <Text style={{ fontSize: 11, color: C.textMuted }}>/{member.salaryType}</Text>
+          <Text style={{ fontSize: 11, color: C.textMuted }}>/{salaryTypeLabel(member.salaryType, t)}</Text>
         </View>
         )}
       </View>
@@ -2124,13 +2183,13 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
 
       ) : isAdminRole ? (
         /* ── Admin / Owner / Manager — no attendance tracking ── */
-        <Text style={{ textAlign: 'center', color: C.textMuted, fontSize: 12 }}>No attendance tracking for this role</Text>
+        <Text style={{ textAlign: 'center', color: C.textMuted, fontSize: 12 }}>{t('admin.staff.noAttendanceTrackingRole')}</Text>
 
       ) : status === 'no_record' ? (
         /* ── Past date with no record ── */
         <View style={{ alignItems: 'center', paddingVertical: 8 }}>
           <View style={{ backgroundColor: '#F1F5F9', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7 }}>
-            <Text style={{ color: C.textMuted, fontWeight: '600', fontSize: 13 }}>No record</Text>
+            <Text style={{ color: C.textMuted, fontWeight: '600', fontSize: 13 }}>{t('admin.staff.noRecord')}</Text>
           </View>
         </View>
 
@@ -2138,7 +2197,7 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
         /* ── Marked absent — badge only ── */
         <View style={{ alignItems: 'center', paddingVertical: 4 }}>
           <View style={{ backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="block" size={14} color={C.danger} style={{ marginRight: 4 }} /><Text style={{ color: C.danger, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>ABSENT</Text></View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="block" size={14} color={C.danger} style={{ marginRight: 4 }} /><Text style={{ color: C.danger, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>{t('admin.staff.absentBadge')}</Text></View>
           </View>
         </View>
 
@@ -2146,16 +2205,16 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
         /* ── Shift complete — in/out times + total hours ── */
         <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>Clocked In</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{t('admin.staff.clockedIn')}</Text>
             <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{clockInHHMM || '—'}</Text>
             {minutesLate > 0 && <Text style={{ color: C.warning, fontSize: 10, fontWeight: '600', marginTop: 2 }}>+{minutesLate}min late</Text>}
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>Clocked Out</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{t('admin.staff.clockedOut')}</Text>
             <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{clockOutHHMM || '—'}</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>Total</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{t('common.total')}</Text>
             <View style={{ backgroundColor: '#DCFCE7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}><MaterialIcons name="check" size={13} color={C.success} style={{ marginRight: 2 }} /><Text style={{ fontSize: 13, fontWeight: '800', color: C.success }}>{fmtDuration(liveMins)}</Text></View>
             </View>
@@ -2166,26 +2225,26 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
         /* ── Currently clocked in — live timer + Clock Out button ── */
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>Clocked In</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{t('admin.staff.clockedIn')}</Text>
             <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{clockInHHMM || '—'}</Text>
             {minutesLate > 0
               ? <Text style={{ color: C.warning, fontSize: 10, fontWeight: '600', marginTop: 2 }}>+{minutesLate}min late</Text>
-              : <Text style={{ color: C.success, fontSize: 10, fontWeight: '600', marginTop: 2 }}>On time</Text>
+              : <Text style={{ color: C.success, fontSize: 10, fontWeight: '600', marginTop: 2 }}>{t('admin.staff.onTime')}</Text>
             }
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>Duration</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{t('admin.staff.duration')}</Text>
             <View style={{ backgroundColor: '#EFF6FF', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 }}>
               <Text style={{ fontSize: 14, fontWeight: '800', color: C.primary }}>{fmtDuration(liveMins)}</Text>
             </View>
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>Action</Text>
+            <Text style={{ fontSize: 11, color: C.textMuted, fontWeight: '600', marginBottom: 3 }}>{t('admin.staff.action')}</Text>
             <TouchableOpacity
               style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8 }}
               onPress={() => onClockOut(member)}
             >
-              <Text style={{ color: C.danger, fontWeight: '700', fontSize: 12 }}>Clock Out</Text>
+              <Text style={{ color: C.danger, fontWeight: '700', fontSize: 12 }}>{t('admin.staff.clockOut')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2225,7 +2284,7 @@ function AttCard({ member, attendance, period, todayAtt, tick, onClockIn, onCloc
         /* ── Past date, no record ── */
         <View style={{ alignItems: 'center', paddingVertical: 8 }}>
           <View style={{ backgroundColor: '#F1F5F9', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 7 }}>
-            <Text style={{ color: C.textMuted, fontWeight: '600', fontSize: 13 }}>No record</Text>
+            <Text style={{ color: C.textMuted, fontWeight: '600', fontSize: 13 }}>{t('admin.staff.noRecord')}</Text>
           </View>
         </View>
       )}
@@ -2291,7 +2350,7 @@ function PayrollCard({ member, calc, debtCalc, effectiveFrom, periodFrom, period
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={{ fontSize: 16, fontWeight: '800', color: C.textDark }}>{fmtMoney(calc.net)}</Text>
-          <Text style={{ fontSize: 10, color: C.textMuted }}>net pay</Text>
+          <Text style={{ fontSize: 10, color: C.textMuted }}>{t('admin.staff.payrollDetails.netPay')}</Text>
         </View>
       </View>
 
@@ -2828,12 +2887,12 @@ export default function AdminStaff() {
       await loadStaff();
       // Show the login credentials to the admin so they can share them with the new staff member
       setDialog({
-        title: 'Staff Added',
-        message: `${d.name} has been added.\n\nShare these login credentials:\n\n📱 Phone: ${d.phone}\n${d.email ? `📧 Email: ${d.email}\n` : `📧 Login email: ${loginEmail}\n`}🔑 Password: ${d.password}`,
+        title: t('admin.staff.staffAddedTitle'),
+        message: `${t('admin.staff.staffAddedIntro', { name: d.name })}\n\n${t('admin.staff.shareCredentials')}\n\n${t('admin.staff.credPhone', { value: d.phone })}\n${d.email ? t('admin.staff.credEmail', { value: d.email }) : t('admin.staff.credLoginEmail', { value: loginEmail })}\n${t('admin.staff.credPassword', { value: d.password })}`,
         type: 'success'
       });
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -2852,7 +2911,7 @@ export default function AdminStaff() {
       });
       await loadStaff();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -2865,7 +2924,7 @@ export default function AdminStaff() {
       });
       await loadStaff();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -2874,7 +2933,7 @@ export default function AdminStaff() {
       await usersAPI.delete(id);
       await loadStaff();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -2885,7 +2944,7 @@ export default function AdminStaff() {
       });
       await loadStaff();
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -2945,7 +3004,7 @@ export default function AdminStaff() {
           else next[member.id] = existing;
           return next;
         });
-        setDialog({ title: 'Clock-In Error', message: msg, type: 'error' });
+        setDialog({ title: t('admin.staff.clockInErrorTitle'), message: msg, type: 'error' });
       }
     }
   };
@@ -2977,16 +3036,16 @@ export default function AdminStaff() {
         ...prev,
         [member.id]: prevRec || {},
       }));
-      setDialog({ title: 'Clock-Out Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('admin.staff.clockOutErrorTitle'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
   const markAbsent = (member) => {
     setDialog({
-      title: 'Mark Absent',
-      message: `Mark ${member.name} as absent today?`,
+      title: t('admin.staff.markAbsentTitle'),
+      message: t('admin.staff.markAbsentConfirm', { name: member.name }),
       type: 'danger',
-      confirmLabel: 'Mark Absent',
+      confirmLabel: t('admin.staff.markAbsentTitle'),
       onConfirm: async () => {
         setDialog(null);
         const prevRec = todayAttendance[member.id];
@@ -3020,7 +3079,7 @@ export default function AdminStaff() {
               ...prev,
               [member.id]: prevRec || {},
             }));
-            setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+            setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
             return;
           }
         }
@@ -3063,9 +3122,9 @@ export default function AdminStaff() {
         loadAllPayments(extFrom, period.to),
         loadLatestPayments(),
       ]);
-      setDialog({ title: 'Payment Confirmed', message: `${fmtMoney(amountDue)} paid to ${member.name} via ${method}`, type: 'success' });
+      setDialog({ title: t('admin.staff.paymentConfirmedTitle'), message: t('admin.staff.paymentConfirmedMsg', { amount: fmtMoney(amountDue), name: member.name, method: payMethodLabel(method, t) }), type: 'success' });
     } catch (e) {
-      setDialog({ title: 'Payment Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('admin.staff.paymentErrorTitle'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -3122,7 +3181,7 @@ export default function AdminStaff() {
       await staffPaymentsAPI.delete(id);
       await loadPayments(selMember?.id);
     } catch (e) {
-      setDialog({ title: 'Error', message: e.response?.data?.error || e.message, type: 'error' });
+      setDialog({ title: t('common.error'), message: e.response?.data?.error || e.message, type: 'error' });
     }
   };
 
@@ -3144,7 +3203,8 @@ export default function AdminStaff() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Status bar style/translucency for this tab is set centrally by AdminNavigator's
+          screenListeners on focus — see the comment there for why. */}
 
       {/* ── Header ── */}
       <View style={st.header}>
@@ -3225,9 +3285,11 @@ export default function AdminStaff() {
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.textDark }}>
                   {(() => {
                     const d = new Date(attDate + 'T00:00:00');
-                    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                    return `${dayNames[d.getDay()]}, ${monthNames[d.getMonth()]} ${d.getDate()}`;
+                    // datePicker.days is MONDAY-first; getDay() is Sunday-first (0 = Sun),
+                    // so rotate the index rather than indexing the array directly.
+                    const dayNames = t('datePicker.days');
+                    const monthNames = t('datePicker.monthsShort');
+                    return `${dayNames[(d.getDay() + 6) % 7]}, ${monthNames[d.getMonth()]} ${d.getDate()}`;
                   })()}
                 </Text>
                 <MaterialIcons name="keyboard-arrow-down" size={18} color={C.textMuted} />
@@ -3240,20 +3302,21 @@ export default function AdminStaff() {
 
               {/* Today button — always visible */}
               <TouchableOpacity onPress={() => setAttDate(TODAY_STR)} style={{ backgroundColor: attDate === TODAY_STR ? C.primary : '#DBEAFE', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, marginLeft: 2 }}>
-                <Text style={{ fontSize: 12, fontWeight: '800', color: attDate === TODAY_STR ? '#fff' : C.primary }}>Today</Text>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: attDate === TODAY_STR ? '#fff' : C.primary }}>{t('common.today')}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* ── Live today stats strip ── */}
           <View style={{ flexDirection: 'row', backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.border, paddingVertical: 8, paddingHorizontal: 16 }}>
+            {/* [reactKey, value, translatedLabel, colour] — the key stays a stable ascii id. */}
             {[
-              [attStats.present, 'Present', C.success],
-              [attStats.absent, 'Absent', C.danger],
-              [attStats.late, 'Late', C.warning],
-              [attStats.total - attStats.present - attStats.absent, 'Not In', C.textMuted],
-            ].map(([val, lbl, col]) => (
-              <View key={lbl} style={{ flex: 1, alignItems: 'center' }}>
+              ['present', attStats.present, t('admin.staff.present'), C.success],
+              ['absent',  attStats.absent,  t('admin.staff.absent'),  C.danger],
+              ['late',    attStats.late,    t('admin.staff.late'),    C.warning],
+              ['notIn',   attStats.total - attStats.present - attStats.absent, t('admin.staff.notIn'), C.textMuted],
+            ].map(([id, val, lbl, col]) => (
+              <View key={id} style={{ flex: 1, alignItems: 'center' }}>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: col }}>{val}</Text>
                 <Text style={{ fontSize: 10, color: C.textMuted, fontWeight: '600', marginTop: 1 }}>{lbl}</Text>
               </View>

@@ -15,11 +15,12 @@
 // ════════════════════════════════════════════════════════════════════════════
 import React from 'react';
 import {
-  View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { colors, spacing, radius, shadow } from '../utils/theme';
 import { useTranslation } from '../context/LanguageContext';
+import useSheetSwipe from './useSheetSwipe';
 
 const fmtMoney = (n) => Math.round(n || 0).toLocaleString('uz-UZ') + " so'm";
 
@@ -49,6 +50,7 @@ export default function OrderReviewSheet({
   onConfirm,
   onClose,
 }) {
+  const swipe = useSheetSwipe(onClose);
   const { t } = useTranslation();
 
   const total = items.reduce(
@@ -60,14 +62,16 @@ export default function OrderReviewSheet({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={sending ? undefined : onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
+      <Animated.View style={[styles.sheet, swipe.style]}>
+        <View {...swipe.panHandlers}>
+            <View style={styles.handle} />
 
         <Text style={styles.title}>
           {mode === 'add'
             ? t('waitress.review.titleAdd', 'Check the items to add')
             : t('waitress.review.title', 'Check the order')}
         </Text>
+          </View>
         {!!tableName && <Text style={styles.sub}>{tableName}</Text>}
 
         <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: spacing.md }}>
@@ -126,7 +130,7 @@ export default function OrderReviewSheet({
             )}
           </TouchableOpacity>
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

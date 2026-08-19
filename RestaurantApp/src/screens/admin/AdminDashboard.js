@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  RefreshControl, ActivityIndicator, Modal, FlatList, StatusBar,
-  useWindowDimensions,
+  RefreshControl, ActivityIndicator, Modal, FlatList,
+  useWindowDimensions, Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from '../../context/LanguageContext';
 import { reportsAPI, ordersAPI, tablesAPI, warehouseAPI, notificationsAPI, staffPaymentsAPI, shiftsAPI, loansAPI, procurementAPI } from '../../api/client';
 import { colors, shadow, topInset } from '../../utils/theme';
+import useSheetSwipe from '../../components/useSheetSwipe';
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -124,12 +125,17 @@ function StatCard({ iconName, label, value, sub, accentColor }) {
 }
 
 // Single bar row for order type breakdown
-function OrderBar({ iconName, label, count, total }) {
+// `color` is passed in by the caller rather than looked up from `label`.
+// It used to be `{ 'Dine-in': ..., 'To-Go': ..., 'Delivery': ... }[label]`,
+// which only worked while the labels were hardcoded English — translating them
+// (2026-08-19) would have missed every key and silently painted all three bars
+// the same fallback blue. Keying a colour off display text is the bug; the
+// order TYPE is the stable thing.
+function OrderBar({ iconName, label, count, total, color }) {
   const { width: SW } = useWindowDimensions();
   const barW = SW - 32 - 24 - 60 - 32; // available bar width
   const filled = total > 0 ? Math.round((count / total) * barW) : 0;
-  const colors_ = { 'Dine-in':'#2563EB', 'To-Go':'#D97706', 'Delivery':'#16A34A' };
-  const col = colors_[label] || C.primary;
+  const col = color || C.primary;
   return (
     <View style={s.orderBarRow}>
       <MaterialIcons name={iconName} size={18} color={col} />
@@ -164,6 +170,7 @@ function TableCell({ table }) {
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
 export default function AdminDashboard({ navigation }) {
+  const swipe = useSheetSwipe(() => setShowNotifPanel(false));
   const { user } = useAuth();
   const { t }    = useTranslation();
   const { width: SW } = useWindowDimensions();   // reactive — updates on rotation
@@ -405,8 +412,8 @@ export default function AdminDashboard({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      {/* White header → dark status-bar icons */}
-      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      {/* Status bar style/translucency for this tab is set centrally by AdminNavigator's
+          screenListeners on focus — see the comment there for why. */}
       <ScrollView
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
@@ -440,7 +447,7 @@ export default function AdminDashboard({ navigation }) {
               )}
             </TouchableOpacity>
             <View style={[s.adminBadge, { marginTop: 8 }]}>
-              <Text style={s.adminBadgeTxt}>ADMIN</Text>
+              <Text style={s.adminBadgeTxt}>{t('adminExtra.adminBadge')}</Text>
             </View>
             {lastUpdate ? (
               <Text style={s.lastUpdate}>{t('adminExtra.updated')} {lastUpdate}</Text>
@@ -542,12 +549,23 @@ export default function AdminDashboard({ navigation }) {
             <>
               {orderTypes.filter(ot => ot.id !== 'total').map(ot => {
                 const iconNames = { dine_in: 'restaurant', takeaway: 'takeout-dining', delivery: 'delivery-dining' };
-                const lbls  = { dine_in: 'Dine-in', takeaway: 'To-Go', delivery: 'Delivery' };
+                // Reuses the existing orderTypes.* keys (already present and
+                // translated in both locales — Zalda / Olib ketish / Yetkazib
+                // berish), rather than adding a fourth set of order-type
+                // strings alongside admin.newOrder.*, cashier.* and
+                // owner.finance.ord*.
+                const lbls = {
+                  dine_in:  t('orderTypes.dineIn',   'Dine-In'),
+                  takeaway: t('orderTypes.toGo',     'To Go'),
+                  delivery: t('orderTypes.delivery', 'Delivery'),
+                };
+                const barColors = { dine_in: '#2563EB', takeaway: '#D97706', delivery: '#16A34A' };
                 return (
                   <OrderBar
                     key={ot.id}
                     iconName={iconNames[ot.id] || 'inventory-2'}
                     label={lbls[ot.id] || ot.name}
+                    color={barColors[ot.id]}
                     count={ot.count || 0}
                     total={activeOrders}
                   />
@@ -954,8 +972,9 @@ export default function AdminDashboard({ navigation }) {
             onPress={() => setShowNotifPanel(false)}
           />
           {/* Panel */}
-          <View style={s.notifPanel}>
+          <Animated.View style={[s.notifPanel, swipe.style]}>
             {/* Panel header */}
+            <View {...swipe.panHandlers}>
             <View style={s.notifPanelHandle} />
             <View style={s.notifPanelHeader}>
               <View>
@@ -979,6 +998,7 @@ export default function AdminDashboard({ navigation }) {
                 </TouchableOpacity>
               </View>
             </View>
+          </View>
 
             {/* Notification list */}
             {notifications.length === 0 ? (
@@ -1016,7 +1036,7 @@ export default function AdminDashboard({ navigation }) {
                 )}
               />
             )}
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -1179,19 +1199,28 @@ const s = StyleSheet.create({
   staffOrdersLabel:{ fontSize: 10, color: C.textMuted, fontWeight: '600' },
 
   // Quick actions — 2-column grid
+  // 2x2 grid (fixed 2026-08-19). This was ALREADY meant to be two per row, but
+  // rendered one per row: `width: '48%'` resolves against qaGrid, and qaGrid's
+  // `marginHorizontal: -5` made it 10px WIDER than the visible row. Each card
+  // then added 5px of margin on each side, so a pair came to 96% of an
+  // over-wide container plus 20px — just past the edge, forcing a wrap.
+  //
+  // Now the horizontal budget is percentage-only (48.5 x 2 = 97%, always fits
+  // at any screen width) with space-between supplying the gutter and rowGap the
+  // vertical spacing. No pixel margin competes with the percentage any more.
   qaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -5,
+    justifyContent: 'space-between',
+    rowGap: 10,
   },
   qaCard: {
-    width: '48%',   // 2-per-row with flexWrap — works in any orientation
+    width: '48.5%',
     backgroundColor: C.white,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
-    padding: 16,
-    margin: 5,
+    padding: 14,
     ...shadow.sm,
   },
   qaIconBox: {

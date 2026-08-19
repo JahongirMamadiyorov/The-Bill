@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, FlatList, TouchableOpacity, TextInput,
-    StyleSheet, ActivityIndicator, Platform, ScrollView, StatusBar
+    StyleSheet, ActivityIndicator, Platform, ScrollView
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { warehouseAPI } from '../../api/client';
@@ -82,7 +82,8 @@ export default function InventoryAuditScreen() {
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+            {/* Status bar style/translucency is set centrally by AdminNavigator's
+                screenListeners on focus — see the comment there for why. */}
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>

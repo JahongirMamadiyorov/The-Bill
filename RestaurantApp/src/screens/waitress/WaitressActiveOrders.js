@@ -492,7 +492,7 @@ export default function WaitressActiveOrders() {
       {/* Detail modal */}
       {detailLoading
         ? (
-          <Modal visible={detailLoading} transparent>
+          <Modal visible={detailLoading} transparent onRequestClose={() => setDetailLoading(false)}>
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.3)' }}>
               <View style={{ backgroundColor: colors.white, borderRadius: radius.xl, padding: spacing.xxl }}>
                 <ActivityIndicator size="large" color={colors.primary} />
