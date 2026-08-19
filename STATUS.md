@@ -1,21 +1,24 @@
 # STATUS
 
-> ## ✔ 2026-08-16 — BUILT, DEPLOYED AND VERIFIED BY THE OWNER
+> ## ⟹ NEXT SESSION — DEPLOY FIRST, THEN TEST
 >
-> All 7 acceptance tests passed on the real terminal (owner confirmed). The POS build and the
-> Render backend deploy from 2026-08-15 are both live. There is no outstanding build.
+> Session of 2026-08-17 ended with work finished but NOT shipped. Two independent deploys:
 >
-> Verified working: cashier add (one slip), cashier edit (one slip, added item only), waiter phone
-> add (one slip), removal prints nothing, unstationed item prints once, paid orders reject edits
-> with 409, order history shows the edit label, units and staff roles.
+> **1. Backend → Render** (`restaurant-app/backend`, commit + push). Carries:
+> notification translation keys (tables.js), and `PUT /api/tables/:id/reserve` + `/unreserve`.
+> Until this lands: notifications stay English, and the cashier's Reserve button returns 404.
 >
-> The printing subsystem is now considered STABLE. Before changing anything in it, read the
-> 2026-08-15 entries in SESSIONS.md — six separate bugs were fixed there and several of the
-> guards look redundant until you know which failure each one prevents. In particular do NOT:
->   - reintroduce order-level or clock-based print suppression (it swallows other people's tickets)
->   - move self-print marking to AFTER the HTTP response (replication can beat it; duplicate slips)
->   - remove `oi.menu_item_id` from the auto-print query's SELECT list (it is load-bearing)
->   - prune the print baseline on "absent from the local DB" (a resync then reprints everything)
+> **2. POS rebuild** — `cd D:\The-Bill\pos-app; npm run build:win`. Carries:
+> waiter bill printing (`printRequestedBills` + `getReceiptSettings` + `isBill`), the edit-grid
+> photo/stepper cards, and the reservation UI.
+>
+> The Android app needs NO build — it is JS over Metro. If changes do not appear, it is the
+> bundle: `npx react-native start --reset-cache`, then shake → Reload. Fast Refresh does not
+> reliably apply edits that change hooks, which cost most of an hour this session.
+>
+> **Then test:** waiter taps "Hisob so'rash" → a BILL prints at the POS (no payment method line,
+> "NOT A RECEIPT" banner) and the table STAYS OPEN · reserve a free table from the cashier Tables
+> page · a notification reads in Uzbek with the real table name.
 
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.

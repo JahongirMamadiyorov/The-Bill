@@ -58,10 +58,11 @@ across many future sessions. Update it when something here goes stale.
   role, is_active, salary, salary_type, shift_start, shift_end, kitchen_station,
   commission_rate, created_at, updated_at. No `pin_hash` or dedicated `username` column yet —
   both need to be added for the New Waiter PIN flow.
-- CLAUDE.md says Render backend is "paid" — as of the 2026-07-06 migration this was found to
-  actually be free tier (confirmed via the 750-hour suspension behavior, which only exists on
-  free). This conflict has not been resolved with the project owner — treat CLAUDE.md's "paid"
-  claim as unverified until confirmed.
+- ~~CLAUDE.md says Render backend is "paid" ... treat as unverified until confirmed.~~
+  **RESOLVED — Render is on the FREE tier.** Confirmed 2026-07-27 by the owner directly in the
+  Render dashboard (Settings > Instance Type), and CLAUDE.md + RULES.md §2 were both corrected on
+  2026-08-19 to say free. Owner's standing decision: leave it Free, no pinger, no upgrade — so
+  cold-start login failures after ~15 min idle are expected, not a new bug. Do not re-raise.
 
 ## PowerSync Sync Streams gotchas (learned 2026-07-06)
 
@@ -1135,5 +1136,5 @@ when evaluating architecture options.
 (spins down after 15 min idle, ~50s cold start), the FIRST phone order after an idle period is
 slow for the waitress. An open POS terminal masks this — its badge polls `/health` every 5s, which
 keeps the instance awake — but only while a terminal is actually running. This is a real argument
-for moving Render to a paid tier (note CLAUDE.md already claims paid; it is not — unresolved since
-2026-07-06).
+for moving Render to a paid tier — but the owner has decided against it for now (see the Supabase/
+infra section: tier confirmed FREE 2026-07-27, CLAUDE.md/RULES.md corrected 2026-08-19).

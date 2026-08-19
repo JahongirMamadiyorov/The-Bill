@@ -12,6 +12,7 @@ import { menuAPI, tablesAPI, ordersAPI } from '../../api/client';
 import { colors, spacing, radius, shadow, topInset, useLayout } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import OrderReviewSheet from '../../components/OrderReviewSheet';
+import CategoryPicker from '../../components/CategoryPicker';
 import { useTranslation } from '../../context/LanguageContext';
 import { tableLabel } from '../../utils/tableLabel';
 
@@ -559,10 +560,6 @@ export default function WaitressMenu() {
     return inCat && inSearch;
   });
 
-  const availCount     = menuItems.filter(i => i.is_available !== false).length;
-  const totalCatCount  = categories.length;
-  const catCount = (catId) => menuItems.filter(i => String(i.category_id) === String(catId)).length;
-
   if (loading) {
     return (
       <View style={styles.center}>
@@ -575,14 +572,12 @@ export default function WaitressMenu() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      {/* ── Header ── */}
+      {/* ── Header — search only ──
+          The "Menu" title and the "N items across N categories" line were
+          removed 2026-08-19 (owner): the waiter already knows which tab they
+          are on from the bottom bar, and the counts were decoration that cost
+          ~55px of every screen. That space goes to dishes instead. */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('waitress.menu.title', 'Menu')}</Text>
-        <Text style={styles.headerSub}>
-          {t('waitress.menu.itemsAcrossCategories', '{items} items across {cats} categories')
-            .replace('{items}', String(availCount))
-            .replace('{cats}', String(totalCatCount))}
-        </Text>
         <View style={styles.searchRow}>
           <MaterialIcons name="search" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
           <TextInput
@@ -602,59 +597,18 @@ export default function WaitressMenu() {
         </View>
       </View>
 
-      {/* ── Category chips ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.catBar}
-        style={{ flexGrow: 0 }}
-      >
-        <TouchableOpacity
-          onPress={() => setSelCat(null)}
-          style={[styles.catChip, !selCat && styles.catChipActive]}
-        >
-          <Text style={[styles.catTxt, !selCat && styles.catTxtActive]}>{t('common.all', 'All')}</Text>
-          <View style={[styles.catBadge, !selCat && styles.catBadgeActive]}>
-            <Text style={[styles.catBadgeTxt, !selCat && styles.catBadgeTxtActive]}>{menuItems.length}</Text>
-          </View>
-        </TouchableOpacity>
-        {categories.map(cat => (
-          <TouchableOpacity
-            key={cat.id}
-            onPress={() => setSelCat(cat.id)}
-            style={[styles.catChip, selCat === cat.id && styles.catChipActive]}
-          >
-            <Text style={[styles.catTxt, selCat === cat.id && styles.catTxtActive]}>{cat.name}</Text>
-            <View style={[styles.catBadge, selCat === cat.id && styles.catBadgeActive]}>
-              <Text style={[styles.catBadgeTxt, selCat === cat.id && styles.catBadgeTxtActive]}>{catCount(cat.id)}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      {/* ── Category picker (shared with WaitressTables — see CategoryPicker.js) ── */}
+      <CategoryPicker
+        categories={categories}
+        items={menuItems}
+        value={selCat}
+        onChange={setSelCat}
+      />
 
-      {/* ── Cart summary bar (visible when items in cart) ── */}
-      {cartCount > 0 && (
-        <View style={styles.cartSummaryBar}>
-          <View style={styles.cartSummaryLeft}>
-            <View style={styles.cartCountBadge}>
-              <Text style={styles.cartCountTxt}>{cartCount}</Text>
-            </View>
-            <View>
-              <Text style={styles.cartSummaryItems}>
-                {t('waitress.menu.itemsInCart', '{count} item(s) in cart').replace('{count}', String(cartCount))}
-              </Text>
-              <Text style={styles.cartSummaryTotal}>{fmtMoney(cartTotal)}</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            onPress={() => setCart([])}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            style={{ marginRight: spacing.sm }}
-          >
-            <MaterialIcons name="delete-outline" size={20} color={colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Cart summary strip removed 2026-08-19 (owner) — it duplicated the
+          count and total already shown in the bottom bar, and pushed the grid
+          down by ~48px exactly when the waiter has the most to look at. Its
+          clear-cart button was NOT dropped; it moved into the bottom bar. */}
 
       {/* ── Items grid ── */}
       <FlatList
@@ -662,7 +616,7 @@ export default function WaitressMenu() {
         data={padGrid(filtered, numCols)}
         keyExtractor={i => String(i.id)}
         numColumns={numCols}
-        contentContainerStyle={{ padding: spacing.md, paddingBottom: cartCount > 0 ? 100 : 40 }}
+        contentContainerStyle={{ padding: spacing.md, paddingBottom: cartCount > 0 ? 78 : 24 }}
         columnWrapperStyle={{ gap: spacing.md, marginBottom: spacing.md }}
         refreshControl={
           <RefreshControl
@@ -694,15 +648,25 @@ export default function WaitressMenu() {
         }
       />
 
-      {/* ── Floating "Send to Table" button ── */}
+      {/* ── Floating "Send to Table" bar ── */}
       {cartCount > 0 && (
         <View style={styles.floatBar}>
-          <View>
+          <View style={{ flexShrink: 1 }}>
             <Text style={styles.floatBarItems}>
               {t('waitress.menu.itemsCount', '{count} item(s)').replace('{count}', String(cartCount))}
             </Text>
-            <Text style={styles.floatBarTotal}>{fmtMoney(cartTotal)}</Text>
+            <Text style={styles.floatBarTotal} numberOfLines={1}>{fmtMoney(cartTotal)}</Text>
           </View>
+          {/* Clear cart — rehomed here when the summary strip was removed.
+              Kept visually quiet (outline icon, no fill) so it can never be
+              mistaken for the send action sitting next to it. */}
+          <TouchableOpacity
+            onPress={() => setCart([])}
+            style={styles.clearCartBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialIcons name="delete-outline" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setShowTablePicker(true)}
             disabled={sending}
@@ -862,39 +826,18 @@ const styles = StyleSheet.create({
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   // Header
-  header:      { backgroundColor: colors.primary, paddingTop: topInset + 8, paddingBottom: spacing.md, paddingHorizontal: spacing.lg },
-  headerTitle: { color: colors.white, fontSize: 26, fontWeight: '800', marginBottom: 2 },
-  headerSub:   { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginBottom: spacing.md },
-  searchRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 8, marginBottom: 4 },
+  // Search-only header. Title/subtitle removed 2026-08-19 — with them gone the
+  // vertical padding comes down too, or the bar just holds empty blue space.
+  header:      { backgroundColor: colors.primary, paddingTop: topInset + 6, paddingBottom: 10, paddingHorizontal: spacing.lg },
+  searchRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 8 },
   searchInput: { flex: 1, fontSize: 14, color: colors.textDark, padding: 0 },
 
   // Category chips
-  catBar:            { paddingHorizontal: spacing.md, paddingVertical: 10, gap: spacing.sm, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
-  catChip:           { flexDirection: 'row', alignItems: 'center', height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.background, borderWidth: 1.5, borderColor: colors.border, gap: 5 },
-  catChipActive:     { backgroundColor: colors.primary, borderColor: colors.primary },
-  catTxt:            { fontSize: 12, fontWeight: '600', color: colors.textMuted, lineHeight: 16 },
-  catTxtActive:      { color: colors.white },
-  catBadge:          { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  catBadgeActive:    { backgroundColor: 'rgba(255,255,255,0.3)' },
-  catBadgeTxt:       { fontSize: 10, fontWeight: '700', color: colors.textMuted },
-  catBadgeTxtActive: { color: colors.white },
+  // Category chip styles removed 2026-08-19 — the chip row was replaced by the
+  // shared CategoryPicker sheet, which carries its own styles.
 
   // Cart summary bar (below category chips)
-  cartSummaryBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.primary + '33',
-  },
-  cartSummaryLeft:  { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cartCountBadge:   { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  cartCountTxt:     { color: colors.white, fontSize: 13, fontWeight: '800' },
-  cartSummaryItems: { fontSize: 12, fontWeight: '600', color: colors.primary },
-  cartSummaryTotal: { fontSize: 14, fontWeight: '800', color: colors.primary },
+  // Cart summary strip styles removed 2026-08-19 — the strip itself is gone.
 
   // Menu grid card
   // minHeight keeps every card in a row the same height even when one name
@@ -931,20 +874,25 @@ const styles = StyleSheet.create({
   emptyTxt: { fontSize: 15, fontWeight: '700', color: colors.textMuted, marginTop: 12, textAlign: 'center' },
 
   // Floating "Send to Table" bar
+  // Compacted 2026-08-19 (owner). Was paddingVertical 16 + paddingBottom 28,
+  // which reserved a gesture-bar gap this screen does not need — the tab bar
+  // sits below it and already covers that inset. ~34px returned to the grid.
   floatBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: spacing.sm,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    paddingBottom: 28,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingBottom: 10,
     borderTopWidth: 1, borderTopColor: colors.border,
     ...shadow.lg,
   },
-  floatBarItems:  { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
-  floatBarTotal:  { fontSize: 17, fontWeight: '800', color: colors.textDark },
-  sendTableBtn:   { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, paddingVertical: spacing.md, paddingHorizontal: spacing.xl, borderRadius: radius.btn },
-  sendTableTxt:   { color: colors.white, fontWeight: '800', fontSize: 15 },
+  floatBarItems:  { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
+  floatBarTotal:  { fontSize: 15, fontWeight: '800', color: colors.textDark },
+  clearCartBtn:   { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background, marginLeft: 'auto' },
+  sendTableBtn:   { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, paddingVertical: 10, paddingHorizontal: spacing.lg, borderRadius: radius.btn },
+  sendTableTxt:   { color: colors.white, fontWeight: '800', fontSize: 14 },
 
   // Shared backdrop
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 10 },

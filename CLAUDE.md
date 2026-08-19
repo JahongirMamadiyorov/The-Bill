@@ -14,6 +14,9 @@ Always plan and ask for things give questions if you need to know more about it
 Work smart do not guess!
 
 Database is on the Supabase paid plan
-Backend is on the Render also paid plan
+Backend is on Render's FREE plan (confirmed 2026-07-27 via Render dashboard Settings > Instance
+Type — this file previously said paid, which was wrong). Free tier sleeps after ~15 min idle;
+next request during cold-start wake can drop/reset before the TLS handshake completes. See
+RULES.md section 2 for details.
 
 TheBill2026SecurePass for supabase password

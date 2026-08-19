@@ -288,12 +288,25 @@ function buildPrintJobs(printers, rawItems) {
     }
   }
 
-  // Fallback for items no printer claimed — either they have no kitchen_station,
-  // or their station matches nothing configured. Prefer a catch-all printer (one
-  // with no stations assigned); if the venue has none, use the FIRST printer, so
-  // the food still gets cooked. Printing to a slightly wrong printer is
-  // recoverable; printing nowhere is not.
-  const orphans = items.filter((it) => !covered.has(it));
+  // Fallback for items no printer claimed because their station matches nothing
+  // configured. Prefer a catch-all printer (one with no stations assigned); if
+  // the venue has none, use the FIRST printer, so the food still gets cooked.
+  // Printing to a slightly wrong printer is recoverable; printing nowhere is not.
+  //
+  // OWNER RULE 2026-08-19: an item with NO kitchen_station is NEVER printed to
+  // the kitchen — not here, not anywhere. Drinks and other counter items carry
+  // no station and were producing a kitchen slip for food the kitchen does not
+  // cook. This deliberately REVERSES the 2026-08-09 decision that every item
+  // must reach some printer; "no station" is now read as an explicit statement
+  // that the item does not belong to the kitchen, not as missing data.
+  //
+  // Note this still routes an item that HAS a station no printer covers, which
+  // is what keeps the common single-printer setup working: such a printer has
+  // no stations assigned, is skipped by the loop above, and receives its items
+  // through this fallback.
+  const orphans = items.filter(
+    (it) => !covered.has(it) && (it.kitchenStation || '').trim() !== ''
+  );
   if (orphans.length > 0 && usable.length > 0) {
     // Prefer an unassigned ("catch-all") printer; if the venue configured none,
     // fall back to the FIRST printer so the food still gets cooked. Printing to

@@ -1515,7 +1515,11 @@
       "failedToSendOrder": "Failed to send order. Please try again.",
       "failedToCreateOrder": "Failed to create order. Please try again.",
       "selectGuestRange": "Select number of guests (1–20)",
-      "newOrderCreated": "New order created for {table}."
+      "newOrderCreated": "New order created for {table}.",
+      "allCategories": "All categories",
+      "chooseCategory": "Choose category",
+      "searchCategories": "Search categories…",
+      "noCategoriesFound": "No categories found"
     },
     "notifications": {
       "title": "Notifications",

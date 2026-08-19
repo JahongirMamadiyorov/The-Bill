@@ -15,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, shadow, typography, topInset, useLayout } from '../../utils/theme';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import OrderReviewSheet from '../../components/OrderReviewSheet';
+import CategoryPicker from '../../components/CategoryPicker';
 import { useTranslation } from '../../context/LanguageContext';
 import { tableLabel } from '../../utils/tableLabel';
 
@@ -39,6 +40,23 @@ const formatQtyLabel = (item, qty) => {
   }
   return `× ${qty}`;
 };
+
+// Pad a grid's data so the final row is always full.
+//
+// FlatList lays each row out with the cards at flex: 1, so a last row holding
+// two items in a three-column grid gives each of them HALF the screen — they
+// render visibly larger than every card above. Appending invisible placeholders
+// keeps the geometry honest. Keys are prefixed so they can never collide with a
+// real item id. Same helper as WaitressMenu.js — the two menu grids must match.
+function padGrid(rows, cols) {
+  if (!Array.isArray(rows) || cols < 2) return rows;
+  const remainder = rows.length % cols;
+  if (remainder === 0) return rows;
+  const ghosts = Array.from({ length: cols - remainder }, (_, i) => ({
+    id: `__ghost_${i}`, __ghost: true,
+  }));
+  return [...rows, ...ghosts];
+}
 
 const isStaleOrder = (openedAt) => {
   if (!openedAt) return false;
@@ -187,6 +205,12 @@ function TableCard({ table, onPress }) {
 // ── Menu order modal (create new OR add items) ───────────────────────────────
 function MenuOrderModal({ visible, table, mode, existingOrder, categories, menuItems, onSend, onClose }) {
   const { t } = useTranslation();
+  // 3 columns on phones, 4 on tablets — matching WaitressMenu.js (owner,
+  // 2026-08-17). Keyed on WIDTH, not orientation: theme's cols() helper is
+  // orientation-based, which is what gave a tablet held upright the same giant
+  // cards as a phone. 600dp is the standard Android tablet breakpoint.
+  const { width } = useLayout();
+  const numCols = width >= 600 ? 4 : 3;
   const [selCat,      setSelCat]      = useState(null);
   const [cart,        setCart]        = useState([]);
   const [sending,     setSending]     = useState(false);
@@ -194,21 +218,24 @@ function MenuOrderModal({ visible, table, mode, existingOrder, categories, menuI
   const [searchQuery, setSearchQuery] = useState('');
   const [dialog,      setDialog]      = useState(null);
   const [amountPicker, setAmountPicker] = useState(null); // { item, value }
-  const catRef    = useRef(null);
   const searchRef = useRef(null);
 
   useEffect(() => {
     if (visible) {
       setCart([]);
       setSearchQuery('');
-      setSelCat(categories[0]?.id || null);
+      // Open on ALL, not categories[0] (changed 2026-08-19, owner). The old
+      // default silently pre-filtered the menu to whichever category happened
+      // to sort first — a waiter would see a fraction of the menu with no
+      // obvious reason why.
+      setSelCat(null);
       setAmountPicker(null);
     }
   }, [visible, categories]);
 
   const filteredItems = (() => {
     const q = searchQuery.trim().toLowerCase();
-    let items = selCat ? menuItems.filter(i => i.category_id === selCat) : menuItems;
+    let items = selCat ? menuItems.filter(i => String(i.category_id) === String(selCat)) : menuItems;
     if (q) items = items.filter(i => i.name.toLowerCase().includes(q));
     return items;
   })();
@@ -333,42 +360,26 @@ function MenuOrderModal({ visible, table, mode, existingOrder, categories, menuI
           </View>
         </View>
 
-        {/* Category tabs */}
-        <View style={styles.catBarWrap}>
-          <ScrollView
-            ref={catRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.catBar}
-          >
-            <TouchableOpacity
-              onPress={() => setSelCat(null)}
-              style={[styles.catChip, !selCat && styles.catChipActive]}
-            >
-              <Text style={[styles.catChipTxt, !selCat && styles.catChipTxtActive]}>{t('common.all','All')}</Text>
-            </TouchableOpacity>
-            {categories.map(cat => (
-              <TouchableOpacity
-                key={cat.id}
-                onPress={() => setSelCat(cat.id)}
-                style={[styles.catChip, selCat === cat.id && styles.catChipActive]}
-              >
-                <Text style={[styles.catChipTxt, selCat === cat.id && styles.catChipTxtActive]}>{cat.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+        {/* Category picker (shared with WaitressMenu — see CategoryPicker.js) */}
+        <CategoryPicker
+          categories={categories}
+          items={menuItems}
+          value={selCat}
+          onChange={setSelCat}
+        />
 
         {/* Items grid */}
         <FlatList
-          data={filteredItems}
+          data={padGrid(filteredItems, numCols)}
           keyExtractor={i => String(i.id)}
-          numColumns={2}
+          numColumns={numCols}
+          key={numCols}
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: spacing.md, paddingBottom: 140 }}
+          contentContainerStyle={{ padding: spacing.md, paddingBottom: cartCount > 0 ? 78 : 24 }}
           columnWrapperStyle={{ gap: spacing.sm }}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
           renderItem={({ item }) => {
+            if (item.__ghost) return <View style={styles.menuItemGhost} />;
             const qty = getQty(item.id);
             const weighed = isWeighedItem(item);
             return (
@@ -379,12 +390,20 @@ function MenuOrderModal({ visible, table, mode, existingOrder, categories, menuI
               >
                 {/* Item initial avatar */}
                 <View style={[styles.menuItemAvatar, { backgroundColor: colors.primaryLight }]}>
-                  <Text style={{ fontSize: 20, fontWeight: '800', color: colors.primary }}>
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: colors.primary }}>
                     {item.name.charAt(0).toUpperCase()}
                   </Text>
                 </View>
                 <Text style={styles.menuItemName} numberOfLines={2}>{item.name}</Text>
-                <Text style={styles.menuItemPrice}>
+                {/* One line, shrink to fit: a third-width card cannot hold
+                    "1,212,112 so'm / kg" at full size and wrapping a price
+                    mid-number is unreadable. */}
+                <Text
+                  style={styles.menuItemPrice}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
                   {fmtMoney(item.price)}{weighed ? ` / ${unitSuffix(item)}` : ''}
                 </Text>
                 {qty > 0 && (
@@ -425,10 +444,19 @@ function MenuOrderModal({ visible, table, mode, existingOrder, categories, menuI
         {/* Cart footer — slides in when items added */}
         {cartCount > 0 && (
           <View style={styles.cartFooter}>
-            <View>
+            <View style={{ flexShrink: 1 }}>
               <Text style={styles.cartItems}>{cartCount} {cartCount !== 1 ? t('waitress.tables.itemPlural','items') : t('waitress.tables.itemSingular','item')}</Text>
-              <Text style={styles.cartTotal}>{fmtMoney(cartTotal)}</Text>
+              <Text style={styles.cartTotal} numberOfLines={1}>{fmtMoney(cartTotal)}</Text>
             </View>
+            {/* Clear cart — same placement and quiet styling as the Menu tab's
+                bar, so the two order-building screens behave identically. */}
+            <TouchableOpacity
+              onPress={() => setCart([])}
+              style={styles.clearCartBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialIcons name="delete-outline" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={handleSend}
               disabled={sending}
@@ -775,7 +803,6 @@ export default function WaitressTables() {
 
   // Tables data
   const [tables,      setTables]      = useState([]);
-  const [filter,      setFilter]      = useState('all');
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
 
@@ -1014,10 +1041,10 @@ export default function WaitressTables() {
     loadTables();
   }, [flowTable, loadTables]);
 
-  // ── Filtered tables ──────────────────────────────────────────────────────
-  const filtered = filter === 'all' ? tables : tables.filter(tb => tb.status === filter);
+  // All tables are always shown — the status filter row was removed 2026-08-19.
+  const filtered = tables;
 
-  // Group filtered tables by section, then chunk each section into rows.
+  // Group tables by section, then chunk each section into rows.
   // Portrait: 3 per row. Landscape (tablet sideways): 4 per row.
   const COLS = cols(3, 4);
   const sectionedData = useMemo(() => {
@@ -1097,34 +1124,11 @@ export default function WaitressTables() {
         </ScrollView>
       </View>
 
-      {/* ── Filter chips ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterBar}
-        style={{ flexGrow: 0 }}
-      >
-        {['all', 'free', 'occupied', 'reserved', 'cleaning'].map(f => {
-          const filterLabels = {
-            all: t('waitress.tables.filterAll','All'),
-            free: t('waitress.tables.filterFree','Free'),
-            occupied: t('waitress.tables.filterOccupied','Occupied'),
-            reserved: t('waitress.tables.filterReserved','Reserved'),
-            cleaning: t('waitress.tables.filterCleaning','Cleaning'),
-          };
-          return (
-            <TouchableOpacity
-              key={f}
-              onPress={() => setFilter(f)}
-              style={[styles.filterChip, filter === f && styles.filterChipActive]}
-            >
-              <Text style={[styles.filterChipTxt, filter === f && styles.filterChipTxtActive]}>
-                {filterLabels[f]}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      {/* Status filter row removed 2026-08-19 (owner). Every table card already
+          shows its own status by colour, badge and label, so filtering to one
+          status hid tables the waiter still had to walk past — and the row cost
+          ~52px on every visit to serve a tap almost nobody made. The header
+          counts still give the at-a-glance free/occupied picture. */}
 
       {/* ── Table grid (grouped by section) ── */}
       <SectionList
@@ -1159,7 +1163,7 @@ export default function WaitressTables() {
             <MaterialIcons name="table-restaurant" size={48} color={colors.border} />
             <Text style={styles.emptyTxt}>{t('waitress.tables.noTablesFound','No tables found')}</Text>
             <Text style={styles.emptySubTxt}>
-              {filter !== 'all' ? t('waitress.tables.noTablesInFilter','No {filter} tables right now').replace('{filter}', filter) : t('waitress.tables.noTablesSubtitle','Tables will appear once added by admin')}
+              {t('waitress.tables.noTablesSubtitle','Tables will appear once added by admin')}
             </Text>
           </View>
         }
@@ -1212,23 +1216,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
 
-  // Header
-  header:         { backgroundColor: colors.primary, paddingTop: topInset + 8, paddingBottom: spacing.xl, paddingHorizontal: spacing.lg },
-  headerGreeting: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginBottom: 2 },
-  headerTitle:    { color: colors.white, fontSize: 26, fontWeight: '800' },
-  headerIconBtn:  { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  // Header — compacted 2026-08-19. Was paddingBottom spacing.xl (20) with a
+  // 26px title; the greeting and title stack ate most of the bar before a
+  // single table was visible.
+  header:         { backgroundColor: colors.primary, paddingTop: topInset + 6, paddingBottom: spacing.md, paddingHorizontal: spacing.lg },
+  headerGreeting: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginBottom: 1 },
+  headerTitle:    { color: colors.white, fontSize: 20, fontWeight: '800' },
+  headerIconBtn:  { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   notifBadge:     { position: 'absolute', top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   notifBadgeTxt:  { color: '#fff', fontSize: 9, fontWeight: '800' },
   chip:           { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, marginRight: 8 },
   chipDot:        { width: 7, height: 7, borderRadius: 4, marginRight: 5 },
   chipTxt:        { color: colors.white, fontSize: 12, fontWeight: '600' },
 
-  // Filter bar
-  filterBar:           { paddingHorizontal: spacing.lg, paddingVertical: 10, gap: spacing.sm },
-  filterChip:          { height: 32, paddingHorizontal: 14, borderRadius: 16, backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  filterChipActive:    { backgroundColor: colors.primary, borderColor: colors.primary },
-  filterChipTxt:       { fontSize: 13, fontWeight: '600', color: colors.textMuted, lineHeight: 16 },
-  filterChipTxtActive: { color: colors.white },
+  // Filter bar styles removed 2026-08-19 along with the status filter row.
 
   // Table grid
   grid:           { paddingTop: spacing.sm, paddingBottom: spacing.xl },
@@ -1286,7 +1287,10 @@ const styles = StyleSheet.create({
   guestCount: { fontSize: 48, fontWeight: '800', color: colors.textDark, marginHorizontal: spacing.xxl, minWidth: 70, textAlign: 'center' },
 
   // Modal
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.md, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  // Tightened 2026-08-19. The table name STAYS — unlike the Menu tab's "Menu"
+  // title, it identifies which table is being ordered for, which the waiter
+  // genuinely needs. Only the padding came down.
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
   modalClose:  { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' },
   modalTitle:  { fontSize: 17, fontWeight: '800', color: colors.textDark, textAlign: 'center' },
   modalSub:    { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
@@ -1296,30 +1300,34 @@ const styles = StyleSheet.create({
   searchBar:     { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: radius.full, paddingHorizontal: spacing.md, height: 40, borderWidth: 1, borderColor: colors.border },
   searchInput:   { flex: 1, fontSize: 14, color: colors.textDark, paddingVertical: 0 },
 
-  // Category tabs
-  catBarWrap:  { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border, flexShrink: 0 },
-  catBar:      { paddingHorizontal: spacing.md, paddingVertical: 8, gap: spacing.sm, alignItems: 'center' },
-  catChip:     { paddingHorizontal: 14, paddingVertical: 6, borderRadius: radius.full, backgroundColor: colors.background, borderWidth: 1.5, borderColor: colors.border, alignSelf: 'flex-start' },
-  catChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  catChipTxt:  { fontSize: 13, fontWeight: '600', color: colors.textMuted },
-  catChipTxtActive: { color: colors.white },
+  // Category chip styles removed 2026-08-19 — the chip row was replaced by the
+  // shared CategoryPicker sheet, which carries its own styles.
 
   // Menu items
-  menuItem:         { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, ...shadow.card, minHeight: 120, alignItems: 'center' },
+  // Sized for the 3-column grid. padding/avatar/type are all smaller than the
+  // old 2-column card — at a third of the screen the previous 56px avatar and
+  // spacing.md padding left almost no room for the name, and long prices
+  // ("1,212,112 so'm") wrapped mid-number.
+  menuItem:         { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, paddingHorizontal: 6, paddingVertical: spacing.sm, ...shadow.card, minHeight: 132, alignItems: 'center', justifyContent: 'center' },
   menuItemSelected: { borderWidth: 2, borderColor: colors.primary },
-  menuItemAvatar:   { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
-  menuItemName:     { fontSize: 13, fontWeight: '700', color: colors.textDark, textAlign: 'center', marginBottom: 4 },
-  menuItemPrice:    { fontSize: 12, fontWeight: '600', color: colors.primary, textAlign: 'center' },
+  // Invisible filler for the last row (see padGrid) so two leftover items
+  // don't stretch to half the screen each.
+  menuItemGhost:    { flex: 1, minHeight: 132, backgroundColor: 'transparent' },
+  menuItemAvatar:   { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  menuItemName:     { fontSize: 12, lineHeight: 15, fontWeight: '700', color: colors.textDark, textAlign: 'center', marginBottom: 3 },
+  menuItemPrice:    { fontSize: 12, fontWeight: '700', color: colors.primary, textAlign: 'center' },
   qtyRow:           { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.primaryLight, borderRadius: radius.full, paddingHorizontal: 4 },
   qtyBtn:           { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   qtyNum:           { fontSize: 14, fontWeight: '800', color: colors.primary, minWidth: 22, textAlign: 'center' },
 
-  // Cart footer
-  cartFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.white, paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, paddingBottom: 28, borderTopWidth: 1, borderTopColor: colors.border, ...shadow.lg },
-  cartItems:  { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
-  cartTotal:  { fontSize: 17, fontWeight: '800', color: colors.textDark },
-  sendBtn:    { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, paddingVertical: spacing.md, paddingHorizontal: spacing.xl, borderRadius: radius.btn },
-  sendBtnTxt: { color: colors.white, fontWeight: '800', fontSize: 15 },
+  // Cart footer — compacted 2026-08-19 (owner) to match WaitressMenu's bottom
+  // bar exactly. Was paddingVertical 16 + paddingBottom 28.
+  cartFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, backgroundColor: colors.white, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, paddingBottom: 10, borderTopWidth: 1, borderTopColor: colors.border, ...shadow.lg },
+  cartItems:  { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
+  cartTotal:  { fontSize: 15, fontWeight: '800', color: colors.textDark },
+  clearCartBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background, marginLeft: 'auto' },
+  sendBtn:    { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, paddingVertical: 10, paddingHorizontal: spacing.lg, borderRadius: radius.btn },
+  sendBtnTxt: { color: colors.white, fontWeight: '800', fontSize: 14 },
 
   // Active order modal
   billBanner:    { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F5F3FF', borderColor: '#7C3AED', borderWidth: 1, margin: spacing.lg, borderRadius: radius.md, padding: spacing.md },

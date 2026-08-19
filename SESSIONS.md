@@ -4763,3 +4763,42 @@ existed. The file's own header warns a duplicate silently wins or loses by posit
 and, more importantly, found the existing translation used "bron" for reservations while I had
 written "band" — which in this app means OCCUPIED, the neighbouring status. Aligned all seven
 strings to "bron" so the terminology matches what the rest of the screen already says.
+
+## 2026-08-17 — session close
+
+Covered: the working-hours feature (storage, editor, business-day boundary, in-app explanation),
+the "lost order" that turned out to be a client-side UTC date bug, invisible borders in both apps,
+eight Android fixes from device testing, the POS edit-grid redesign, and cashier table reservations.
+
+Everything is written and verified; NOTHING from the second half is deployed. See the banner at the
+top of STATUS.md.
+
+**Three process lessons from today, all mine:**
+1. A script's success message is not evidence. "removed unused GuestCountSheet" printed while
+   deleting nothing; the component was still there an hour later.
+2. Index/brace-based text surgery is dangerous. My cleanup of that same component started its brace
+   walk at the destructuring braces in the signature, deleted one line, and left an orphaned `) {`
+   with a dangling body — the file stopped parsing. The parse check caught it; nothing else would.
+3. When several unrelated changes all appear to have no effect, suspect the delivery mechanism, not
+   the code. React Native Fast Refresh silently fails to apply edits that change hooks.
+
+## 2026-08-19 — knowledge-base read-in; Render tier discrepancy closed across all files
+
+Read RULES.md, SESSIONS.md, STATUS.md and MEMORY.md per RULES.md §0. No code touched.
+
+RULES.md §2 had carried an open flag since 2026-07-06 that CLAUDE.md's "Backend is on the Render
+also paid plan" contradicted the observed free-tier behaviour. That was actually settled on
+2026-07-27 (owner checked Render → Settings → Instance Type: **Free**) but the correction was only
+ever recorded in SESSIONS/STATUS — CLAUDE.md still said paid, and MEMORY.md still said the conflict
+was unresolved, so a future session reading the files in the mandated order would meet the wrong
+fact twice before reaching the right one.
+
+Corrected in all three, marking the old text superseded rather than deleting it (§0):
+- **CLAUDE.md** — now states the FREE plan, the confirmation date, and the cold-start behaviour.
+- **RULES.md §2** — flag replaced with CONFIRMED + the dashboard evidence, pointing at the
+  2026-07-27 SESSIONS entry.
+- **MEMORY.md** — the "unresolved, treat as unverified" bullet struck through and resolved; the
+  duplicate claim at the end of the waitress-wifi section aligned to match.
+
+Owner's standing decision stands unchanged: stay on Free, no pinger, no upgrade. Cold-start login
+failures after ~15 min idle are expected behaviour, not a bug to re-diagnose.

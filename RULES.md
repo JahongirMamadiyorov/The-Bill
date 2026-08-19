@@ -49,10 +49,11 @@ project. It is only ever added to, never silently changed — see Rule 0 below.
 - Database: Supabase, paid plan. Project "The-Bill", ref `uubfvjcwrumfijjqtjjb`, region
   ap-northeast-1. See CLAUDE.md for the database password — do not duplicate secrets across
   multiple files.
-- Backend: Node/Express, hosted on Render. As of 2026-07-03 this runs on Render's **free** tier
-  (not paid — CLAUDE.md says paid, which is out of date; confirm with the project owner which is
-  correct going forward). Free tier = 750 instance-hours/month cap and spins down after 15 min
-  idle (~50s+ cold start on next request).
+- Backend: Node/Express, hosted on Render. Runs on Render's **free** tier (CONFIRMED 2026-07-27 by
+  the project owner directly in the Render dashboard, Settings > Instance Type — CLAUDE.md updated
+  same day to match). Free tier = 750 instance-hours/month cap and spins down after 15 min idle
+  (~50s+ cold start on next request); a request landing mid-wake can drop before the TLS handshake
+  completes (see SESSIONS.md 2026-07-27 "Login crash root-caused" entry).
 - Live backend URL: `https://the-bill-backend-pego.onrender.com` (changed from the original
   `the-bill-backend.onrender.com` after the original Render account was suspended for exceeding
   the free-tier hour cap — see SESSIONS.md 2026-07-06 entry for the full story).

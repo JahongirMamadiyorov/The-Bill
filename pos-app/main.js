@@ -816,7 +816,20 @@ async function autoPrintPendingItems() {
         }
 
         printedQty[orderId] = nowQty;
-        pushPsEvent('autoprint-ok', `order #${head.daily_number}, ${deltas.length} line(s)`);
+
+        // The baseline advances either way — an item that is deliberately not
+        // printed must not be reconsidered on every poll for the rest of the
+        // day. But the log has to say which happened, or a badge dump shows
+        // "autoprint-ok" for a batch that produced no paper at all and the next
+        // person debugging a missing ticket chases a ghost.
+        if (res?.printed?.length) {
+          pushPsEvent('autoprint-ok', `order #${head.daily_number}, ${deltas.length} line(s)`);
+        } else {
+          // Nothing printed and nothing FAILED: every line in this batch has no
+          // kitchen station, so the 2026-08-19 owner rule skips it on purpose.
+          pushPsEvent('autoprint-skipped',
+            `order #${head.daily_number}: ${res?.error || 'nothing to print'}`);
+        }
       } catch (err) {
         pushPsEvent('autoprint-error', err?.message || String(err));
       }

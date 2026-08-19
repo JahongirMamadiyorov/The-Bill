@@ -1515,7 +1515,11 @@
       "failedToSendOrder": "Buyurtma yuborishda xatolik. Qayta urinib ko'ring.",
       "failedToCreateOrder": "Buyurtma yaratishda xatolik. Qayta urinib ko'ring.",
       "selectGuestRange": "Mehmonlar sonini tanlang (1–20)",
-      "newOrderCreated": "{table} uchun yangi buyurtma yaratildi."
+      "newOrderCreated": "{table} uchun yangi buyurtma yaratildi.",
+      "allCategories": "Barcha kategoriyalar",
+      "chooseCategory": "Kategoriyani tanlang",
+      "searchCategories": "Kategoriya qidirish…",
+      "noCategoriesFound": "Kategoriya topilmadi"
     },
     "notifications": {
       "title": "Bildirishnomalar",
