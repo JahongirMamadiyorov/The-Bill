@@ -1138,3 +1138,163 @@ slow for the waitress. An open POS terminal masks this — its badge polls `/hea
 keeps the instance awake — but only while a terminal is actually running. This is a real argument
 for moving Render to a paid tier — but the owner has decided against it for now (see the Supabase/
 infra section: tier confirmed FREE 2026-07-27, CLAUDE.md/RULES.md corrected 2026-08-19).
+
+## RestaurantApp i18n gotchas (found doing the Admin panel translation sweep, 2026-08-19)
+
+- **App default language is Uzbek** (`LanguageContext.js`'s `useState('lang')` default), not
+  English — a hardcoded English string isn't a fallback for an edge case, it's what most real
+  users see by default. `en.json`/`uz.json` are siblings under `src/i18n/`; `t(key, fallback,
+  params)` falls back EN → literal key if a language's value is missing, and supports
+  `{param}` interpolation via a plain `.replace(/\{(\w+)\}/g, ...)` — no pluralization engine, so
+  count-dependent strings need either a `{count}` interpolation with a language-neutral phrasing
+  (Uzbek doesn't inflect nouns for plural the way English does) or the existing `common.items` =
+  "ta" (the Uzbek counter particle) pattern, e.g. `{count} {t('common.items')}`.
+- **Before adding a new i18n key, check `common.*` and the screen's own existing namespace first**
+  — `common.*` already covers most generic words (Required/Error/Cancel/Delete/Save/Total/Date/
+  Amount/Today/Close/Confirm/etc.), and large screens like `WarehouseScreen.js` already had a rich
+  `warehouse.*` namespace (`warehouse.dialogs.*` didn't exist yet but every other sub-namespace —
+  `actions`, `fields`, `sections`, `deliveryStatus`, `categoriesNamed` — did). Re-deriving/
+  duplicating an existing key wastes translation work and risks two slightly different Uzbek
+  strings for the same concept appearing in different corners of the same screen.
+- **A component accepting a `label`/`text` prop with a hardcoded English default is a silent trap
+  if the prop is never actually destructured.** Found in `WarehouseScreen.js`: `CancelBtn({
+  onPress })` had call sites all over the file passing `label="No, Go Back"` etc., but the
+  component's own signature never included `label` — every one of those buttons silently rendered
+  the same hardcoded "Cancel" instead. This is NOT caught by grepping for hardcoded strings in the
+  call site (the call site looks "already translated" once you add `t(...)` there) — it only shows
+  up by reading the component's own definition. When translating a shared button/field component,
+  always check the component itself accepts and uses every prop callers are passing, not just that
+  the call sites look right.
+- **Calendar month-name/weekday-abbreviation arrays are easy to miss entirely** — they read as
+  "just data," not UI copy, so a string-literal grep for `>Text content<` patterns won't surface a
+  module-level `const MONTHS = ['January', 'February', ...]` array feeding `MONTHS[viewMonth]`.
+  `WarehouseScreen.js` had TWO separate such arrays (one per calendar component) that were 100%
+  English regardless of language. Reusable arrays already exist: `datePicker.months` (full names),
+  `datePicker.monthsShort`, `datePicker.days` (abbreviations, **Monday-first order** — a second
+  calendar in the same file needed Sunday-first, so its render code rotates the array rather than
+  indexing it directly; don't assume day-of-week order matches without checking both call sites).
+- **A parameter or local variable named `t` silently shadows the translation function, and this
+  is the single most common way a translation pass introduces a CRASH rather than a cosmetic
+  miss.** Hit four separate times in this codebase, in three shapes: (1) `async function
+  quickFree(t)` where `t` was a table row — the catch block's own `t('common.error')` threw
+  *"t is not a function"* exactly when an error needed reporting, i.e. the failure is invisible
+  until something else already went wrong; (2) `tabs.map(t => ...)` and
+  `['Percentage','Fixed'].map(t => ...)` — no crash, but nothing inside the map can be translated
+  at all, so a grep for hardcoded strings finds the text while a grep for `t(` finds nothing
+  wrong; (3) harmless-but-confusing cases like `const t = setInterval(...)`. Screens here
+  routinely name a table row or filter callback `t`, so **rename the binding to `table`/`row`/
+  `tab` before translating anything in that scope**. An AST scan for identifiers bound to `t`
+  is worth running at the end of every i18n pass — a text grep misses the arrow-param form.
+- **Display labels stored in module-level constants are evaluated at import time, before any
+  language is chosen** — `const STATUS_META = { free: { label: 'Free', ... } }` can never be
+  translated in place. Convert to a helper (`statusLabel(status, t)`) reading the existing
+  `statuses.*` namespace and DELETE the `label` field entirely, so it can't be reintroduced.
+  Same reasoning as the calendar-array trap: the string looks like data, so it survives review.
+- **Watch for RAW SENTINELS being rendered as if they were labels.** `AdminOrders.js`'s Paid-tab
+  summary rendered `{preset}` — the raw `'7 Days'`/`'This Month'` id used for comparisons — right
+  under a chip row that already showed those same presets translated. Whenever a list is built as
+  `{ id, label }` pairs, check that nothing displays the bare `id` somewhere else; add a
+  `xLabel(value, t)` lookup helper rather than duplicating the list.
+- **`en.json`/`uz.json` can contain DUPLICATE KEYS inside the same object and nothing complains** —
+  JSON permits it, `JSON.parse` silently keeps the LAST one. Found `clockedIn`/`clockedOut` and
+  `removeImage` each defined twice; the earlier definition had been dead for an unknown length of
+  time. Detect with a `json.loads(..., object_pairs_hook=...)` that reports repeats — a plain
+  parse-and-compare will never show it. De-duplicating is behaviour-neutral **only if you keep the
+  last value**; verify by flattening both files before/after and asserting 0 keys removed and 0
+  values changed.
+- **Verification that actually catches things, worth re-running after any i18n pass:** parse the
+  file with `@babel/parser` (plugins: jsx); assert every literal `t('a.b.c')` key resolves in BOTH
+  language files; assert every `{param}` placeholder in each translated string is supplied at its
+  call site; assert array-backed lists (`deleteReasons`, `cancelReasons`, `discountTypes`, …)
+  match their JS constants in LENGTH in both languages, since `reasonLabel()` is index-based and a
+  short array silently falls back to raw English; assert exact EN/UZ key parity; and AST-scan for
+  `t` shadowing. Static checks only — none of this proves the screen looks right, so a device
+  pass is still needed.
+- **When a screen's mtime is newer than STATUS.md, do not trust STATUS.md about that screen.**
+  `AdminTables.js`/`AdminOrders.js` both carried a partial translation pass that no session
+  entry mentioned. Check `git diff --cached --numstat` and grep the actual file before planning.
+- **`t(key, null, params)` SILENTLY DROPS THE PARAMS.** `LanguageContext.js`'s signature is
+  `t(key, fallbackOrParams, maybeParams)` and it only reads the third argument when the second is
+  a **string**. Passing `null` as a "no fallback here" placeholder means params are never applied
+  and the user sees the literal `{unit}` / `{count}` in the UI. Always pass params as the SECOND
+  argument — `t('adminExtra.enterInUnit', { unit })` — and never write `t(key, null, {...})`.
+- **A referenced key can be missing from BOTH language files, and English fallbacks hide it.**
+  Six `datePicker.*` keys were referenced but defined nowhere; the four written as
+  `t('datePicker.from', 'FROM')` merely stayed English forever (looks like "just not translated
+  yet"), but the two written as bare `t('datePicker.selectDate')` rendered the literal string
+  "datePicker.selectDate" to users. **Validate keys against the JSON, not against how the screen
+  looks** — a fallback makes a missing key indistinguishable from an untranslated one.
+- **A value-to-label map must cover every value the API can return, not just the ones the local
+  form offers, and the fall-through is SILENT.** `AdminStaff.js`'s `roleLabel()` listed only the
+  four roles its add-staff form offers, so a `new_cashier` user (created from the POS/website)
+  rendered the raw capitalised DB value "New_cashier" as a badge next to correctly-translated
+  colleagues. `normalizeUser()` capitalises whatever the API sends, so the map keys must be the
+  CAPITALISED forms. Same shape of bug is possible in every `xLabel(value, t)` helper in the
+  project — enumerate from the DB's allowed values, not from the UI's picker.
+- **Duplicate `function` declarations are a HARD ERROR in ESM strict mode** —
+  `SyntaxError: Identifier 'x' has already been declared`. This is the one flavour of the
+  "helper already exists" trap that fails loudly instead of silently; it caught two duplicates
+  (`salaryTypeLabel`, `payMethodLabel`) in `AdminStaff.js` in a single edit.
+- **Check whether the mechanism already exists before building one.** `WarehouseScreen.js` already
+  had `PickerRow`'s `labels` prop and an `invCategoryLabel()` helper — an earlier pass built both
+  and never wired them at the call sites, so the category/unit chips stayed English while the code
+  looked like it had been handled. Grep for `<helper>(` usage counts, not just its definition;
+  a helper with zero call sites is a red flag, not a convenience (the same was true of
+  `orderPayMethodLabel()` in `AdminOrders.js`).
+- **On Android, a `<Modal>` without `onRequestClose` ignores the hardware back button entirely** —
+  there is no default. Every sheet/dialog in this app is a hand-rolled `<Modal>`, so this must be
+  set on each one; check with an AST pass rather than by eye (64 of 75 had it, and the 11 that did
+  not happened to be the shared `Sheet` components, which made the gap look universal from the
+  outside). Swipe-to-dismiss likewise does not exist for free — see `src/components/useSheetSwipe.js`,
+  which is the project's single implementation of it.
+- **Attach a sheet's drag PanResponder to the top bar (handle + header), never the container.**
+  Every sheet in this app has a ScrollView body; a responder on the container fights it for the
+  gesture. Claim the gesture only on a deliberate downward drag
+  (`onMoveShouldSetPanResponder: dy > 5 && |dy| > |dx| * 1.5`) and reset the translate to 0 BEFORE
+  calling onClose, or a Modal that stays mounted reopens off-screen. Containers that are
+  `SafeAreaView` or `Pressable` for a reason (bottom inset / swallowing backdrop taps) must be
+  wrapped with `Animated.createAnimatedComponent(...)`, not replaced by `Animated.View`.
+- **A component defined inline inside another component is re-created every render**, so a hook
+  inside it remounts and loses its state each time (`CashierWalkin`'s `TablePickerSheet`). Hoist
+  the hook to the parent and reference it from the inline component.
+- **When writing a codemod, a bare `return` at CommonJS module top level ends the WHOLE script.**
+  One skipped file silently aborted a run partway through and the remaining files looked clean.
+  Always cross-check a codemod's processed-file count against the survey that found the work, and
+  do a `--dry` pass that parses the output before writing anything.
+- **A local palette/config object can be missing keys the file reads, and NOTHING warns you.**
+  `AdminStaff.js` defined `C.neutralDark`/`neutralMid`/`neutralLight` but read `C.textDark`
+  (44x), `C.textMuted` (66x), `C.white` (12x), `C.textMid` (11x), `C.cardBg` (5x) — 138 reads
+  that all evaluated to `undefined`, so React Native fell back to defaults and the staff search
+  bar rendered unreadable grey-on-grey. `WarehouseScreen.js` had the same with `C.admin` (3x),
+  one of which made the selected day in a calendar completely unhighlighted. A tell-tale sign is
+  defined-but-never-used keys sitting next to the broken reads — someone renamed the palette and
+  did not update the call sites. **Check with an AST pass**: collect every module-level
+  `const X = { plain object literal }`, then flag each `X.prop` read whose key is absent. It is
+  invisible to lint and to every i18n/parse check; it only ever shows up as "that looks a bit
+  off" in a screenshot. Re-run it after ANY palette or config-object rename. When filling gaps,
+  take names/values from `src/utils/theme.js` where they exist so screens stay consistent.
+- **Use an AST scope check for unbound `t()`, never a regex.** `path.scope.hasBinding('t')` on
+  every `t()` CallExpression (`@babel/traverse`) found exactly ONE real problem across the whole
+  `src` tree — `AttHistoryModal` in `AdminStaff.js`, which crashed the Staff page with
+  *"Property 't' doesn't exist"* the moment a staff member's attendance history was opened. A
+  regex approximation of the same check reported 14 hits, 13 of them false positives (nested
+  components with their own hook). **@babel/parser and @babel/traverse are already in
+  `RestaurantApp/node_modules`** — no install needed to run this. When adding the hook, put it
+  BEFORE any early `return null`, since hooks must not follow a conditional return.
+- **Static verification does not find crashes in rarely-mounted components.** Everything above
+  passed parse + key-resolution + parity checks and still shipped a crash, because
+  `AttHistoryModal` only mounts behind a specific tap. Run the app; the checks are a floor, not a
+  ceiling.
+- **`src/screens/admin/components/StockEntryForm.js` has a genuine syntax error** (adjacent JSX
+  siblings, `</Modal>` + `<ConfirmDialog />`, ~line 98) and is imported by nothing, so Metro never
+  bundles it and the app runs fine. Don't "fix" it reflexively and don't import it without fixing
+  it — decide first whether it should exist at all.
+- **Units, kitchen stations, table sections, payment methods and statuses are all STORED VALUES
+  with translated display labels** — the same pattern everywhere: a `X_I18N` map from raw value →
+  i18n key plus an `xLabel(value, t)` helper, with the raw value still used for state, filters and
+  API payloads. Units live in a shared top-level `units` namespace (used by both
+  `WarehouseScreen.js` and `AdminMenu.js`); station labels live in `admin.staff.station*` and are
+  REUSED by `AdminMenu.js` rather than duplicated.
+- **Admin panel translation-sweep progress lives in STATUS.md, not here** (it changes every
+  session). As of 2026-08-19 the sweep is COMPLETE across all 8 admin screens and the owner has
+  device-tested Warehouse/Menu/Staff; Tables and Orders changed after that test.

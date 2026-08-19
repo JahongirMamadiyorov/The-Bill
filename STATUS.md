@@ -1,24 +1,40 @@
 # STATUS
 
-> ## ⟹ NEXT SESSION — DEPLOY FIRST, THEN TEST
+> ## ⟹ NEXT SESSION — translation sweep done AND device-tested; one dead file left
 >
-> Session of 2026-08-17 ended with work finished but NOT shipped. Two independent deploys:
+> The owner ran the app on a real device and reported back. The crash and every gap he found are
+> fixed. **No known outstanding translation work** — read his actual brief before assuming more.
 >
-> **1. Backend → Render** (`restaurant-app/backend`, commit + push). Carries:
-> notification translation keys (tables.js), and `PUT /api/tables/:id/reserve` + `/unreserve`.
-> Until this lands: notifications stay English, and the cashier's Reserve button returns 404.
+> **Fixed from device test round 1:** the `AdminStaff.js` Staff-page crash (`AttHistoryModal` used
+> `t()` without `useTranslation()`), plus untranslated strings in `WarehouseScreen.js` (Output tab
+> filters/tiles/"Choose Period", Deliveries "+ Record Delivery", category + unit + supplier chips,
+> every raw unit render) and `AdminMenu.js` (station quick-picks, unit pills, ingredient units).
 >
-> **2. POS rebuild** — `cd D:\The-Bill\pos-app; npm run build:win`. Carries:
-> waiter bill printing (`printRequestedBills` + `getReceiptSettings` + `isBill`), the edit-grid
-> photo/stepper cards, and the reservation UI.
+> **Fixed from device test round 2 (Staff screen):** role chips, salary-type chips, the Rate field
+> label, the `New_cashier` badge (roleLabel's map didn't cover roles the add-form doesn't offer),
+> the `/Daily` suffix, attendance status chips, Note fields, Create/Update Record, "net pay",
+> payment-method chips, three `← Back` buttons (now icon + translated label), "QUICK PICK:".
 >
-> The Android app needs NO build — it is JS over Metro. If changes do not appear, it is the
-> bundle: `npx react-native start --reset-cache`, then shake → Reload. Fast Refresh does not
-> reliably apply edits that change hooks, which cost most of an hour this session.
+> **Units are now translated project-wide** via a new top-level `units` i18n namespace and a
+> `unitLabel(u, t)` helper in both screens. Raw values are still what gets stored/sent.
 >
-> **Then test:** waiter taps "Hisob so'rash" → a BILL prints at the POS (no payment method line,
-> "NOT A RECEIPT" banner) and the table STAYS OPEN · reserve a free table from the cashier Tables
-> page · a notification reads in Uzbek with the real table name.
+> **KNOWN, DELIBERATELY LEFT: `src/screens/admin/components/StockEntryForm.js` does not parse** —
+> adjacent JSX siblings at line 98 with no wrapper. Nothing imports it, so Metro never bundles it
+> and the app runs. Do NOT import it without fixing that first; decide whether it should exist at
+> all before spending time on it.
+>
+> **Sheet dismissal (2026-08-19, device test 4):** all 75 `<Modal>`s now handle the Android back
+> button (`onRequestClose`), and 31 bottom sheets across 16 files got swipe-to-dismiss via the new
+> `src/components/useSheetSwipe.js`. Drag zone is the TOP BAR only — owner's choice — because every
+> sheet has a ScrollView body that a container-level responder would fight. Untested on a device.
+>
+> **Still worth a device pass:** the screens changed since the last test — Tables (floor summary,
+> stat cards, reservation dates, Manage Sections) and Orders (Collect Payment, split payment,
+> loan). Warehouse/Menu/Staff were just checked by the owner.
+>
+> Verification tooling now covers the whole `src` tree (parse + key resolution in both languages +
+> placeholder params + EN/UZ parity + AST scan for unbound `t()`); it currently reports zero
+> problems. Details in SESSIONS.md's "2026-08-19 (device test)" entry.
 
 Current snapshot of what's done and what's next. This file gets overwritten/updated in place
 each session — for history of how we got here, see SESSIONS.md.

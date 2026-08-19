@@ -4802,3 +4802,330 @@ Corrected in all three, marking the old text superseded rather than deleting it 
 
 Owner's standing decision stands unchanged: stay on Free, no pinger, no upgrade. Cold-start login
 failures after ~15 min idle are expected behaviour, not a bug to re-diagnose.
+
+## 2026-08-19 (later) — pivot to RestaurantApp (Android) Admin panel; repo sync catch-up
+
+No feature code touched this stretch — mostly repeated "update all repos" passes (review diffs
+for secrets, commit, push root/backend/website independently) as the user's local working tree
+accumulated changes across sessions: PowerSync wiring/worker thread/sync-rules.yaml, the pos-app
+Admin panel build-out (Dashboard/Menu/Orders/Tables/Staff/Inventory/Loans/Settings/Profile), the
+POS terminal cashier screens + design handoff, receipt auto-print, the print-engine/kitchen-ticket
+latency fix (PowerSync `onChange` instead of polling), the session-timezone bug (reports bucketing
+at 5am Tashkent instead of midnight), the business-day/late-night-sale lost-order bug and its
+`businessDate.js` fix, RestaurantApp's `OrderReviewSheet`/`tableLabel` additions, and a
+`RestaurantApp/src/api/client.js` fix (`USE_LOCAL_BACKEND` was `true`, silently pointing dev
+builds at a local server instead of the shared hosted backend). Full detail for each is in their
+own commit messages across `The-Bill`/`the-bill-backend`/`the-bill-website`, not restated here.
+
+User then confirmed all three repos are caught up and said the next work is the **Admin panel
+inside the RestaurantApp Android app** (`RestaurantApp/src/screens/admin/` — a distinct codebase
+from pos-app's own Admin panel, which was the subject of most of the work above). Recorded the
+pivot in STATUS.md's banner; no scope has been given yet beyond "we gonna work with admin panel
+on android app" — next session should read the user's actual brief before assuming what to build.
+
+## 2026-08-19 (later still) — Admin panel bug fixes, then a Uzbek translation sweep begins
+
+Three real UI bugs fixed in `AdminMenu.js`/`AdminNavigator.js` from screenshots the user sent:
+(1) long category names in the Categories tab wrapped mid-word because the action-buttons row
+never wrapped — added `flexWrap`, gave the name a real `minWidth`, action buttons now drop to
+their own line when needed; (2) status bar icons (battery/clock/signal) went invisible on some
+screens — root cause: every admin tab screen declared its own `<StatusBar>`, but the bottom-tab
+navigator keeps every tab mounted, so whichever screen's `<StatusBar>` last re-rendered silently
+governed the real one regardless of which tab was visible (Profile's `light-content`, meant only
+for its own colored header, could end up controlling a white-background tab). Centralized into
+one `screenListeners` `focus` handler in `AdminNavigator.js`; removed every screen's own
+`<StatusBar>`. Then, per a follow-up request, replaced the category filter's horizontal
+scroll-chip row with the same tappable `CategoryPicker` sheet the waiter screens already use —
+extended that shared component with two new optional props (`extra` for a non-category entry like
+"Inactive", `onManageCategories` for a settings-icon hook into Inventory's own add/remove-category
+sheet) so the waiter screens are unaffected. Moved Menu's search+filter and Warehouse's
+search+filter+date-range+Record-Delivery into their FlatLists' `ListHeaderComponent`s so they
+scroll with the list instead of staying pinned (matched by canceling the FlatList's own horizontal
+content padding for the header specifically, since each piece already carried its own margin).
+Along the way: shrank an oversized FAB, fixed a missing gap between the category trigger and the
+first list item, fixed the Warehouse date-range button truncating "2026-07-01 → 202…" (a forced
+`numberOfLines={1}` on text that has no fixed-height container to truncate for).
+
+User then flagged the broader problem: much of the Admin panel shows English text even though the
+app defaults to Uzbek. Surveyed all 8 admin screens + `CategoryPicker.js` (see STATUS.md's banner
+for the full per-file severity ranking and the exact keys/patterns used) and did a complete,
+verified pass over `WarehouseScreen.js` — the largest offender (~90+ strings across all 4 of its
+tabs: Inventory/Deliveries/Output/Suppliers). Found two real bugs while at it, not just missing
+translations: `CancelBtn` silently ignored a `label` prop every call site was already passing
+(always rendered hardcoded "Cancel"), and two separate calendar components had their own
+hardcoded English month-name/weekday arrays that never touched `t()` at all — wired both to the
+existing `datePicker.months`/`datePicker.days` arrays instead of adding new ones (one calendar's
+day order is Sunday-first, the other's source array is Monday-first — rotated, not just
+reassigned). Also finished the smaller items already spotted in `AdminMenu.js` and the "ADMIN"
+badge in `AdminDashboard.js`/`AdminProfile.js`. **`AdminStaff.js` (high, ~80 strings),
+`AdminTables.js` (medium, ~42), and `AdminOrders.js` (medium, ~30) are surveyed but not started**
+— next session should pick up there; the per-file priority order and the exact method (grep
+patterns, reuse `common.*`/`warehouse.dialogs.*` before adding new keys, validate both JSON files
+after every batch, confirm `t` is actually in scope in whichever of this file's ~10 function
+components is being edited) is written up in STATUS.md so it doesn't need re-deriving.
+
+## 2026-08-19 (final) — Uzbek sweep finished: AdminTables + AdminOrders; six real bugs found
+
+The Admin-panel translation sweep is **complete**. `AdminTables.js` and `AdminOrders.js` were the
+last two files on STATUS.md's list; both are done and verified. Note the file mtimes showed both
+had already been touched after STATUS.md was last written — a partial pass existed (54 and 13
+added `t()` lines respectively), so this session verified actual state first rather than trusting
+the banner, per RULES.md rule 5.
+
+**Six real bugs found while translating — none of them were missing translations:**
+
+1. `AdminTables.js` `quickFree(t)` — the parameter was named `t`, shadowing the translation
+   function, so the catch block's own `t('common.error')` threw *"t is not a function"* exactly
+   when an error needed reporting. Introduced by the earlier partial pass. `openEdit`/`openStatus`/
+   `openDelete` had the same parameter name and were renamed to `table` pre-emptively.
+2. `AdminTables.js` `TableDetailModal.handleAddFoodToOrder()` called `setDialog()` on failure, but
+   that component never had a `dialog` state — the catch threw `ReferenceError`. Given its own
+   state + a `<ConfirmDialog>` rendered **inside** the Sheet (the parent's copy would open behind
+   this modal, since the Sheet is itself a `Modal`).
+3. `AdminTables.js` zone-filter chips: `tabs.map(t => ...)` shadowed `t`, so nothing in that map
+   could be translated at all. Renamed to `tab`; the raw value is still what `activeTab` compares
+   against, only the text is translated.
+4. `AdminOrders.js` discount-type toggle: `['Percentage','Fixed'].map(t => ...)` — same shadowing
+   bug, same fix (extracted to a `DISC_TYPES` constant + `reasonLabel`).
+5. `AdminOrders.js` Paid-tab date picker rendered `{preset}` — the RAW sentinel ('7 Days',
+   'This Month') — in the summary row, directly under chips already showing those same presets
+   translated. Added `datePresetLabel()`.
+6. `en.json`/`uz.json` had **duplicate keys within the same object**: `clockedIn`/`clockedOut`
+   (twice) and `removeImage` (twice). JSON allows this and the last one silently wins, so
+   `removeImage: "Remove Image"` had been dead for a while, overridden by a later
+   `removeImage: "Remove"`. De-duplicated, keeping the effective (last) value — verified
+   behaviour-neutral: 0 keys removed, 0 values changed.
+
+**Also the same two structural traps as the earlier files, again:**
+- Hardcoded English calendar arrays that never touched `t()`: `AdminTables.js`'s `fmtResTime()`
+  (`MONTHS` + a literal `'Today · '`) and `AdminOrders.js`'s `LOAN_MONTH_NAMES`/`LOAN_DAY_HDRS`.
+  Both wired to `datePicker.monthsShort` / `datePicker.days`. The loan calendar's grid already
+  computes `firstDow` Monday-first, matching `datePicker.days`, so no rotation was needed there —
+  checked rather than assumed.
+- Module-level constants holding display labels, evaluated at import time before a language is
+  chosen: `STATUS_META[*].label` and an inline order-status map in `AdminTables.js`. Replaced with
+  `statusLabel()` / `orderStatusLabel()` helpers reading the existing `statuses.*` namespace, and
+  the `label` field removed outright so it can't be re-added by accident.
+
+**Section names (Indoor/Outdoor/Terrace) — decision recorded.** These are stored data (renameable;
+restaurants already have custom ones like "Karvat"/"VIP"). Owner chose to translate the three
+seeded defaults on display only, keeping the raw name as the stored value — same display/stored
+split as `AdminStaff.js`'s kitchen-station presets. Implemented as `sectionLabel(sec, t)`. The
+Manage Sections sheet deliberately shows the RAW name, since that sheet edits the stored value and
+a translated label there would differ from what the edit input reveals.
+
+**Emoji removed per RULES.md rule 1** (owner confirmed this session): `AdminTables.js`'s
+person/notes/timer emoji became MaterialIcons, and the `🇺🇿` flag in the `+998` phone-field badge
+was replaced with a `phone` icon in all four places it appeared — `AdminTables.js`,
+`AdminOrders.js` (×2) and `AdminStaff.js` — so the phone fields stay identical across the panel.
+That one-line touch is the only change to the already-finished `AdminStaff.js`.
+
+**i18n keys added:** 26 under `admin.tables.*` (incl. a `sectionPresets` sub-object) plus
+`statuses.confirmed`, and 38 under `admin.orders.*` — 69 leaves per language file. Existing keys
+were reused wherever they existed (`common.*`, `statuses.*`, `paymentMethods.*`, `adminExtra.*`,
+`placeholders.*`, `datePicker.*`); the dead-but-already-written `orderPayMethodLabel()` helper in
+`AdminOrders.js` was extended to cover the DB shapes (`qr_code`, `bank_transfer`) and actually
+wired up at its five call sites.
+
+**Verification run:** both files parse with `@babel/parser` (jsx); every literal `t()` key resolves
+in BOTH language files (112 in Tables, 139 in Orders, 0 unresolved); every `{param}` placeholder in
+a translated string is supplied at its call site (0 mismatches); the four array-backed lists
+(`deleteReasons`/`cancelReasons`/`discReasons`/`discountTypes`) match their JS constants in length
+in both languages; `statusShort` covers every entry in `STEPS`; EN/UZ key parity is exact (0
+missing, 0 extra); an AST scan confirms every remaining binding named `t` is either the deliberate
+helper parameter or a callback with no `t()` call in its body; and no emoji remain in either file.
+
+## 2026-08-19 (device test) — crash on Staff fixed; translation gaps closed; a dead broken file found
+
+First real device test of the translation work. It found a crash and a set of misses — logged here
+because the *pattern* of what static checks caught vs. missed is the reusable part.
+
+**CRASH — `AdminStaff.js` `AttHistoryModal`, "Property 't' doesn't exist".** The component called
+`t('admin.staff.noAttendanceRecords')` but never called `useTranslation()`. Left behind by the
+earlier AdminStaff pass; nothing caught it because the component only mounts when you open a staff
+member's attendance history. Fixed by adding the hook (placed BEFORE the `if (!member) return
+null` early return — hooks must not sit after a conditional return).
+
+**A proper scope check now exists** (`@babel/traverse`, `path.scope.hasBinding('t')` on every
+`t()` CallExpression). Run across the WHOLE `src` tree it found exactly ONE unbound call — this
+one. Worth noting a naive regex version of the same check reported 14 hits, all false positives
+(nested components with their own hook); the AST version is the one to trust, and it now reports
+0 across every file.
+
+**`StockEntryForm.js` does not parse** — `</Modal>` and `<ConfirmDialog />` are adjacent JSX
+siblings with no wrapper (line 98). It is imported nowhere, so Metro never bundles it and the app
+runs fine. Left alone deliberately: fixing dead code invites the question of whether it should be
+wired up at all. **Do not import it without fixing the syntax error first.**
+
+**Translation gaps the owner found on the device**, all in files previously marked done:
+- `WarehouseScreen.js` Output tab: "Choose Period", the type filter pills (All / Consumption /
+  Waste / Adjust / Shrinkage), the Used / Waste / Adjust / Shrink stat tiles, "Select dates".
+- `WarehouseScreen.js` Deliveries tab: "+ Record Delivery" (the `warehouse.recordDelivery` key
+  already existed and simply was not used), "No suppliers yet. Add one in the Suppliers tab."
+- `WarehouseScreen.js` Add/Edit item sheet: the category chips and unit chips. **`PickerRow`
+  already supported a `labels` prop and `invCategoryLabel()` already existed** — the mechanism was
+  built by the earlier pass and never wired at the call sites. Also "No supplier", "Available:",
+  "Current Stock:", and every raw `{item.unit}` render across the file.
+- `AdminMenu.js`: the kitchen-station quick-pick cards (Salad/Grill/Bar/Pastry/Cold/Hot + their
+  "… station only" subtitles), the unit pills, the ingredient chips' unit, and the "Enter in
+  {unit}" warning.
+
+**Units are now translated the same way sections and stations are** — a `UNIT_I18N` map plus
+`unitLabel(u, t)` in both `WarehouseScreen.js` and `AdminMenu.js`, backed by a NEW top-level
+`units` namespace (14 entries) so both screens share one source. The raw value is still what is
+stored on `item.unit` / `line.unit` and sent to the API. Station labels in `AdminMenu.js` REUSE
+`admin.staff.station*`, which `AdminStaff.js` already defined, rather than duplicating them.
+
+**Two more bugs the verification caught, not the eye:**
+1. `t(key, null, params)` **silently drops the params.** The signature is
+   `t(key, fallbackOrParams, maybeParams)` and it only reads `maybeParams` when the second argument
+   is a STRING — passing `null` as a placeholder for "no fallback" means params are never applied
+   and `{unit}` renders literally. Always pass params as the SECOND argument: `t(key, { unit })`.
+   Caught in a line this session wrote, before it shipped.
+2. **Six `datePicker.*` keys were referenced but existed in NEITHER language file** —
+   `selectDate`, `from`, `to`, `tapStart`, `tapEnd`, `quickSelect`. Four had English fallbacks so
+   they merely stayed English, but `datePicker.selectDate` and `datePicker.quickSelect` had NO
+   fallback, meaning the date-picker modal was showing users the literal string
+   "datePicker.selectDate". Added to both files.
+
+**Verification now runs over the whole `src` tree, not just the file being edited** — parse, key
+resolution in BOTH languages, placeholder-param supply, EN/UZ parity, array-length parity, and the
+AST scope scan. Result: every file parses (except the dead `StockEntryForm.js`), 0 unresolved keys
+anywhere, 0 param mismatches, 2170 keys with exact EN/UZ parity, 0 unbound `t()` calls.
+
+## 2026-08-19 (device test 2) — Staff screen translations; the "helper already exists" trap, twice
+
+Second round of owner device screenshots, all on the Staff screen (`AdminStaff.js`). Fixed:
+
+- **Add-staff form:** the role chips (Waitress/Kitchen/Cashier/Cleaner), the salary-type chips
+  (Hourly/Daily/Weekly/Monthly), the `Rate (so'm) · Monthly` field label and its placeholder.
+- **Staff list:** the `New_cashier` role badge and the `/Daily` rate suffix.
+- **Attendance editor:** the status chips (Present/Late/Absent/Excused), "Note (optional)" and its
+  placeholder, and the Create/Update Record button.
+- **Payroll tab:** "net pay"; also the payment-method chips and "No new payments for this period."
+- **Three `← Back` buttons** became a MaterialIcons `arrow-back` plus `adminExtra.backLabel`
+  (RULES.md rule 1), and "QUICK PICK:" / the station-name placeholder were translated.
+
+**Why `New_cashier` leaked raw:** `roleLabel()` existed and was wired, but its map only listed the
+four roles the ADD FORM offers. `normalizeUser()` capitalises whatever the API returns
+(`new_cashier` → `New_cashier`), and any role outside the map falls through to the raw value. Map
+extended to cover `New_cashier`, `New_waiter`, `Manager` and `Super_admin`; new `roles.new_cashier`
+/ `roles.new_waiter` keys added. **A value-to-label map must cover every value the API can produce,
+not just the ones the local form offers** — the fall-through is silent by design.
+
+**The "helper already exists" trap, hit twice in one edit.** `salaryTypeLabel()` and
+`payMethodLabel()` were ALREADY defined in this file by the earlier pass and never called at the
+sites that needed them. Writing new ones produced `SyntaxError: Identifier 'salaryTypeLabel' has
+already been declared` — duplicate `function` declarations in the same scope are a hard error in
+ESM strict mode, so this at least failed loudly. Removed both duplicates and extended the original
+`payMethodLabel()` to accept the lowercase DB ids (`bank_transfer`) alongside the title-case
+`PAY_METHODS` values it already handled. Same root cause as `PickerRow`'s unused `labels` prop and
+`invCategoryLabel()` in WarehouseScreen, and `orderPayMethodLabel()` in AdminOrders: **the earlier
+passes kept building mechanisms and not wiring them.** Grep for CALL SITES before writing a helper.
+
+**`ChipRow` gained a `labels` prop** mirroring `PickerRow`'s, so role/salary chips show translated
+text while `options` stay the raw stored values compared against `form.role` / `form.salaryType`.
+
+**A second missing-hook crash was avoided by the scope checker, not by review.** Translating the
+three `← Back` buttons put a `t()` call inside `FullModal`, which had no `useTranslation()` — the
+AST scan caught it immediately after the edit. Same class as `AttHistoryModal`. **Run the scope
+check after every edit that adds a `t()` call to a component you did not personally verify has the
+hook.**
+
+Whole-tree state after this round: every file parses (bar the dead `StockEntryForm.js`), 0
+unresolved keys, 0 placeholder-param mismatches, 2181 keys at exact EN/UZ parity, 0 unbound `t()`.
+
+## 2026-08-19 (device test 3) — the washed-out search bar was 138 undefined colour references
+
+Owner reported the Staff search bar looking washed out, plus remaining English on the Davomat tab.
+The colour report turned out to be the tip of a much larger problem.
+
+**ROOT CAUSE — `AdminStaff.js`'s local `C` palette was missing five names the file uses 138 times.**
+`C` defined `neutralDark` / `neutralMid` / `neutralLight` / `card` / `bg`, but the code throughout
+the file reads `C.textDark` (44), `C.textMuted` (66), `C.white` (12), `C.textMid` (11) and
+`C.cardBg` (5) — **every one of those evaluated to `undefined`**, so React Native silently fell back
+to its defaults. The search bar was just the most visible symptom: `color: C.textDark` and
+`placeholderTextColor={C.textMuted}` both undefined, hence unreadable grey-on-grey. Meanwhile eight
+of the names that WERE defined (`card`, `neutralDark`, `primaryLight`, …) had zero usages — the
+author clearly renamed the palette and never updated the reads. Fixed by adding the five missing
+names, taking `white` / `textDark` / `textMuted` straight from `src/utils/theme.js` so this screen
+matches the rest of the app, and picking `textMid` (#4B5563) / `cardBg` (#F1F5F9) from the same
+grey family as the values already in the object.
+
+**The same class of bug in `WarehouseScreen.js`: `C.admin` (3 usages) was never defined either.**
+Two calendar icons rendered with no colour, and — worse — the selected day in the date-range
+calendar used `backgroundColor: isSel ? C.admin : 'transparent'`, so the selected date had NO
+highlight at all. Repointed to `C.primary`, which is the same `#2563EB` that `theme.js` gives
+`colors.admin`.
+
+**A generic checker for this now exists** (`@babel/parser`: collect every module-level
+`const X = { plain literal }`, then flag every `X.prop` read whose key is not in the literal). Run
+across the whole `src` tree it found exactly these two — 141 broken reads total — and now reports
+0. **This is worth re-running after any palette or config-object rename**; it is silent at runtime,
+invisible to lint, and only shows up as "that looks a bit off" on a device.
+
+**Translations fixed on the Davomat tab:** the live stats strip (Present / Absent / Late / Not In)
+and the date header, which held yet another pair of hardcoded English `dayNames` / `monthNames`
+arrays — the fifth calendar-array instance in this project. Wired to `datePicker.days` /
+`datePicker.monthsShort`, rotating the index because `datePicker.days` is Monday-first while
+`Date.getDay()` is Sunday-first.
+
+State: every file parses (bar the dead `StockEntryForm.js`), 0 unresolved keys, 0 param mismatches,
+2182 keys at exact EN/UZ parity, 0 unbound `t()`, 0 undefined object-literal member reads.
+
+## 2026-08-19 (device test 4) — Android back button + swipe-to-dismiss on every bottom sheet
+
+Owner reported that half-window sheets close with neither the system back button nor a swipe,
+everywhere, in every role. Two separate causes.
+
+**BACK BUTTON — 11 `<Modal>`s had no `onRequestClose`.** On Android that prop is the ONLY hook for
+the hardware back button; without it the modal simply ignores it. 64 of the app's 75 modals already
+had it, which is why this looked inconsistent rather than universal — but the 11 that lacked it
+were precisely the shared `Sheet` components (`AdminMenu`, `AdminTables`, `WarehouseScreen`),
+`ConfirmDialog`, `PaymentSheet`, `OrderDetailSheet`, both AdminInventory sheets, two date pickers
+and `WaitressActiveOrders`' detail modal. Those back nearly every half-window the owner actually
+opens, so from the outside it looked like nothing worked. All 75 now have it; verified by an AST
+pass over the tree.
+
+**SWIPE — it was never built.** No `PanResponder`, no `react-native-gesture-handler` (not even a
+dependency), no `BackHandler` anywhere. The only PanResponder in the codebase is AdminOrders'
+horizontal swipe-for-actions on order cards. So this was a missing feature, not a regression.
+
+Added `src/components/useSheetSwipe.js` — a hook returning `{ panHandlers, style, reset }`:
+- `onMoveShouldSetPanResponder` claims the gesture only on a deliberate DOWNWARD drag
+  (`dy > 5 && |dy| > |dx| * 1.5`), so taps and horizontal gestures still work.
+- Drag follows the finger downward only; release past 80px or a 0.55 flick animates out and calls
+  onClose, otherwise it springs back.
+- The translate is reset to 0 BEFORE onClose fires, so a Modal that stays mounted
+  (`visible={false}`) reopens at rest instead of off-screen.
+
+**Owner chose (asked before doing it): drag from the TOP BAR only, all sheets in one pass.** Every
+sheet here has a ScrollView body, and a responder on the container would fight it for the gesture;
+restricting the drag zone to the handle+title row is the standard Android behaviour and cannot
+regress scrolling. The handlers are therefore attached to a `<View {...swipe.panHandlers}>` wrapping
+the handle and header, never the content.
+
+Wired into **31 bottom sheets across 16 files.** Most were done by an AST codemod
+(`/tmp/chk/addswipe.js`, ~22 sheets) that locates a View whose FIRST child is a drag handle inside
+a Modal, converts the container to `Animated.View`, appends `swipe.style`, wraps the top bar, and
+takes the dismiss action from the enclosing Modal's own `onRequestClose` expression so each sheet
+closes correctly. Six needed hand-work:
+- `CategoryPicker` — container is a `SafeAreaView` (needs the bottom inset), so
+  `Animated.createAnimatedComponent(SafeAreaView)`.
+- `StaffAttendanceScreen` ×4 — containers are `Pressable`s that exist to swallow taps so the
+  backdrop's onPress doesn't fire through; converting them to a plain Animated.View would have
+  broken that, so `Animated.createAnimatedComponent(Pressable)`.
+- `CashierWalkin` — `TablePickerSheet` is an arrow component declared INSIDE its parent, so it is
+  re-created every render; a hook inside it would remount and reset the animation on each render.
+  The hook is declared in the PARENT component instead and referenced from the inline sheet.
+
+**Two bugs in my own codemod, worth remembering.** (1) A bare `return` inside the per-file loop —
+legal at CommonJS module top level — silently terminated the ENTIRE script partway through, so
+files after the first skip were never processed and looked "clean". Restructured into a function
+called via `forEach`. (2) The container match was hardcoded to `View`, so `SafeAreaView` and
+`Pressable` sheets were invisible to it. Both only surfaced because the run reported fewer files
+than the earlier survey had found — **always diff a codemod's file count against the survey's.**
+
+Verified: all files parse (bar the dead `StockEntryForm.js`), 0 modals without `onRequestClose`,
+31 hooks with exactly 31 `.style` and 31 `.panHandlers` uses, and an AST coverage pass confirming
+every in-Modal bottom sheet is wired. i18n/scope/palette checks all still clean.
